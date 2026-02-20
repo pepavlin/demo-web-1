@@ -58,47 +58,125 @@ export default function FeedbackWidget() {
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-20 right-5 z-[100] w-80"
+          className="fixed bottom-20 right-5 z-[100] w-84"
           style={{
-            background: "rgba(15, 12, 35, 0.85)",
-            backdropFilter: "blur(40px) saturate(180%)",
-            WebkitBackdropFilter: "blur(40px) saturate(180%)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: "1.5rem",
+            width: "340px",
+            background: "rgba(10, 8, 28, 0.92)",
+            backdropFilter: "blur(48px) saturate(200%)",
+            WebkitBackdropFilter: "blur(48px) saturate(200%)",
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: "1.75rem",
             boxShadow:
-              "0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)",
+              "0 16px 48px rgba(0,0,0,0.6), 0 4px 16px rgba(100,80,255,0.15), inset 0 1px 0 rgba(255,255,255,0.14)",
           }}
         >
           {/* Header */}
           <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+            className="flex items-center justify-between"
+            style={{
+              padding: "1.1rem 1.4rem 1rem",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+            }}
           >
-            <span className="text-sm font-medium text-white/80">
-              Navrhnout vylepšení
-            </span>
+            <div className="flex items-center gap-2.5">
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "8px",
+                  background: "linear-gradient(135deg, rgba(120,80,255,0.9), rgba(80,160,255,0.9))",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 2px 8px rgba(100,80,255,0.4)",
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M21 15C21 15.5304 20.7893 16.0391 20.4142 16.4142C20.0391 16.7893 19.5304 17 19 17H7L3 21V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V15Z"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white/90" style={{ lineHeight: 1.2 }}>
+                  Navrhnout vylepšení
+                </p>
+                <p className="text-white/35" style={{ fontSize: "0.68rem", marginTop: "1px" }}>
+                  Tvůj nápad jde přímo k implementaci
+                </p>
+              </div>
+            </div>
             <button
               onClick={() => setOpen(false)}
               aria-label="Zavřít"
-              className="text-white/40 hover:text-white/80 transition-colors text-lg leading-none"
+              className="flex items-center justify-center transition-colors"
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.07)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.45)",
+                fontSize: "16px",
+                lineHeight: 1,
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.85)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.45)")}
             >
               ×
             </button>
           </div>
 
           {/* Body */}
-          <div className="p-4">
+          <div style={{ padding: "1.25rem 1.4rem 1.4rem" }}>
             {status === "sent" ? (
-              <div className="text-center py-4">
-                <div className="text-2xl mb-2">✓</div>
-                <p className="text-white/80 text-sm font-medium">
-                  Nápad byl odeslán k implementaci
+              <div className="text-center" style={{ padding: "1.25rem 0" }}>
+                <div
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, rgba(80,200,120,0.3), rgba(80,200,120,0.1))",
+                    border: "1px solid rgba(80,200,120,0.4)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 0.75rem",
+                  }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path d="M20 6L9 17L4 12" stroke="rgba(80,220,120,0.9)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <p className="text-white/85 text-sm font-semibold mb-1">
+                  Nápad odeslán!
+                </p>
+                <p className="text-white/40" style={{ fontSize: "0.75rem" }}>
+                  Díky, podíváme se na to.
                 </p>
                 <button
                   onClick={handleReset}
-                  className="mt-4 text-xs text-white/40 hover:text-white/70 transition-colors underline"
+                  className="transition-colors"
+                  style={{
+                    marginTop: "1.1rem",
+                    fontSize: "0.72rem",
+                    color: "rgba(255,255,255,0.35)",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.35)")}
                 >
-                  Odeslat další
+                  Odeslat další nápad
                 </button>
               </div>
             ) : (
@@ -113,41 +191,59 @@ export default function FeedbackWidget() {
                   disabled={status === "sending"}
                   className="w-full resize-none text-sm text-white/90 placeholder-white/30 outline-none"
                   style={{
-                    background: "rgba(255,255,255,0.05)",
+                    background: "rgba(255,255,255,0.06)",
                     border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "0.75rem",
-                    padding: "0.625rem 0.75rem",
+                    borderRadius: "1rem",
+                    padding: "0.875rem 1rem",
                     fontFamily: "inherit",
+                    lineHeight: 1.6,
+                    transition: "border-color 0.2s",
                   }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(120,80,255,0.5)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
                 />
                 {status === "error" && (
-                  <p className="mt-1 text-xs text-red-400">
+                  <p style={{ marginTop: "0.5rem", fontSize: "0.72rem", color: "rgba(255,100,100,0.9)" }}>
                     Chyba při odesílání, zkus to znovu.
                   </p>
                 )}
                 <button
                   onClick={handleSubmit}
                   disabled={!message.trim() || status === "sending"}
-                  className="mt-3 w-full py-2 rounded-xl text-sm font-medium transition-all"
+                  className="w-full font-medium transition-all"
                   style={{
+                    marginTop: "0.875rem",
+                    padding: "0.7rem 1rem",
+                    borderRadius: "0.875rem",
+                    fontSize: "0.85rem",
                     background:
                       message.trim() && status !== "sending"
-                        ? "linear-gradient(135deg, rgba(120,80,255,0.8), rgba(80,160,255,0.8))"
-                        : "rgba(255,255,255,0.08)",
+                        ? "linear-gradient(135deg, rgba(120,80,255,0.85), rgba(80,160,255,0.85))"
+                        : "rgba(255,255,255,0.07)",
                     color:
                       message.trim() && status !== "sending"
                         ? "white"
-                        : "rgba(255,255,255,0.3)",
+                        : "rgba(255,255,255,0.25)",
                     cursor:
                       message.trim() && status !== "sending"
                         ? "pointer"
                         : "default",
-                    border: "1px solid rgba(255,255,255,0.1)",
+                    border:
+                      message.trim() && status !== "sending"
+                        ? "1px solid rgba(120,80,255,0.4)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                    boxShadow:
+                      message.trim() && status !== "sending"
+                        ? "0 4px 16px rgba(100,80,255,0.3)"
+                        : "none",
                   }}
                 >
                   {status === "sending" ? "Odesílám…" : "Odeslat nápad"}
                 </button>
-                <p className="mt-2 text-center text-xs text-white/25">
+                <p
+                  className="text-center text-white/25"
+                  style={{ marginTop: "0.75rem", fontSize: "0.68rem" }}
+                >
                   Enter pro odeslání · Shift+Enter pro nový řádek
                 </p>
               </>
