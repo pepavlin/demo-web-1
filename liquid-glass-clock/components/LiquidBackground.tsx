@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import GeometricParticles from "./GeometricParticles";
 
 interface RisingParticle {
   id: number;
@@ -456,6 +457,9 @@ export default function LiquidBackground() {
           backgroundSize: "60px 60px",
         }}
       />
+
+      {/* Geometric particle network */}
+      <GeometricParticles />
 
       {/* Noise texture */}
       <div className="noise-overlay" />
