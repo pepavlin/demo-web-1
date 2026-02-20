@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import SlimeJumper from "./SlimeJumper";
 
 interface TimeState {
   hours: string;
@@ -130,6 +131,7 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 
 export default function Clock() {
   const [time, setTime] = useState<TimeState | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setTime(getTime());
@@ -170,37 +172,41 @@ export default function Clock() {
       </motion.div>
 
       {/* Main clock container */}
-      <motion.div
-        className="liquid-glass p-6 md:p-10"
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 1, ease: [0.23, 1, 0.32, 1], delay: 0.1 }}
-      >
-        {/* Time display */}
-        <div className="flex items-end gap-2 md:gap-4">
-          <AnimatedDigit value={time.hours} label="hod" />
-          <Colon />
-          <AnimatedDigit value={time.minutes} label="min" />
-          <Colon />
-          <AnimatedDigit value={time.seconds} label="sek" />
-        </div>
+      <div style={{ position: "relative" }}>
+        <motion.div
+          ref={panelRef}
+          className="liquid-glass p-6 md:p-10"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 1, ease: [0.23, 1, 0.32, 1], delay: 0.1 }}
+        >
+          {/* Time display */}
+          <div className="flex items-end gap-2 md:gap-4">
+            <AnimatedDigit value={time.hours} label="hod" />
+            <Colon />
+            <AnimatedDigit value={time.minutes} label="min" />
+            <Colon />
+            <AnimatedDigit value={time.seconds} label="sek" />
+          </div>
 
-        {/* Progress bars */}
-        <div className="mt-6 flex flex-col gap-2 px-1">
-          <div className="flex items-center gap-3">
-            <span className="text-white/30 text-xs uppercase tracking-widest w-8">H</span>
-            <ProgressBar value={parseInt(time.hours)} max={23} />
+          {/* Progress bars */}
+          <div className="mt-6 flex flex-col gap-2 px-1">
+            <div className="flex items-center gap-3">
+              <span className="text-white/30 text-xs uppercase tracking-widest w-8">H</span>
+              <ProgressBar value={parseInt(time.hours)} max={23} />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-white/30 text-xs uppercase tracking-widest w-8">M</span>
+              <ProgressBar value={parseInt(time.minutes)} max={59} />
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-white/30 text-xs uppercase tracking-widest w-8">S</span>
+              <ProgressBar value={parseInt(time.seconds)} max={59} />
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-white/30 text-xs uppercase tracking-widest w-8">M</span>
-            <ProgressBar value={parseInt(time.minutes)} max={59} />
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-white/30 text-xs uppercase tracking-widest w-8">S</span>
-            <ProgressBar value={parseInt(time.seconds)} max={59} />
-          </div>
-        </div>
-      </motion.div>
+        </motion.div>
+        <SlimeJumper panelRef={panelRef} second={parseInt(time.seconds)} />
+      </div>
 
       {/* Date */}
       <motion.div
