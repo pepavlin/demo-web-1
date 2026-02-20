@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from "react";
-import { render } from "@testing-library/react";
+import { render, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 jest.mock("framer-motion", () => ({
@@ -20,15 +20,45 @@ describe("LiquidBackground component", () => {
     expect(container.firstChild).toBeInTheDocument();
   });
 
-  it("renders particles", () => {
+  it("renders rising particles after mount", () => {
     const { container } = render(<LiquidBackground />);
     const particles = container.querySelectorAll(".particle");
     expect(particles.length).toBeGreaterThan(0);
   });
 
-  it("renders the grid overlay", () => {
+  it("renders twinkling stars after mount", () => {
     const { container } = render(<LiquidBackground />);
-    // Fixed container should exist
+    const stars = container.querySelectorAll(".particle-twinkle");
+    expect(stars.length).toBeGreaterThan(0);
+  });
+
+  it("renders shooting stars after mount", () => {
+    const { container } = render(<LiquidBackground />);
+    const shoots = container.querySelectorAll(".particle-shoot");
+    expect(shoots.length).toBeGreaterThan(0);
+  });
+
+  it("renders pulse orbs after mount", () => {
+    const { container } = render(<LiquidBackground />);
+    const orbs = container.querySelectorAll(".particle-orb");
+    expect(orbs.length).toBeGreaterThan(0);
+  });
+
+  it("renders energy sparks after mount", () => {
+    const { container } = render(<LiquidBackground />);
+    const sparks = container.querySelectorAll(".particle-spark");
+    expect(sparks.length).toBeGreaterThan(0);
+  });
+
+  it("renders the fixed container with overflow hidden", () => {
+    const { container } = render(<LiquidBackground />);
     expect(container.firstChild).toHaveClass("fixed");
+    expect(container.firstChild).toHaveClass("overflow-hidden");
+  });
+
+  it("renders the noise overlay", () => {
+    const { container } = render(<LiquidBackground />);
+    const noiseOverlay = container.querySelector(".noise-overlay");
+    expect(noiseOverlay).toBeInTheDocument();
   });
 });
