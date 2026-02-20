@@ -106,4 +106,27 @@ describe("Sheep component", () => {
     act(() => { jest.advanceTimersByTime(8001); }); // trigger bleat
     expect(() => unmount()).not.toThrow();
   });
+
+  it("registers mouse event listeners after mount", () => {
+    const addSpy = jest.spyOn(window, "addEventListener");
+    render(<Sheep />);
+    flushMount();
+    const events = addSpy.mock.calls.map((c) => c[0]);
+    expect(events).toContain("mousemove");
+    expect(events).toContain("mousedown");
+    expect(events).toContain("mouseup");
+    addSpy.mockRestore();
+  });
+
+  it("removes mouse event listeners on unmount", () => {
+    const removeSpy = jest.spyOn(window, "removeEventListener");
+    const { unmount } = render(<Sheep />);
+    flushMount();
+    unmount();
+    const events = removeSpy.mock.calls.map((c) => c[0]);
+    expect(events).toContain("mousemove");
+    expect(events).toContain("mousedown");
+    expect(events).toContain("mouseup");
+    removeSpy.mockRestore();
+  });
 });

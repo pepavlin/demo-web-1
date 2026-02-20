@@ -25,6 +25,11 @@ const PARTICLE_COUNT = 60;
 const CONNECTION_DISTANCE = 150;
 const MAX_LINE_OPACITY = 0.55;
 const SPEED = 0.4;
+const MAX_SPEED = 4;
+// Mouse influence
+const MOUSE_RADIUS = 180;
+const REPEL_FORCE = 0.18;
+const ATTRACT_FORCE = 0.09;
 
 function createParticle(w: number, h: number): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
@@ -51,6 +56,8 @@ export default function GeometricParticles() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Particle[]>([]);
   const rafRef = useRef<number>(0);
+  const mouseRef = useRef<{ x: number; y: number } | null>(null);
+  const isClickingRef = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -70,15 +77,75 @@ export default function GeometricParticles() {
       createParticle(canvas.width, canvas.height)
     );
 
+    const onMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseLeave = () => {
+      mouseRef.current = null;
+    };
+    const onMouseDown = () => {
+      isClickingRef.current = true;
+    };
+    const onMouseUp = () => {
+      isClickingRef.current = false;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseleave", onMouseLeave);
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+
     const draw = () => {
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
 
       const particles = particlesRef.current;
+      const mouse = mouseRef.current;
+      const clicking = isClickingRef.current;
 
       // Update positions
       for (const p of particles) {
+        // Apply mouse force
+        if (mouse) {
+          const dx = p.x - mouse.x;
+          const dy = p.y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < MOUSE_RADIUS && dist > 0) {
+            const strength = (1 - dist / MOUSE_RADIUS);
+            if (clicking) {
+              // Attract: pull towards mouse
+              p.vx -= (dx / dist) * ATTRACT_FORCE * strength;
+              p.vy -= (dy / dist) * ATTRACT_FORCE * strength;
+            } else {
+              // Repel: push away from mouse
+              p.vx += (dx / dist) * REPEL_FORCE * strength;
+              p.vy += (dy / dist) * REPEL_FORCE * strength;
+            }
+          }
+        }
+
+        // Clamp speed
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > MAX_SPEED) {
+          p.vx = (p.vx / speed) * MAX_SPEED;
+          p.vy = (p.vy / speed) * MAX_SPEED;
+        }
+
+        // Gradually return to natural speed when no mouse influence
+        if (!mouse || (() => {
+          const dx = p.x - mouse.x;
+          const dy = p.y - mouse.y;
+          return Math.sqrt(dx * dx + dy * dy) >= MOUSE_RADIUS;
+        })()) {
+          const naturalSpeed = SPEED * 0.9;
+          if (speed > naturalSpeed) {
+            p.vx *= 0.99;
+            p.vy *= 0.99;
+          }
+        }
+
         p.x += p.vx;
         p.y += p.vy;
 
@@ -146,6 +213,22 @@ export default function GeometricParticles() {
         ctx.fill();
       }
 
+      // Draw mouse influence ring (visual feedback)
+      if (mouse) {
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, MOUSE_RADIUS, 0, Math.PI * 2);
+        if (clicking) {
+          ctx.strokeStyle = "rgba(0, 200, 255, 0.15)";
+          ctx.fillStyle = "rgba(0, 200, 255, 0.04)";
+        } else {
+          ctx.strokeStyle = "rgba(168, 85, 247, 0.15)";
+          ctx.fillStyle = "rgba(168, 85, 247, 0.03)";
+        }
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fill();
+      }
+
       rafRef.current = requestAnimationFrame(draw);
     };
 
@@ -154,6 +237,10 @@ export default function GeometricParticles() {
     return () => {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseleave", onMouseLeave);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
 

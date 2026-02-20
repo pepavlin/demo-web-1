@@ -6,6 +6,9 @@ import { motion, AnimatePresence, useMotionValue } from "framer-motion";
 const SHEEP_W = 130;
 const SHEEP_H = 88;
 const SPEED = 55; // pixels per second
+const FLEE_SPEED = 180; // pixels per second when scared
+const ATTRACT_SPEED = 130; // pixels per second when attracted
+const MOUSE_REACT_RADIUS = 200; // px distance to trigger reaction
 
 // ── Sheep SVG — cute side-view sheep facing right ───────────────────────────
 function SheepSVG() {
@@ -120,11 +123,43 @@ export default function SheepWalker() {
   const lastTsRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
   const beeeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mouseRef = useRef<{ x: number; y: number } | null>(null);
+  const isClickingRef = useRef(false);
 
   // Hydration guard
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Track mouse globally
+  useEffect(() => {
+    if (!mounted) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseLeave = () => {
+      mouseRef.current = null;
+    };
+    const onMouseDown = () => {
+      isClickingRef.current = true;
+    };
+    const onMouseUp = () => {
+      isClickingRef.current = false;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseleave", onMouseLeave);
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseleave", onMouseLeave);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [mounted]);
 
   // ── Walking animation loop via requestAnimationFrame ──────────────────────
   useEffect(() => {
@@ -137,7 +172,42 @@ export default function SheepWalker() {
 
       const cur = x.get();
       const vw = window.innerWidth;
-      let next = cur + SPEED * dirRef.current * dt;
+
+      // Sheep center position
+      const sheepCenterX = cur + SHEEP_W / 2;
+      const sheepCenterY = window.innerHeight - SHEEP_H / 2;
+
+      const mouse = mouseRef.current;
+      const clicking = isClickingRef.current;
+
+      let currentSpeed = SPEED;
+      let newDir = dirRef.current;
+
+      if (mouse) {
+        const dx = sheepCenterX - mouse.x;
+        const dy = sheepCenterY - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < MOUSE_REACT_RADIUS) {
+          if (clicking) {
+            // Attract: walk towards mouse x
+            currentSpeed = ATTRACT_SPEED;
+            newDir = mouse.x > sheepCenterX ? 1 : -1;
+          } else {
+            // Flee: walk away from mouse
+            currentSpeed = FLEE_SPEED;
+            newDir = dx > 0 ? 1 : -1;
+          }
+        }
+      }
+
+      // Apply direction change
+      if (newDir !== dirRef.current) {
+        dirRef.current = newDir;
+        setFacingRight(newDir === 1);
+      }
+
+      let next = cur + currentSpeed * dirRef.current * dt;
 
       if (dirRef.current === 1 && next > vw + SHEEP_W) {
         dirRef.current = -1;
