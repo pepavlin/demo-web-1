@@ -202,18 +202,59 @@ export default function Clock() {
           </div>
 
           {/* Progress bars */}
-          <div className="mt-8 flex flex-col gap-3 px-4">
-            <div className="flex items-center gap-3">
-              <span className="text-white/30 text-xs uppercase tracking-widest w-8">H</span>
+          <div
+            className="mt-8 flex flex-col gap-4"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "1rem",
+              padding: "1rem 1.25rem",
+            }}
+          >
+            <div className="flex items-center gap-4">
+              <span
+                className="text-white/50 uppercase tracking-widest font-semibold w-6 text-center"
+                style={{ fontSize: "0.65rem", letterSpacing: "0.2em" }}
+              >
+                H
+              </span>
               <ProgressBar value={parseInt(time.hours)} max={23} />
+              <span
+                className="text-white/30 tabular-nums text-right"
+                style={{ fontSize: "0.65rem", minWidth: "1.8rem" }}
+              >
+                {time.hours}
+              </span>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-white/30 text-xs uppercase tracking-widest w-8">M</span>
+            <div className="flex items-center gap-4">
+              <span
+                className="text-white/50 uppercase tracking-widest font-semibold w-6 text-center"
+                style={{ fontSize: "0.65rem", letterSpacing: "0.2em" }}
+              >
+                M
+              </span>
               <ProgressBar value={parseInt(time.minutes)} max={59} />
+              <span
+                className="text-white/30 tabular-nums text-right"
+                style={{ fontSize: "0.65rem", minWidth: "1.8rem" }}
+              >
+                {time.minutes}
+              </span>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-white/30 text-xs uppercase tracking-widest w-8">S</span>
+            <div className="flex items-center gap-4">
+              <span
+                className="text-white/50 uppercase tracking-widest font-semibold w-6 text-center"
+                style={{ fontSize: "0.65rem", letterSpacing: "0.2em" }}
+              >
+                S
+              </span>
               <ProgressBar value={parseInt(time.seconds)} max={59} />
+              <span
+                className="text-white/30 tabular-nums text-right"
+                style={{ fontSize: "0.65rem", minWidth: "1.8rem" }}
+              >
+                {time.seconds}
+              </span>
             </div>
           </div>
         </motion.div>
