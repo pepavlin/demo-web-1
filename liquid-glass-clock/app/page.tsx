@@ -1,5 +1,6 @@
 import LiquidBackground from "@/components/LiquidBackground";
 import Clock from "@/components/Clock";
+import FeedbackWidget from "@/components/FeedbackWidget";
 
 export default function Home() {
   return (
@@ -8,6 +9,7 @@ export default function Home() {
       <div className="relative z-10">
         <Clock />
       </div>
+      <FeedbackWidget />
     </main>
   );
 }
