@@ -159,6 +159,32 @@ body {
   animation: colon-pulse 1s step-end infinite;
 }
 
+/* ── Slime body organic morphing ───────────────────────────────────────────── */
+@keyframes slime-morph {
+  0%   { border-radius: 37% 63% 52% 48% / 42% 55% 45% 58%; }
+  10%  { border-radius: 62% 38% 44% 56% / 55% 38% 62% 45%; }
+  20%  { border-radius: 48% 52% 68% 32% / 35% 68% 32% 65%; }
+  30%  { border-radius: 56% 44% 36% 64% / 60% 40% 58% 42%; }
+  40%  { border-radius: 32% 68% 54% 46% / 64% 36% 56% 44%; }
+  50%  { border-radius: 65% 35% 47% 53% / 42% 62% 38% 58%; }
+  60%  { border-radius: 40% 60% 62% 38% / 58% 46% 42% 54%; }
+  70%  { border-radius: 53% 47% 33% 67% / 36% 58% 64% 42%; }
+  80%  { border-radius: 44% 56% 58% 42% / 52% 38% 60% 48%; }
+  90%  { border-radius: 58% 42% 46% 54% / 47% 57% 43% 53%; }
+  100% { border-radius: 37% 63% 52% 48% / 42% 55% 45% 58%; }
+}
+
+.slime-morph {
+  animation: slime-morph 4s ease-in-out infinite;
+}
+
+/* Drip sway — gentle pulse for body drips */
+@keyframes slime-drip-pulse {
+  0%   { transform: translateX(-50%) scaleY(0.85) scaleX(1.08); opacity: 0.72; }
+  50%  { transform: translateX(-50%) scaleY(1.18) scaleX(0.88); opacity: 0.95; }
+  100% { transform: translateX(-50%) scaleY(0.85) scaleX(1.08); opacity: 0.72; }
+}
+
 /* Noise overlay */
 .noise-overlay {
   position: fixed;
