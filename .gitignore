@@ -2,5 +2,8 @@
 liquid-glass-clock/.next/
 liquid-glass-clock/node_modules/
 
+# Environment variables
+.env
+
 # Temp docs
 /tmp/
