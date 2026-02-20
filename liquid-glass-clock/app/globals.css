@@ -247,7 +247,7 @@ body {
   100% { transform: translateX(-50%) scaleY(0.85) scaleX(1.08); opacity: 0.72; }
 }
 
-/* ── Sheep animations ──────────────────────────────────────────────────────── */
+/* ── Sheep running animations ──────────────────────────────────────────────── */
 @keyframes sheep-leg-a {
   0%, 100% { transform: rotate(-20deg); }
   50%       { transform: rotate(20deg);  }
@@ -279,6 +279,49 @@ body {
 
 .sheep-running-bounce {
   animation: sheep-bounce 0.38s ease-in-out infinite;
+}
+
+/* ── Sheep walking animation ────────────────────────────────────────────── */
+
+/* Leg swing — phase A (forward) and phase B (backward) */
+@keyframes sheep-walk-a {
+  0%, 100% { transform: rotate(20deg); }
+  50%       { transform: rotate(-20deg); }
+}
+
+@keyframes sheep-walk-b {
+  0%, 100% { transform: rotate(-20deg); }
+  50%       { transform: rotate(20deg); }
+}
+
+/* Gentle body bounce — two bobs per full step cycle */
+@keyframes sheep-body-bounce {
+  0%, 100% { transform: translateY(0); }
+  25%, 75% { transform: translateY(-3px); }
+  50%      { transform: translateY(0); }
+}
+
+/* Common leg setup — pivot from top-center of the leg's own bounding box */
+.sheep-leg-b1,
+.sheep-leg-b2,
+.sheep-leg-f1,
+.sheep-leg-f2 {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+
+/* Back legs: b1=A, b2=B (opposite phase) */
+.sheep-leg-b1 { animation: sheep-walk-a 0.55s ease-in-out infinite; }
+.sheep-leg-b2 { animation: sheep-walk-b 0.55s ease-in-out infinite; }
+
+/* Front legs: f1=B, f2=A (diagonally paired with back legs) */
+.sheep-leg-f1 { animation: sheep-walk-b 0.55s ease-in-out infinite; }
+.sheep-leg-f2 { animation: sheep-walk-a 0.55s ease-in-out infinite; }
+
+/* Body bob applied to the wrapper div around the SVG */
+.sheep-body-bob {
+  display: inline-block;
+  animation: sheep-body-bounce 0.275s ease-in-out infinite;
 }
 
 /* Noise overlay */
