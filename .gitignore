@@ -1,0 +1,6 @@
+# Next.js build output
+liquid-glass-clock/.next/
+liquid-glass-clock/node_modules/
+
+# Temp docs
+/tmp/
