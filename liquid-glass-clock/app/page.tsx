@@ -1,6 +1,7 @@
 import LiquidBackground from "@/components/LiquidBackground";
 import Clock from "@/components/Clock";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import Sheep from "@/components/Sheep";
 
 export default function Home() {
   return (
@@ -10,6 +11,7 @@ export default function Home() {
         <Clock />
       </div>
       <FeedbackWidget />
+      <Sheep />
     </main>
   );
 }

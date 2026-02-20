@@ -1,3 +1,13 @@
+# Liquid Glass Clock
+
+A beautiful animated real-time clock with liquid glass aesthetics, a slime jumper, and an animated sheep.
+
+## Features
+
+- **Liquid Glass Clock** — real-time clock with a frosted-glass look
+- **Slime Jumper** — a colourful slime creature that bounces around the clock panel
+- **Animated Sheep** — a fluffy sheep that trots across the bottom of the screen and occasionally stops to display a "Beee!" speech bubble
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

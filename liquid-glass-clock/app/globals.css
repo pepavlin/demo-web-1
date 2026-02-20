@@ -247,6 +247,40 @@ body {
   100% { transform: translateX(-50%) scaleY(0.85) scaleX(1.08); opacity: 0.72; }
 }
 
+/* ── Sheep animations ──────────────────────────────────────────────────────── */
+@keyframes sheep-leg-a {
+  0%, 100% { transform: rotate(-20deg); }
+  50%       { transform: rotate(20deg);  }
+}
+
+@keyframes sheep-leg-b {
+  0%, 100% { transform: rotate(20deg);  }
+  50%       { transform: rotate(-20deg); }
+}
+
+/* Applied to <g> elements wrapping each leg rect */
+.sheep-leg-a {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: sheep-leg-a 0.38s ease-in-out infinite;
+}
+
+.sheep-leg-b {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: sheep-leg-b 0.38s ease-in-out infinite;
+}
+
+/* Subtle vertical bounce while trotting */
+@keyframes sheep-bounce {
+  0%, 100% { transform: translateY(0px);  }
+  50%       { transform: translateY(-5px); }
+}
+
+.sheep-running-bounce {
+  animation: sheep-bounce 0.38s ease-in-out infinite;
+}
+
 /* Noise overlay */
 .noise-overlay {
   position: fixed;
