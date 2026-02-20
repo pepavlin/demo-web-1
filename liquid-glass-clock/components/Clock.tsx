@@ -43,7 +43,7 @@ interface DigitProps {
 function AnimatedDigit({ value, label }: DigitProps) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="digit-glass relative flex items-center justify-center px-6 py-4 md:px-8 md:py-6">
+      <div className="digit-glass relative flex items-center justify-center px-10 py-6 md:px-12 md:py-8">
         <AnimatePresence mode="popLayout">
           <motion.span
             key={value}
@@ -162,10 +162,10 @@ export default function Clock() {
   }
 
   return (
-    <div className="relative flex flex-col items-center justify-center min-h-screen px-4 py-8 gap-8">
+    <div className="relative flex flex-col items-center justify-center min-h-screen px-8 py-12 gap-10">
       {/* Day */}
       <motion.div
-        className="liquid-glass-inner px-8 py-3 text-center"
+        className="liquid-glass-inner px-12 py-5 text-center"
         initial={{ opacity: 0, y: -30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1] }}
@@ -187,7 +187,7 @@ export default function Clock() {
       >
         <motion.div
           ref={panelRef}
-          className="liquid-glass p-6 md:p-10"
+          className="liquid-glass p-10 md:p-16"
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1, ease: [0.23, 1, 0.32, 1], delay: 0.1 }}
@@ -202,7 +202,7 @@ export default function Clock() {
           </div>
 
           {/* Progress bars */}
-          <div className="mt-6 flex flex-col gap-2 px-1">
+          <div className="mt-8 flex flex-col gap-3 px-4">
             <div className="flex items-center gap-3">
               <span className="text-white/30 text-xs uppercase tracking-widest w-8">H</span>
               <ProgressBar value={parseInt(time.hours)} max={23} />
@@ -227,7 +227,7 @@ export default function Clock() {
 
       {/* Date */}
       <motion.div
-        className="liquid-glass-inner px-8 py-3 text-center"
+        className="liquid-glass-inner px-12 py-5 text-center"
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1], delay: 0.2 }}
