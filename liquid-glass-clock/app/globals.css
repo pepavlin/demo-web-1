@@ -127,6 +127,68 @@ body {
   animation: particle-rise var(--duration, 8s) var(--delay, 0s) infinite linear;
 }
 
+/* Twinkling stars — stationary dots that pulse in/out */
+@keyframes particle-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.2); }
+  20%, 80% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.5); }
+}
+
+.particle-twinkle {
+  position: absolute;
+  border-radius: 50%;
+  animation: particle-twinkle var(--duration, 3s) var(--delay, 0s) infinite ease-in-out;
+  box-shadow: 0 0 var(--glow, 4px) rgba(255, 255, 255, 0.6);
+}
+
+/* Shooting stars — diagonal streaks that race across the sky */
+@keyframes particle-shoot {
+  0% {
+    opacity: 0;
+    transform: translateX(0) translateY(0);
+  }
+  5% { opacity: 1; }
+  90% { opacity: 0.8; }
+  100% {
+    opacity: 0;
+    transform: translateX(var(--shoot-x, -250px)) translateY(var(--shoot-y, 120px));
+  }
+}
+
+.particle-shoot {
+  position: absolute;
+  height: 1.5px;
+  border-radius: 2px;
+  animation: particle-shoot var(--duration, 1.5s) var(--delay, 0s) infinite linear;
+}
+
+/* Pulse orbs — glowing blobs that breathe in and out */
+@keyframes particle-orb {
+  0%, 100% { opacity: 0; transform: scale(0.4); filter: blur(6px); }
+  25%, 75% { opacity: 0.55; transform: scale(1); filter: blur(3px); }
+  50% { opacity: 0.8; transform: scale(1.6); filter: blur(8px); }
+}
+
+.particle-orb {
+  position: absolute;
+  border-radius: 50%;
+  animation: particle-orb var(--duration, 7s) var(--delay, 0s) infinite ease-in-out;
+}
+
+/* Energy sparks — quick flashes at random spots */
+@keyframes particle-spark {
+  0% { opacity: 0; transform: scale(0) rotate(0deg); }
+  10% { opacity: 1; transform: scale(1.2) rotate(45deg); }
+  40% { opacity: 0.7; transform: scale(0.8) rotate(90deg); }
+  100% { opacity: 0; transform: scale(0) rotate(180deg) translateY(var(--spark-y, -40px)); }
+}
+
+.particle-spark {
+  position: absolute;
+  border-radius: 2px;
+  animation: particle-spark var(--duration, 2s) var(--delay, 0s) infinite ease-out;
+}
+
 /* Shimmer animation */
 @keyframes shimmer {
   0% { background-position: -200% center; }
