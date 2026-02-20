@@ -33,6 +33,31 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Docker Compose
+
+The easiest way to run the application in production is via Docker Compose.
+
+1. Copy the example environment file and set your desired port:
+
+```bash
+cp .env.example .env
+# Edit .env and set PORT=<your-port>
+```
+
+2. Build and start the container:
+
+```bash
+docker compose up -d --build
+```
+
+The app will be available on the port defined in `.env` (default: `3000`).
+
+To stop the container:
+
+```bash
+docker compose down
+```
+
 ### Testing
 
 ```bash
