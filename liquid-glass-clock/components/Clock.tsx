@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence, useAnimationControls } from "framer-motion";
 import SlimeJumper from "./SlimeJumper";
 
 interface TimeState {
@@ -130,18 +130,25 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 }
 
 export default function Clock() {
-  const [time, setTime] = useState<TimeState | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [time, setTime]             = useState<TimeState | null>(null);
+  const [shakeSignal, setShakeSignal] = useState(0);
+  const panelRef    = useRef<HTMLDivElement>(null);
+  const shakeCtrl   = useAnimationControls();
 
   useEffect(() => {
     setTime(getTime());
-
-    const interval = setInterval(() => {
-      setTime(getTime());
-    }, 1000);
-
+    const interval = setInterval(() => setTime(getTime()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleClockClick = useCallback(async () => {
+    setShakeSignal(s => s + 1);
+    await shakeCtrl.start({
+      x: [0, -12, 12, -9, 9, -6, 6, -3, 3, 0],
+      transition: { duration: 0.55, ease: "easeOut" },
+    });
+    shakeCtrl.set({ x: 0 });
+  }, [shakeCtrl]);
 
   if (!time) {
     return (
@@ -156,7 +163,7 @@ export default function Clock() {
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen px-4 py-8 gap-8">
-      {/* Day and date */}
+      {/* Day */}
       <motion.div
         className="liquid-glass-inner px-8 py-3 text-center"
         initial={{ opacity: 0, y: -30 }}
@@ -171,8 +178,13 @@ export default function Clock() {
         </p>
       </motion.div>
 
-      {/* Main clock container */}
-      <div style={{ position: "relative" }}>
+      {/* Main clock container — click to shake off slime */}
+      <motion.div
+        animate={shakeCtrl}
+        style={{ position: "relative", cursor: "pointer" }}
+        onClick={handleClockClick}
+        title="Klikni pro setřesení slizu"
+      >
         <motion.div
           ref={panelRef}
           className="liquid-glass p-6 md:p-10"
@@ -205,8 +217,13 @@ export default function Clock() {
             </div>
           </div>
         </motion.div>
-        <SlimeJumper panelRef={panelRef} second={parseInt(time.seconds)} />
-      </div>
+
+        <SlimeJumper
+          panelRef={panelRef}
+          second={parseInt(time.seconds)}
+          shakeSignal={shakeSignal}
+        />
+      </motion.div>
 
       {/* Date */}
       <motion.div

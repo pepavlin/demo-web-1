@@ -15,6 +15,11 @@ jest.mock("framer-motion", () => ({
   },
   AnimatePresence: ({ children }: { children: React.ReactNode }) =>
     React.createElement(React.Fragment, null, children),
+  useAnimationControls: () => ({
+    start: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn(),
+    stop: jest.fn(),
+  }),
 }));
 
 import Clock from "../components/Clock";

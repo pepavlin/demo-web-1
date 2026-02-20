@@ -1,376 +1,455 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { motion, useAnimationControls } from "framer-motion";
+import { createPortal } from "react-dom";
+import { motion, useAnimationControls, AnimatePresence } from "framer-motion";
 
-const SLIME_SIZE = 52;
-const ARC_HEIGHT = 75;
+const SZ = 42;
+const ARC = 85;
+const TRAIL_TTL = 40_000;
 
-const COLOR_PAIRS: [string, string][] = [
-  ["#ff0080", "#ff6600"],
-  ["#ff6600", "#ffee00"],
-  ["#aaff00", "#00ff88"],
-  ["#00ffcc", "#0099ff"],
-  ["#8800ff", "#ff00cc"],
-  ["#ff4400", "#ff00ff"],
-  ["#00ff55", "#0055ff"],
-  ["#ffff00", "#ff0055"],
-  ["#ff00ff", "#00ffff"],
-  ["#88ff00", "#ff8800"],
-  ["#00ffff", "#ff0080"],
-  ["#ff0088", "#ffcc00"],
-];
+// Design-matching palette: violet / indigo / cyan / blue / emerald / purple
+const PAL = [
+  { main: "rgba(139,92,246,.88)",  dark: "rgba(109,40,217,.95)",  g: "139,92,246"  },
+  { main: "rgba(99,102,241,.88)",  dark: "rgba(79,70,229,.95)",   g: "99,102,241"  },
+  { main: "rgba(8,145,178,.88)",   dark: "rgba(14,116,144,.95)",  g: "8,145,178"   },
+  { main: "rgba(168,85,247,.88)",  dark: "rgba(147,51,234,.95)",  g: "168,85,247"  },
+  { main: "rgba(59,130,246,.88)",  dark: "rgba(29,78,216,.95)",   g: "59,130,246"  },
+  { main: "rgba(16,185,129,.88)",  dark: "rgba(5,150,105,.95)",   g: "16,185,129"  },
+] as const;
 
-interface Waypoint {
-  x: number;
-  y: number;
+type Pal  = typeof PAL[number];
+type Side = "top" | "right" | "bottom" | "left";
+type Wp   = { x: number; y: number };
+type Trail = { id: number; x: number; y: number; ci: number; born: number };
+type Blob  = { id: number; x: number; y: number; ang: number; d: number; w: number; h: number; ci: number };
+type Sqrt  = { id: number; sx: number; sy: number; ex: number; ey: number; tx: number; ty: number; ci: number };
+
+let gid = 0;
+
+function buildWps(w: number, h: number): Wp[] {
+  const S = SZ / 2, n = 3, pts: Wp[] = [];
+  for (let i = 0; i < n; i++) pts.push({ x: ((i + 1) / (n + 1)) * w, y: -S });
+  for (let i = 0; i < n; i++) pts.push({ x: w + S, y: ((i + 1) / (n + 1)) * h });
+  for (let i = n - 1; i >= 0; i--) pts.push({ x: ((i + 1) / (n + 1)) * w, y: h + S });
+  for (let i = n - 1; i >= 0; i--) pts.push({ x: -S, y: ((i + 1) / (n + 1)) * h });
+  return pts;
 }
 
-function computeWaypoints(w: number, h: number): Waypoint[] {
-  const S = SLIME_SIZE / 2;
-  const n = 3; // points per side
-  const points: Waypoint[] = [];
-
-  // Top: left → right (slime above panel)
-  for (let i = 0; i < n; i++) {
-    points.push({ x: ((i + 1) / (n + 1)) * w, y: -S });
-  }
-  // Right: top → bottom (slime right of panel)
-  for (let i = 0; i < n; i++) {
-    points.push({ x: w + S, y: ((i + 1) / (n + 1)) * h });
-  }
-  // Bottom: right → left (slime below panel)
-  for (let i = n - 1; i >= 0; i--) {
-    points.push({ x: ((i + 1) / (n + 1)) * w, y: h + S });
-  }
-  // Left: bottom → top (slime left of panel)
-  for (let i = n - 1; i >= 0; i--) {
-    points.push({ x: -S, y: ((i + 1) / (n + 1)) * h });
-  }
-
-  return points;
+function sideOf(i: number): Side {
+  const n = ((i % 12) + 12) % 12;
+  return n < 3 ? "top" : n < 6 ? "right" : n < 9 ? "bottom" : "left";
 }
 
-interface ParticleState {
-  id: number;
-  angle: number;
-  color: string;
-  x: number;
-  y: number;
-  distance: number;
+function rotOf(s: Side): number {
+  return { top: 0, right: 90, bottom: 180, left: -90 }[s];
 }
 
-let particleCounter = 0;
+// ── Slime body ─────────────────────────────────────────────────────────────────
+function Body({ c }: { c: Pal }) {
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      {/* Ambient glow */}
+      <div style={{
+        position: "absolute", inset: -12, borderRadius: "50%",
+        background: `radial-gradient(circle, rgba(${c.g},.35) 0%, transparent 70%)`,
+        filter: "blur(10px)",
+        pointerEvents: "none",
+      }} />
+      {/* Main blob */}
+      <div style={{
+        position: "absolute", inset: 0,
+        borderRadius: "46% 46% 38% 38% / 56% 56% 44% 44%",
+        background: `radial-gradient(ellipse at 38% 32%, ${c.main}, ${c.dark})`,
+        boxShadow: `0 0 12px rgba(${c.g},.55), 0 0 26px rgba(${c.g},.28), inset 0 1px 0 rgba(255,255,255,.22)`,
+      }} />
+      {/* Drip 1 */}
+      <div style={{
+        position: "absolute", bottom: -12, left: "18%",
+        width: 7, height: 16,
+        borderRadius: "3px 3px 50% 50%",
+        background: `linear-gradient(180deg, ${c.dark}, rgba(${c.g},.4))`,
+      }} />
+      {/* Drip 2 */}
+      <div style={{
+        position: "absolute", bottom: -8, right: "22%",
+        width: 5, height: 11,
+        borderRadius: "3px 3px 50% 50%",
+        background: `linear-gradient(180deg, ${c.dark}, rgba(${c.g},.3))`,
+      }} />
+      {/* Primary specular */}
+      <div style={{
+        position: "absolute", top: "11%", left: "12%",
+        width: "38%", height: "24%",
+        borderRadius: "50%",
+        background: "rgba(255,255,255,.44)",
+        filter: "blur(2.5px)",
+      }} />
+      {/* Secondary specular */}
+      <div style={{
+        position: "absolute", top: "8%", right: "16%",
+        width: "14%", height: "13%",
+        borderRadius: "50%",
+        background: "rgba(255,255,255,.22)",
+        filter: "blur(1.5px)",
+      }} />
+    </div>
+  );
+}
 
+// ── Trail drip ──────────────────────────────────────────────────────────────────
+function TrailDrip({ trail }: { trail: Trail }) {
+  const c = PAL[trail.ci];
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.2 }}
+      animate={{ opacity: [0, .88, .88, 0], scale: [0.2, 1, 1, 0.6] }}
+      transition={{ duration: TRAIL_TTL / 1000, times: [0, 0.04, 0.72, 1], ease: "linear" }}
+      style={{
+        position: "absolute",
+        left: trail.x, top: trail.y,
+        transform: "translate(-50%,-50%)",
+        zIndex: 18, pointerEvents: "none",
+      }}
+    >
+      {/* Stain */}
+      <div style={{
+        width: 16, height: 12,
+        borderRadius: "50% 55% 45% 50% / 48% 44% 56% 52%",
+        background: c.dark,
+        boxShadow: `0 0 8px rgba(${c.g},.38)`,
+        position: "relative",
+      }} />
+      {/* Drip line extends downward */}
+      <motion.div
+        initial={{ height: 0, opacity: 0 }}
+        animate={{ height: [0, 14, 24], opacity: [0, .85, .65] }}
+        transition={{ duration: 4, ease: [.45, 0, 1, 1], delay: .35 }}
+        style={{
+          position: "absolute", top: 10, left: "35%",
+          width: 4,
+          background: `linear-gradient(180deg, ${c.dark}, rgba(${c.g},.18))`,
+          borderRadius: "0 0 50% 50%",
+          transformOrigin: "top center",
+        }}
+      />
+      {/* Falling drops */}
+      {[0, 1].map(i => (
+        <motion.div
+          key={i}
+          initial={{ y: 0, opacity: 0 }}
+          animate={{ y: [0, 10, 60], opacity: [0, .78, 0] }}
+          transition={{
+            duration: 1.5, ease: [.35, 0, 1, 1],
+            delay: 2 + i * 1.8,
+            repeat: Infinity, repeatDelay: 2.5 + i,
+          }}
+          style={{
+            position: "absolute",
+            top: 20 + i * 3, left: `${28 + i * 10}%`,
+            width: 4 + i, height: 5 + i,
+            borderRadius: "50% 50% 55% 55%",
+            background: c.main,
+          }}
+        />
+      ))}
+    </motion.div>
+  );
+}
+
+// ── Screen squirt blob (fixed position, portal) ─────────────────────────────────
+function SquirtAnim({ s, onDone }: { s: Sqrt; onDone: (id: number) => void }) {
+  const c = PAL[s.ci];
+  const dx = s.ex - s.sx, dy = s.ey - s.sy;
+  const midX = (s.sx + s.ex) / 2;
+  const midY = (s.sy + s.ey) / 2 - Math.min(Math.sqrt(dx * dx + dy * dy) * 0.38, 200);
+
+  return (
+    <motion.div
+      style={{
+        position: "fixed",
+        left: s.sx - 11, top: s.sy - 13,
+        width: 22, height: 26,
+        borderRadius: "46% 46% 38% 38% / 56% 56% 44% 44%",
+        background: `radial-gradient(ellipse at 38% 32%, ${c.main}, ${c.dark})`,
+        boxShadow: `0 0 14px rgba(${c.g},.6), 0 0 28px rgba(${c.g},.3)`,
+        zIndex: 9999, pointerEvents: "none",
+      }}
+      animate={{
+        x: [0, midX - s.sx, s.ex - s.sx],
+        y: [0, midY - s.sy, s.ey - s.sy],
+        rotate: [0, 180, 360],
+        scale: [0.7, 1.0, 1.4],
+      }}
+      transition={{ duration: .9, times: [0, .45, 1], ease: "easeIn" }}
+      onAnimationComplete={() => onDone(s.id)}
+    />
+  );
+}
+
+// ── Main component ──────────────────────────────────────────────────────────────
 export default function SlimeJumper({
   panelRef,
   second,
+  shakeSignal,
 }: {
   panelRef: React.RefObject<HTMLDivElement | null>;
   second: number;
+  shakeSignal: number;
 }) {
-  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const [colorIdx, setColorIdx] = useState(0);
-  const [particles, setParticles] = useState<ParticleState[]>([]);
+  const [wps, setWps]       = useState<Wp[]>([]);
+  const [ci, setCi]         = useState(0);
+  const [blobs, setBlobs]   = useState<Blob[]>([]);
+  const [trails, setTrails] = useState<Trail[]>([]);
+  const [squirts, setSquirts] = useState<Sqrt[]>([]);
   const [visible, setVisible] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const posControls = useAnimationControls();
-  const scaleControls = useAnimationControls();
+  const posC = useAnimationControls();
+  const sclC = useAnimationControls();
+  const rotC = useAnimationControls();
 
-  const wpRef = useRef<Waypoint[]>([]);
-  const idxRef = useRef(0);
-  const colorRef = useRef(0);
-  const isJumpingRef = useRef(false);
-  const mountedRef = useRef(false);
+  const wpsRef    = useRef<Wp[]>([]);
+  const idxRef    = useRef(0);
+  const ciRef     = useRef(0);
+  const jumpRef   = useRef(false);
+  const firstRef  = useRef(true);
+  const doSquirtRef = useRef<() => void>(() => {});
 
-  // Measure panel and compute waypoints
+  useEffect(() => { setMounted(true); }, []);
+
+  // Clear all slime on shake
+  useEffect(() => {
+    if (shakeSignal === 0) return;
+    setTrails([]);
+    setBlobs([]);
+  }, [shakeSignal]);
+
+  // Measure panel and build waypoints
   useEffect(() => {
     if (!panelRef.current) return;
-
-    const compute = () => {
+    const measure = () => {
       const el = panelRef.current;
       if (!el) return;
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-      if (w === 0 || h === 0) return;
-
-      const wp = computeWaypoints(w, h);
-      wpRef.current = wp;
-      setWaypoints(wp);
-      posControls.set({ x: wp[0].x, y: wp[0].y });
+      const w = el.offsetWidth, h = el.offsetHeight;
+      if (!w || !h) return;
+      const wp = buildWps(w, h);
+      wpsRef.current = wp;
+      setWps(wp);
+      posC.set({ x: wp[0].x, y: wp[0].y });
       setVisible(true);
     };
+    requestAnimationFrame(() => requestAnimationFrame(measure));
+    const obs = new ResizeObserver(measure);
+    obs.observe(panelRef.current);
+    return () => obs.disconnect();
+  }, [panelRef, posC]);
 
-    // Double rAF ensures the element is fully laid out
-    requestAnimationFrame(() => requestAnimationFrame(compute));
-
-    const observer = new ResizeObserver(compute);
-    observer.observe(panelRef.current);
-    return () => observer.disconnect();
-  }, [panelRef, posControls]);
-
-  const spawnParticles = useCallback((wp: Waypoint, color1: string, color2: string) => {
-    const count = 12;
-    const newParticles: ParticleState[] = Array.from({ length: count }, (_, i) => ({
-      id: particleCounter++,
-      angle: (i / count) * Math.PI * 2 + Math.random() * 0.3,
-      color: i % 2 === 0 ? color1 : color2,
-      x: wp.x,
-      y: wp.y,
-      distance: 45 + Math.random() * 35,
-    }));
-
-    setParticles((prev) => [...prev, ...newParticles]);
-    const ids = new Set(newParticles.map((p) => p.id));
-    setTimeout(() => {
-      setParticles((prev) => prev.filter((p) => !ids.has(p.id)));
-    }, 700);
+  // Expire old trails
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTrails(p => p.filter(tr => Date.now() - tr.born < TRAIL_TTL));
+    }, 5000);
+    return () => clearInterval(t);
   }, []);
 
-  const doJump = useCallback(async () => {
-    if (isJumpingRef.current || wpRef.current.length === 0) return;
-    isJumpingRef.current = true;
+  // Spawn viscous impact blobs
+  const spawnBlobs = useCallback((pos: Wp, blobCi: number) => {
+    const count = 7;
+    const nb: Blob[] = Array.from({ length: count }, (_, i) => ({
+      id: gid++,
+      x: pos.x, y: pos.y,
+      ang: (i / count) * Math.PI * 2 + (Math.random() - .5) * .7,
+      d: 18 + Math.random() * 28,
+      w: 5 + Math.random() * 8,
+      h: 6 + Math.random() * 10,
+      ci: blobCi,
+    }));
+    setBlobs(p => [...p, ...nb]);
+    const ids = new Set(nb.map(b => b.id));
+    setTimeout(() => setBlobs(p => p.filter(b => !ids.has(b.id))), 900);
+  }, []);
 
-    const wp = wpRef.current;
-    const fromIdx = idxRef.current;
-    const toIdx = (fromIdx + 1) % wp.length;
-    const from = wp[fromIdx];
-    const to = wp[toIdx];
-    const ci = colorRef.current;
-    const [c1, c2] = COLOR_PAIRS[ci];
-
-    // Phase 1: squash anticipation
-    await scaleControls.start({
-      scaleX: 1.6,
-      scaleY: 0.48,
-      transition: { duration: 0.1, ease: "easeOut" },
+  // Handle squirt landing
+  const onSquirtDone = useCallback((id: number) => {
+    setSquirts(p => {
+      const s = p.find(q => q.id === id);
+      if (s) {
+        setTrails(tr => [...tr, { id: gid++, x: s.tx, y: s.ty, ci: s.ci, born: Date.now() }]);
+        spawnBlobs({ x: s.tx, y: s.ty }, s.ci);
+      }
+      return p.filter(q => q.id !== id);
     });
+  }, [spawnBlobs]);
 
-    // Phase 2: jump arc (x/y) + stretch (scale) in parallel
+  // Screen-edge squirt
+  const doSquirt = useCallback(() => {
+    const el = panelRef.current;
+    if (!el || !wpsRef.current.length) return;
+    const parent = el.parentElement;
+    if (!parent) return;
+    const pr = parent.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+
+    // Random screen edge start point
+    const edge = Math.floor(Math.random() * 4);
+    let sx: number, sy: number;
+    if      (edge === 0) { sx = Math.random() * vw; sy = -30; }
+    else if (edge === 1) { sx = vw + 30; sy = Math.random() * vh; }
+    else if (edge === 2) { sx = Math.random() * vw; sy = vh + 30; }
+    else                 { sx = -30; sy = Math.random() * vh; }
+
+    // Pick random waypoint as target
+    const wp = wpsRef.current;
+    const tIdx = Math.floor(Math.random() * wp.length);
+    const tw = wp[tIdx];
+    const sqCi = Math.floor(Math.random() * PAL.length);
+
+    setSquirts(p => [...p, {
+      id: gid++,
+      sx: sx!, sy: sy!,
+      ex: pr.left + tw.x, ey: pr.top + tw.y,
+      tx: tw.x, ty: tw.y,
+      ci: sqCi,
+    }]);
+  }, [panelRef]);
+
+  // Keep doSquirtRef updated and schedule squirts
+  useEffect(() => { doSquirtRef.current = doSquirt; }, [doSquirt]);
+
+  useEffect(() => {
+    // First squirt after 12s, then every 60s
+    const first = setTimeout(() => doSquirtRef.current(), 12_000);
+    const loop  = setInterval(() => doSquirtRef.current(), 60_000);
+    return () => { clearTimeout(first); clearInterval(loop); };
+  }, []);
+
+  // Jump animation
+  const doJump = useCallback(async () => {
+    if (jumpRef.current || !wpsRef.current.length) return;
+    jumpRef.current = true;
+
+    const wp = wpsRef.current;
+    const fromIdx = idxRef.current;
+    const toIdx   = (fromIdx + 1) % wp.length;
+    const from = wp[fromIdx], to = wp[toIdx];
+    const jumpCi = ciRef.current;
+    const toSide = sideOf(toIdx);
+    const toRot  = rotOf(toSide);
+
+    // Squash anticipation
+    await sclC.start({ scaleX: 1.55, scaleY: 0.48, transition: { duration: 0.09, ease: "easeOut" } });
+
+    // Arc + stretch + rotate simultaneously
     const midX = (from.x + to.x) / 2;
-    const midY = (from.y + to.y) / 2 - ARC_HEIGHT;
-
-    const movePromise = posControls.start({
+    const midY = (from.y + to.y) / 2 - ARC;
+    const moveP = posC.start({
       x: [from.x, midX, to.x],
       y: [from.y, midY, to.y],
-      transition: { duration: 0.38, times: [0, 0.5, 1], ease: "easeInOut" },
+      transition: { duration: 0.36, times: [0, .5, 1], ease: "easeInOut" },
     });
-
-    scaleControls.start({
-      scaleX: [1.6, 0.55, 1],
+    sclC.start({
+      scaleX: [1.55, 0.55, 1],
       scaleY: [0.48, 1.55, 1],
-      transition: { duration: 0.38, times: [0, 0.28, 1] },
+      transition: { duration: 0.36, times: [0, .28, 1] },
     });
+    rotC.start({
+      rotate: toRot,
+      transition: { duration: 0.36, ease: "easeInOut" },
+    });
+    await moveP;
 
-    await movePromise;
-
-    // Advance state
     idxRef.current = toIdx;
-    colorRef.current = (ci + 1) % COLOR_PAIRS.length;
-    setColorIdx(colorRef.current);
+    ciRef.current  = (jumpCi + 1) % PAL.length;
+    setCi(ciRef.current);
 
-    // Phase 3: landing impact + particles
-    spawnParticles(to, c1, c2);
+    // Landing impact
+    spawnBlobs(to, jumpCi);
+    setTrails(p => [...p, { id: gid++, x: to.x, y: to.y, ci: jumpCi, born: Date.now() }]);
 
-    await scaleControls.start({
-      scaleX: 1.55,
-      scaleY: 0.52,
-      transition: { duration: 0.065, ease: "easeOut" },
+    await sclC.start({ scaleX: 1.55, scaleY: 0.48, transition: { duration: 0.065, ease: "easeOut" } });
+    await sclC.start({
+      scaleX: [1.55, 0.83, 1.09, 0.97, 1],
+      scaleY: [0.48, 1.28, 0.91, 1.04, 1],
+      transition: { duration: 0.3, times: [0, .38, .62, .82, 1] },
     });
 
-    // Phase 4: bouncy settle
-    await scaleControls.start({
-      scaleX: [1.55, 0.82, 1.1, 0.96, 1],
-      scaleY: [0.52, 1.28, 0.92, 1.05, 1],
-      transition: { duration: 0.3, times: [0, 0.38, 0.62, 0.82, 1] },
-    });
+    jumpRef.current = false;
+  }, [posC, sclC, rotC, spawnBlobs]);
 
-    isJumpingRef.current = false;
-  }, [posControls, scaleControls, spawnParticles]);
-
-  // Trigger jump on each second tick
+  // Trigger jump each second
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      return;
-    }
-    if (wpRef.current.length === 0) return;
+    if (firstRef.current) { firstRef.current = false; return; }
+    if (!wpsRef.current.length) return;
     doJump();
   }, [second, doJump]);
 
-  const [c1, c2] = COLOR_PAIRS[colorIdx];
+  if (!visible || !wps.length) return null;
 
-  if (!visible || waypoints.length === 0) return null;
+  const c = PAL[ci];
 
   return (
     <>
-      {/* Landing particles */}
-      {particles.map((p) => (
-        <motion.div
-          key={p.id}
-          style={{
-            position: "absolute",
-            width: 9,
-            height: 9,
-            borderRadius: "50%",
-            background: p.color,
-            boxShadow: `0 0 12px ${p.color}, 0 0 24px ${p.color}99`,
-            left: p.x - 4,
-            top: p.y - 4,
-            zIndex: 25,
-            pointerEvents: "none",
-          }}
-          initial={{ x: 0, y: 0, scale: 2, opacity: 1 }}
-          animate={{
-            x: Math.cos(p.angle) * p.distance,
-            y: Math.sin(p.angle) * p.distance,
-            scale: 0,
-            opacity: 0,
-          }}
-          transition={{ duration: 0.6, ease: [0.1, 0, 0.85, 1] }}
-        />
-      ))}
+      {/* Viscous impact blobs */}
+      {blobs.map(b => {
+        const bc = PAL[b.ci];
+        return (
+          <motion.div
+            key={b.id}
+            style={{
+              position: "absolute",
+              left: b.x - b.w / 2, top: b.y - b.h / 2,
+              width: b.w, height: b.h,
+              borderRadius: "44% 44% 52% 52% / 54% 54% 46% 46%",
+              background: bc.main,
+              boxShadow: `0 0 7px rgba(${bc.g},.42)`,
+              zIndex: 25, pointerEvents: "none",
+            }}
+            initial={{ x: 0, y: 0, scale: 1.4, opacity: .9, rotate: Math.random() * 120 - 60 }}
+            animate={{
+              x: Math.cos(b.ang) * b.d,
+              y: Math.sin(b.ang) * b.d,
+              scale: 0, opacity: 0,
+            }}
+            transition={{ duration: .75, ease: [.1, 0, .7, 1] }}
+          />
+        );
+      })}
+
+      {/* Trail drips */}
+      <AnimatePresence>
+        {trails.map(t => <TrailDrip key={t.id} trail={t} />)}
+      </AnimatePresence>
+
+      {/* Screen squirts via portal */}
+      {mounted && squirts.map(s =>
+        createPortal(
+          <SquirtAnim key={s.id} s={s} onDone={onSquirtDone} />,
+          document.body
+        )
+      )}
 
       {/* Slime body */}
       <motion.div
-        animate={posControls}
+        animate={posC}
         style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          marginLeft: -SLIME_SIZE / 2,
-          marginTop: -SLIME_SIZE / 2,
-          zIndex: 30,
-          pointerEvents: "none",
-          willChange: "transform",
+          position: "absolute", left: 0, top: 0,
+          marginLeft: -SZ / 2, marginTop: -SZ / 2,
+          zIndex: 30, pointerEvents: "none", willChange: "transform",
         }}
       >
+        {/* Rotation wrapper */}
         <motion.div
-          animate={scaleControls}
-          style={{
-            width: SLIME_SIZE,
-            height: SLIME_SIZE,
-            transformOrigin: "50% 82%",
-          }}
+          animate={rotC}
+          style={{ width: SZ, height: SZ, transformOrigin: "50% 50%" }}
         >
-          {/* Glow shadow */}
-          <div
-            style={{
-              position: "absolute",
-              inset: -6,
-              borderRadius: "50%",
-              background: `radial-gradient(circle, ${c1}44 0%, transparent 70%)`,
-              filter: "blur(6px)",
-            }}
-          />
-
-          {/* Main blob body */}
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              borderRadius: "50% 50% 44% 44% / 58% 58% 42% 42%",
-              background: `radial-gradient(circle at 38% 32%, ${c1}, ${c2})`,
-              boxShadow: `0 0 20px ${c1}, 0 0 40px ${c1}77, 0 0 70px ${c1}33`,
-            }}
-          />
-
-          {/* Drip 1 */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: -13,
-              left: "15%",
-              width: 10,
-              height: 17,
-              borderRadius: "0 0 50% 50%",
-              background: `linear-gradient(180deg, ${c1}, ${c2})`,
-              boxShadow: `0 0 8px ${c1}`,
-            }}
-          />
-
-          {/* Drip 2 */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: -9,
-              right: "19%",
-              width: 8,
-              height: 13,
-              borderRadius: "0 0 50% 50%",
-              background: `linear-gradient(180deg, ${c2}, ${c1})`,
-              boxShadow: `0 0 6px ${c2}`,
-            }}
-          />
-
-          {/* Left eye */}
-          <div
-            style={{
-              position: "absolute",
-              top: "20%",
-              left: "14%",
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              background: "white",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
-            }}
+          {/* Squash/stretch wrapper */}
+          <motion.div
+            animate={sclC}
+            style={{ width: SZ, height: SZ, transformOrigin: "50% 80%" }}
           >
-            <div
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: "#0a0a1a",
-              }}
-            />
-          </div>
-
-          {/* Right eye */}
-          <div
-            style={{
-              position: "absolute",
-              top: "20%",
-              right: "14%",
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              background: "white",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: "#0a0a1a",
-              }}
-            />
-          </div>
-
-          {/* Highlight */}
-          <div
-            style={{
-              position: "absolute",
-              top: "10%",
-              left: "12%",
-              width: "36%",
-              height: "24%",
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.55)",
-              filter: "blur(3px)",
-            }}
-          />
+            <Body c={c} />
+          </motion.div>
         </motion.div>
       </motion.div>
     </>
