@@ -4,11 +4,90 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 
 const SHEEP_W = 120;
 const SHEEP_H = 85;
-const MOVE_SPEED = 280; // px per second
-const GROUND_Y_OFFSET = 10; // px above bottom edge
-const JUMP_VELOCITY = -520; // px/s upward (negative = up)
+const MOVE_SPEED = 280; // px per second along edge
+const JUMP_VELOCITY = 520; // px/s away from wall (toward center)
 const GRAVITY = 1200; // px/s²
-const MIN_X = 0;
+const GROUND_Y_OFFSET = 10; // gap between sheep feet and wall
+const HALF_W = SHEEP_W / 2;
+// Distance from wall to sheep center when on wall (half height + gap)
+const BASE_WALL_DIST = SHEEP_H / 2 + GROUND_Y_OFFSET;
+
+type Edge = "bottom" | "right" | "top" | "left";
+
+interface SheepTransform {
+  cx: number; // screen center x
+  cy: number; // screen center y
+  rot: number; // CSS rotation in degrees
+}
+
+/**
+ * Clockwise sign: +1 if pressing right arrow increases edgePos, -1 if it decreases.
+ * bottom: right=rightward (+x), left: right=downward (+y) → +1
+ * right:  right=upward    (-y), top:  right=leftward (-x)  → -1
+ */
+function cwSign(edge: Edge): number {
+  return edge === "bottom" || edge === "left" ? 1 : -1;
+}
+
+/**
+ * Valid edgePos range for each edge (center of sheep, clamped so sheep stays on screen).
+ */
+function edgeLimits(
+  edge: Edge,
+  W: number,
+  H: number
+): { min: number; max: number } {
+  if (edge === "bottom" || edge === "top") return { min: HALF_W, max: W - HALF_W };
+  return { min: HALF_W, max: H - HALF_W };
+}
+
+/**
+ * Compute screen center position and CSS rotation from edge + edgePos + wallDepth.
+ * wallDepth=0 means sheep is on the wall; positive means hovering toward center.
+ */
+function getTransform(
+  edge: Edge,
+  edgePos: number,
+  wallDepth: number,
+  W: number,
+  H: number
+): SheepTransform {
+  const d = BASE_WALL_DIST + wallDepth;
+  switch (edge) {
+    case "bottom": return { cx: edgePos, cy: H - d,    rot: 0   };
+    case "right":  return { cx: W - d,   cy: edgePos,  rot: -90 };
+    case "top":    return { cx: edgePos, cy: d,         rot: 180 };
+    case "left":   return { cx: d,       cy: edgePos,  rot: 90  };
+  }
+}
+
+/**
+ * When the sheep hits a corner, transition to the adjacent edge.
+ * clockwise=true  → right arrow direction (bottom→right→top→left→bottom)
+ * clockwise=false → left arrow direction  (bottom→left→top→right→bottom)
+ */
+function cornerTransition(
+  edge: Edge,
+  clockwise: boolean,
+  W: number,
+  H: number
+): { newEdge: Edge; newEdgePos: number } {
+  if (clockwise) {
+    switch (edge) {
+      case "bottom": return { newEdge: "right",  newEdgePos: H - HALF_W };
+      case "right":  return { newEdge: "top",    newEdgePos: W - HALF_W };
+      case "top":    return { newEdge: "left",   newEdgePos: HALF_W     };
+      case "left":   return { newEdge: "bottom", newEdgePos: HALF_W     };
+    }
+  } else {
+    switch (edge) {
+      case "bottom": return { newEdge: "left",   newEdgePos: H - HALF_W };
+      case "left":   return { newEdge: "top",    newEdgePos: HALF_W     };
+      case "top":    return { newEdge: "right",  newEdgePos: HALF_W     };
+      case "right":  return { newEdge: "bottom", newEdgePos: W - HALF_W };
+    }
+  }
+}
 
 // ── Violet-coloured SVG sheep ──────────────────────────────────────────────────
 function VioletSheepSVG({ facingRight }: { facingRight: boolean }) {
@@ -86,22 +165,22 @@ function VioletSheepSVG({ facingRight }: { facingRight: boolean }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function VioletSheep() {
   const [mounted, setMounted] = useState(false);
-  const [posX, setPosX] = useState(200);
-  const [posY, setPosY] = useState(0); // will be set on mount
+  const [sheepTransform, setSheepTransform] = useState<SheepTransform>({ cx: 200, cy: 0, rot: 0 });
   const [jumping, setJumping] = useState(false);
   const [facingRight, setFacingRight] = useState(true);
 
-  const posXRef = useRef(200);
-  const posYRef = useRef(0);
-  const velYRef = useRef(0);
-  const groundYRef = useRef(0);
+  // Physics state (in refs for animation loop)
+  const edgeRef = useRef<Edge>("bottom");
+  const edgePosRef = useRef(200); // position along current edge (center coordinate)
+  const wallDepthRef = useRef(0); // distance from wall (0 = on wall)
+  const velNormalRef = useRef(0); // velocity perpendicular to wall
+  const jumpingRef = useRef(false);
+  const facingRightRef = useRef(true);
   const keysRef = useRef<{ left: boolean; right: boolean; up: boolean }>({
     left: false,
     right: false,
     up: false,
   });
-  const jumpingRef = useRef(false);
-  const facingRightRef = useRef(true);
   const rafRef = useRef<number>(0);
 
   useEffect(() => { setMounted(true); }, []);
@@ -133,11 +212,15 @@ export default function VioletSheep() {
   useEffect(() => {
     if (!mounted) return;
 
-    // Set ground level: bottom of screen minus sheep height minus a small gap
-    const groundY = window.innerHeight - SHEEP_H - GROUND_Y_OFFSET;
-    groundYRef.current = groundY;
-    posYRef.current = groundY;
-    setPosY(groundY);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+
+    // Initialise on bottom edge
+    edgeRef.current = "bottom";
+    edgePosRef.current = 200;
+    wallDepthRef.current = 0;
+    velNormalRef.current = 0;
+    setSheepTransform(getTransform("bottom", 200, 0, W, H));
 
     let prev = performance.now();
 
@@ -145,52 +228,79 @@ export default function VioletSheep() {
       const dt = Math.min((now - prev) / 1000, 0.05);
       prev = now;
 
+      const W = window.innerWidth;
+      const H = window.innerHeight;
       const keys = keysRef.current;
-      const maxX = window.innerWidth - SHEEP_W;
-      const ground = groundYRef.current;
+      const edge = edgeRef.current;
+      const cw = cwSign(edge); // +1 or -1
+      const { min, max } = edgeLimits(edge, W, H);
 
-      // Horizontal movement
-      let dx = 0;
-      if (keys.left)  dx -= MOVE_SPEED * dt;
-      if (keys.right) dx += MOVE_SPEED * dt;
-
-      let newX = Math.max(MIN_X, Math.min(maxX, posXRef.current + dx));
-
-      if (dx < 0 && facingRightRef.current) {
-        facingRightRef.current = false;
-        setFacingRight(false);
-      } else if (dx > 0 && !facingRightRef.current) {
-        facingRightRef.current = true;
-        setFacingRight(true);
+      // ── Movement along current edge ────────────────────────────────────────
+      // Right arrow = clockwise: dEdgePos = +cw * speed * dt
+      // Left  arrow = counter-clockwise: dEdgePos = -cw * speed * dt
+      let dEdgePos = 0;
+      if (keys.right) {
+        dEdgePos = cw * MOVE_SPEED * dt;
+        if (!facingRightRef.current) {
+          facingRightRef.current = true;
+          setFacingRight(true);
+        }
+      } else if (keys.left) {
+        dEdgePos = -cw * MOVE_SPEED * dt;
+        if (facingRightRef.current) {
+          facingRightRef.current = false;
+          setFacingRight(false);
+        }
       }
 
-      // Jump: only when on ground and up key pressed
+      let newEdgePos = edgePosRef.current + dEdgePos;
+      let newEdge = edge;
+
+      // ── Corner transitions ─────────────────────────────────────────────────
+      // dEdgePos>0 with overflow at max, or dEdgePos<0 with overflow at min.
+      // Whether it's clockwise depends on the edge's cwSign direction.
+      if (dEdgePos > 0 && newEdgePos > max) {
+        // Moving in +edgePos direction; overflow at max
+        // cw>0 (bottom/left): +edgePos is clockwise → clockwise transition
+        // cw<0 (right/top):   +edgePos is counter-clockwise → CCW transition
+        const t = cornerTransition(edge, cw > 0, W, H);
+        newEdge = t.newEdge;
+        newEdgePos = t.newEdgePos;
+      } else if (dEdgePos < 0 && newEdgePos < min) {
+        // Moving in -edgePos direction; overflow at min
+        // cw>0: -edgePos is counter-clockwise → CCW transition
+        // cw<0: -edgePos is clockwise → clockwise transition
+        const t = cornerTransition(edge, cw < 0, W, H);
+        newEdge = t.newEdge;
+        newEdgePos = t.newEdgePos;
+      } else {
+        newEdgePos = Math.max(min, Math.min(max, newEdgePos));
+      }
+
+      edgeRef.current = newEdge;
+      edgePosRef.current = newEdgePos;
+
+      // ── Jump (perpendicular to wall, toward center) ────────────────────────
       if (keys.up && !jumpingRef.current) {
-        velYRef.current = JUMP_VELOCITY;
+        velNormalRef.current = JUMP_VELOCITY;
         jumpingRef.current = true;
         setJumping(true);
       }
 
-      // Vertical physics
-      let newY = posYRef.current;
+      // Perpendicular physics (wallDepth increases toward center, gravity pulls back)
       if (jumpingRef.current) {
-        velYRef.current += GRAVITY * dt;
-        newY = posYRef.current + velYRef.current * dt;
+        velNormalRef.current -= GRAVITY * dt;
+        wallDepthRef.current += velNormalRef.current * dt;
 
-        if (newY >= ground) {
-          newY = ground;
-          velYRef.current = 0;
+        if (wallDepthRef.current <= 0) {
+          wallDepthRef.current = 0;
+          velNormalRef.current = 0;
           jumpingRef.current = false;
           setJumping(false);
         }
       }
 
-      posXRef.current = newX;
-      posYRef.current = newY;
-
-      setPosX(Math.round(newX));
-      setPosY(Math.round(newY));
-
+      setSheepTransform(getTransform(newEdge, newEdgePos, wallDepthRef.current, W, H));
       rafRef.current = requestAnimationFrame(frame);
     };
 
@@ -199,12 +309,12 @@ export default function VioletSheep() {
   }, [mounted]);
 
   const handleResize = useCallback(() => {
-    const ground = window.innerHeight - SHEEP_H - GROUND_Y_OFFSET;
-    groundYRef.current = ground;
-    if (!jumpingRef.current) {
-      posYRef.current = ground;
-      setPosY(ground);
-    }
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const edge = edgeRef.current;
+    const { min, max } = edgeLimits(edge, W, H);
+    edgePosRef.current = Math.max(min, Math.min(max, edgePosRef.current));
+    setSheepTransform(getTransform(edge, edgePosRef.current, wallDepthRef.current, W, H));
   }, []);
 
   useEffect(() => {
@@ -220,18 +330,19 @@ export default function VioletSheep() {
       data-testid="violet-sheep"
       style={{
         position: "fixed",
-        left: posX,
-        top: posY,
+        left: sheepTransform.cx,
+        top: sheepTransform.cy,
         width: SHEEP_W,
         height: SHEEP_H,
         zIndex: 45,
         pointerEvents: "none",
-        willChange: "transform, left, top",
+        willChange: "transform",
         filter: [
           "drop-shadow(0px 4px 8px rgba(109,40,217,0.5))",
           "drop-shadow(0px 8px 16px rgba(109,40,217,0.3))",
         ].join(" "),
-        transition: jumping ? "none" : undefined,
+        // Sheep is positioned by its center; rotation makes it stand on any wall
+        transform: `translate(-50%, -50%) rotate(${sheepTransform.rot}deg)`,
       }}
     >
       <div
