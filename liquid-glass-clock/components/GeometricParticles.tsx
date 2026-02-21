@@ -25,10 +25,11 @@ const PARTICLE_COUNT = 180;
 const CONNECTION_DISTANCE = 120;
 const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
-const MAX_SPEED = 4;
-// Gravity-like mouse influence — force = K / distance, all particles affected
-const GRAVITY_K_ATTRACT = 14; // attract constant (default, no click)
-const GRAVITY_K_REPEL = 7;    // repel constant (mouse held down)
+const MAX_SPEED = 3;
+// Mouse influence — only affects particles within MOUSE_RADIUS, force = K / distance
+const MOUSE_RADIUS = 160;     // max distance at which mouse affects particles
+const GRAVITY_K_ATTRACT = 3;  // attract constant (default, no click) — reduced so own movement persists
+const GRAVITY_K_REPEL = 6;    // repel constant (mouse held down)
 const MIN_DIST = 20;          // prevent infinite force at zero distance
 
 function createParticle(w: number, h: number): Particle {
@@ -106,21 +107,23 @@ export default function GeometricParticles() {
 
       // Update positions
       for (const p of particles) {
-        // Apply gravity-like mouse force — all particles affected, force ∝ 1/dist
+        // Apply mouse force only within MOUSE_RADIUS — own movement persists beyond that
         if (mouse) {
           const dx = p.x - mouse.x;
           const dy = p.y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > 0) {
+          if (dist > 0 && dist < MOUSE_RADIUS) {
             const effectiveDist = Math.max(dist, MIN_DIST);
+            // Fade influence near the edge of the radius for smooth transition
+            const falloff = 1 - dist / MOUSE_RADIUS;
             if (clicking) {
               // Repel: push away from mouse on click
-              const strength = GRAVITY_K_REPEL / effectiveDist;
+              const strength = (GRAVITY_K_REPEL / effectiveDist) * falloff;
               p.vx += (dx / dist) * strength;
               p.vy += (dy / dist) * strength;
             } else {
               // Attract: pull towards mouse by default
-              const strength = GRAVITY_K_ATTRACT / effectiveDist;
+              const strength = (GRAVITY_K_ATTRACT / effectiveDist) * falloff;
               p.vx -= (dx / dist) * strength;
               p.vy -= (dy / dist) * strength;
             }
@@ -134,10 +137,10 @@ export default function GeometricParticles() {
           p.vy = (p.vy / speed) * MAX_SPEED;
         }
 
-        // Gradually dampen speed towards natural base (friction)
+        // Gradually dampen speed towards natural base (friction) — stronger so own velocity recovers quicker
         if (speed > SPEED * 0.9) {
-          p.vx *= 0.99;
-          p.vy *= 0.99;
+          p.vx *= 0.98;
+          p.vy *= 0.98;
         }
 
         p.x += p.vx;
