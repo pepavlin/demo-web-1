@@ -199,7 +199,8 @@ describe("ElementSuggestionMenu", () => {
     );
 
     const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(callBody.message).toBe("Větší font");
+    expect(callBody.message).toMatch(/^\[Element: <p#hero-text>/);
+    expect(callBody.message).toContain("Větší font");
     expect(callBody.type).toBe("element_suggestion");
     expect(callBody.element).toBeDefined();
     expect(callBody.element.tag).toBe("p");
