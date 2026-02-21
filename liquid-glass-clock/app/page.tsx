@@ -4,6 +4,7 @@ import FeedbackWidget from "@/components/FeedbackWidget";
 import ElementSuggestionMenu from "@/components/ElementSuggestionMenu";
 import Sheep from "@/components/Sheep";
 import SheepWalker from "@/components/SheepWalker";
+import VioletSheep from "@/components/VioletSheep";
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
       <ElementSuggestionMenu />
       <Sheep />
       <SheepWalker />
+      <VioletSheep />
     </main>
   );
 }
