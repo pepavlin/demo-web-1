@@ -134,4 +134,27 @@ describe("GeometricParticles component", () => {
     // stroke is called for lines
     expect(mockContext.beginPath).toHaveBeenCalled();
   });
+
+  it("handles mousemove event without throwing", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      window.dispatchEvent(
+        new MouseEvent("mousemove", { clientX: 100, clientY: 200 })
+      );
+      if (rafCallback) rafCallback(performance.now());
+    });
+    // clearRect should still be called — no crash from mouse handling
+    expect(mockContext.clearRect).toHaveBeenCalled();
+  });
+
+  it("handles mousedown/mouseup (attract mode) without throwing", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 50, clientY: 50 }));
+      window.dispatchEvent(new MouseEvent("mousedown"));
+      if (rafCallback) rafCallback(performance.now());
+      window.dispatchEvent(new MouseEvent("mouseup"));
+    });
+    expect(mockContext.clearRect).toHaveBeenCalled();
+  });
 });
