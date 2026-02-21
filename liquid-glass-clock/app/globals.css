@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a1a;
+  --background: #060612;
 }
 
 * {
@@ -18,10 +18,73 @@ body {
   height: 100%;
 }
 
+/* ── Dynamic color theme cycling ───────────────────────────────────────────── */
+
+/* Body base color slowly drifts between dark color themes */
+@keyframes body-bg-shift {
+  0%,  100% { background-color: #060612; } /* Purple night   */
+  25%        { background-color: #01090e; } /* Ocean deep     */
+  50%        { background-color: #010d03; } /* Forest green   */
+  75%        { background-color: #0e0102; } /* Crimson dusk   */
+}
+
 body {
-  background: var(--background);
+  background-color: var(--background);
+  animation: body-bg-shift 60s ease-in-out infinite;
   color: white;
   font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Themed gradient overlay layers — crossfade between 4 palettes */
+@keyframes theme-0-fade {
+  0%  { opacity: 1; }
+  18% { opacity: 1; }
+  25% { opacity: 0; }
+  95% { opacity: 0; }
+  100%{ opacity: 1; }
+}
+
+@keyframes theme-1-fade {
+  0%  { opacity: 0; }
+  18% { opacity: 0; }
+  25% { opacity: 1; }
+  43% { opacity: 1; }
+  50% { opacity: 0; }
+  100%{ opacity: 0; }
+}
+
+@keyframes theme-2-fade {
+  0%  { opacity: 0; }
+  43% { opacity: 0; }
+  50% { opacity: 1; }
+  68% { opacity: 1; }
+  75% { opacity: 0; }
+  100%{ opacity: 0; }
+}
+
+@keyframes theme-3-fade {
+  0%  { opacity: 0; }
+  68% { opacity: 0; }
+  75% { opacity: 1; }
+  93% { opacity: 1; }
+  100%{ opacity: 0; }
+}
+
+.theme-bg-0 { animation: theme-0-fade 60s ease-in-out infinite; }
+.theme-bg-1 { animation: theme-1-fade 60s ease-in-out infinite; }
+.theme-bg-2 { animation: theme-2-fade 60s ease-in-out infinite; }
+.theme-bg-3 { animation: theme-3-fade 60s ease-in-out infinite; }
+
+/* Canvas hue-rotation — shifts geometric particle colors over time */
+@keyframes canvas-hue-cycle {
+  0%, 100% { filter: hue-rotate(0deg); }
+  25%       { filter: hue-rotate(90deg);  }
+  50%       { filter: hue-rotate(180deg); }
+  75%       { filter: hue-rotate(270deg); }
+}
+
+.color-cycle-canvas {
+  animation: canvas-hue-cycle 60s linear infinite;
 }
 
 /* Liquid glass effect */

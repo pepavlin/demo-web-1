@@ -90,6 +90,74 @@ const SPARK_COLORS = [
   "rgba(255, 100, 180, 0.8)",
 ];
 
+// Themed gradient strings for each blob — cycles through 4 palettes
+// Format must stay identical across all frames for smooth Framer Motion interpolation
+const BLOB_THEME_DURATION = 60; // seconds per full color cycle
+
+const blob1Backgrounds = [
+  "radial-gradient(circle, rgba(120, 40, 200, 0.35) 0%, rgba(80, 20, 160, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 120, 220, 0.35) 0%, rgba(0, 60, 180, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 180, 80, 0.35) 0%, rgba(0, 100, 40, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(220, 40, 40, 0.35) 0%, rgba(160, 20, 20, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(120, 40, 200, 0.35) 0%, rgba(80, 20, 160, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const blob2Backgrounds = [
+  "radial-gradient(circle, rgba(40, 80, 220, 0.35) 0%, rgba(20, 50, 180, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 180, 200, 0.35) 0%, rgba(0, 100, 160, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(100, 200, 50, 0.35) 0%, rgba(50, 140, 20, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(255, 120, 0, 0.35) 0%, rgba(200, 80, 0, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(40, 80, 220, 0.35) 0%, rgba(20, 50, 180, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const blob3Backgrounds = [
+  "radial-gradient(circle, rgba(200, 40, 120, 0.2) 0%, rgba(160, 20, 80, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 160, 220, 0.2) 0%, rgba(0, 100, 180, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(40, 180, 100, 0.2) 0%, rgba(20, 120, 60, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(220, 40, 20, 0.2) 0%, rgba(160, 20, 10, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(200, 40, 120, 0.2) 0%, rgba(160, 20, 80, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const blob4Backgrounds = [
+  "radial-gradient(circle, rgba(60, 160, 255, 0.2) 0%, rgba(30, 100, 200, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 200, 120, 0.2) 0%, rgba(0, 140, 80, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(140, 200, 0, 0.2) 0%, rgba(90, 140, 0, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(255, 180, 0, 0.2) 0%, rgba(200, 120, 0, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(60, 160, 255, 0.2) 0%, rgba(30, 100, 200, 0.08) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const blob5Backgrounds = [
+  "radial-gradient(circle, rgba(0, 200, 180, 0.18) 0%, rgba(0, 150, 140, 0.07) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(150, 50, 220, 0.18) 0%, rgba(100, 20, 180, 0.07) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(120, 180, 0, 0.18) 0%, rgba(80, 120, 0, 0.07) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(220, 50, 180, 0.18) 0%, rgba(160, 20, 120, 0.07) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(0, 200, 180, 0.18) 0%, rgba(0, 150, 140, 0.07) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const blob6Backgrounds = [
+  "radial-gradient(circle, rgba(255, 150, 50, 0.15) 0%, rgba(200, 80, 20, 0.06) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(80, 80, 220, 0.15) 0%, rgba(50, 50, 160, 0.06) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(50, 180, 80, 0.15) 0%, rgba(20, 120, 50, 0.06) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(220, 30, 50, 0.15) 0%, rgba(160, 15, 30, 0.06) 50%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(circle, rgba(255, 150, 50, 0.15) 0%, rgba(200, 80, 20, 0.06) 50%, rgba(0, 0, 0, 0) 70%)",
+];
+
+const centerGlowBackgrounds = [
+  "radial-gradient(ellipse, rgba(100, 60, 200, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(ellipse, rgba(0, 140, 200, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(ellipse, rgba(40, 180, 80, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(ellipse, rgba(200, 60, 40, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
+  "radial-gradient(ellipse, rgba(100, 60, 200, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
+];
+
+// Transition config for the color cycling (shared by all blobs)
+const colorTransition = {
+  type: "tween" as const,
+  duration: BLOB_THEME_DURATION,
+  repeat: Infinity,
+  ease: "easeInOut" as const,
+};
+
 function generateRisingParticles(count: number): RisingParticle[] {
   return Array.from({ length: count }, (_, i) => ({
     id: i,
@@ -171,12 +239,40 @@ export default function LiquidBackground() {
 
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      {/* Deep space gradient base */}
+      {/* ── Themed background gradient layers — crossfade between 4 palettes ── */}
+      {/* Purple night */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 theme-bg-0"
         style={{
           background:
             "radial-gradient(ellipse at 20% 50%, #1a0533 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #0d1b4b 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, #0a0a2e 0%, transparent 60%), #060612",
+        }}
+      />
+      {/* Ocean deep */}
+      <div
+        className="absolute inset-0 theme-bg-1"
+        style={{
+          background:
+            "radial-gradient(ellipse at 20% 50%, #003355 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #001a44 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, #001628 0%, transparent 60%), #01090e",
+          opacity: 0,
+        }}
+      />
+      {/* Forest green */}
+      <div
+        className="absolute inset-0 theme-bg-2"
+        style={{
+          background:
+            "radial-gradient(ellipse at 20% 50%, #003310 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #001a08 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, #001a00 0%, transparent 60%), #010d03",
+          opacity: 0,
+        }}
+      />
+      {/* Crimson dusk */}
+      <div
+        className="absolute inset-0 theme-bg-3"
+        style={{
+          background:
+            "radial-gradient(ellipse at 20% 50%, #330005 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #2a0800 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, #1a0200 0%, transparent 60%), #0e0102",
+          opacity: 0,
         }}
       />
 
@@ -259,7 +355,9 @@ export default function LiquidBackground() {
         />
       ))}
 
-      {/* Animated blobs */}
+      {/* ── Animated blobs — color cycles through 4 themes over 60s ── */}
+
+      {/* Blob 1 — upper left, large */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -267,22 +365,23 @@ export default function LiquidBackground() {
           height: "600px",
           top: "10%",
           left: "15%",
-          background:
-            "radial-gradient(circle, rgba(120, 40, 200, 0.35) 0%, rgba(80, 20, 160, 0.15) 50%, transparent 70%)",
           filter: "blur(60px)",
         }}
         animate={{
+          background: blob1Backgrounds,
           x: [0, 80, -40, 60, 0],
           y: [0, -60, 80, 40, 0],
           scale: [1, 1.15, 0.9, 1.05, 1],
         }}
         transition={{
-          duration: 20,
-          repeat: Infinity,
-          ease: "easeInOut",
+          background: colorTransition,
+          x: { type: "tween", duration: 20, repeat: Infinity, ease: "easeInOut" },
+          y: { type: "tween", duration: 20, repeat: Infinity, ease: "easeInOut" },
+          scale: { type: "tween", duration: 20, repeat: Infinity, ease: "easeInOut" },
         }}
       />
 
+      {/* Blob 2 — lower right */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -290,23 +389,23 @@ export default function LiquidBackground() {
           height: "500px",
           bottom: "15%",
           right: "10%",
-          background:
-            "radial-gradient(circle, rgba(40, 80, 220, 0.35) 0%, rgba(20, 50, 180, 0.15) 50%, transparent 70%)",
           filter: "blur(60px)",
         }}
         animate={{
+          background: blob2Backgrounds,
           x: [0, -70, 50, -40, 0],
           y: [0, 50, -70, 30, 0],
           scale: [1, 1.2, 0.85, 1.1, 1],
         }}
         transition={{
-          duration: 25,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 3,
+          background: { ...colorTransition, delay: 15 },
+          x: { type: "tween", duration: 25, repeat: Infinity, ease: "easeInOut", delay: 3 },
+          y: { type: "tween", duration: 25, repeat: Infinity, ease: "easeInOut", delay: 3 },
+          scale: { type: "tween", duration: 25, repeat: Infinity, ease: "easeInOut", delay: 3 },
         }}
       />
 
+      {/* Blob 3 — center right */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -314,23 +413,23 @@ export default function LiquidBackground() {
           height: "400px",
           top: "40%",
           right: "25%",
-          background:
-            "radial-gradient(circle, rgba(200, 40, 120, 0.2) 0%, rgba(160, 20, 80, 0.08) 50%, transparent 70%)",
           filter: "blur(50px)",
         }}
         animate={{
+          background: blob3Backgrounds,
           x: [0, 60, -50, 30, 0],
           y: [0, -40, 60, -30, 0],
           scale: [1, 0.9, 1.15, 0.95, 1],
         }}
         transition={{
-          duration: 18,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 6,
+          background: { ...colorTransition, delay: 30 },
+          x: { type: "tween", duration: 18, repeat: Infinity, ease: "easeInOut", delay: 6 },
+          y: { type: "tween", duration: 18, repeat: Infinity, ease: "easeInOut", delay: 6 },
+          scale: { type: "tween", duration: 18, repeat: Infinity, ease: "easeInOut", delay: 6 },
         }}
       />
 
+      {/* Blob 4 — lower left center */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -338,24 +437,23 @@ export default function LiquidBackground() {
           height: "350px",
           top: "60%",
           left: "30%",
-          background:
-            "radial-gradient(circle, rgba(60, 160, 255, 0.2) 0%, rgba(30, 100, 200, 0.08) 50%, transparent 70%)",
           filter: "blur(45px)",
         }}
         animate={{
+          background: blob4Backgrounds,
           x: [0, -50, 70, -20, 0],
           y: [0, 60, -40, 50, 0],
           scale: [1, 1.1, 0.92, 1.08, 1],
         }}
         transition={{
-          duration: 22,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 10,
+          background: { ...colorTransition, delay: 45 },
+          x: { type: "tween", duration: 22, repeat: Infinity, ease: "easeInOut", delay: 10 },
+          y: { type: "tween", duration: 22, repeat: Infinity, ease: "easeInOut", delay: 10 },
+          scale: { type: "tween", duration: 22, repeat: Infinity, ease: "easeInOut", delay: 10 },
         }}
       />
 
-      {/* Extra blobs for richer depth */}
+      {/* Blob 5 — upper center */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -363,23 +461,23 @@ export default function LiquidBackground() {
           height: "320px",
           top: "20%",
           right: "40%",
-          background:
-            "radial-gradient(circle, rgba(0, 200, 180, 0.18) 0%, rgba(0, 150, 140, 0.07) 50%, transparent 70%)",
           filter: "blur(55px)",
         }}
         animate={{
+          background: blob5Backgrounds,
           x: [0, 50, -30, 40, 0],
           y: [0, 40, -55, 25, 0],
           scale: [1, 1.25, 0.88, 1.1, 1],
         }}
         transition={{
-          duration: 27,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 4,
+          background: colorTransition,
+          x: { type: "tween", duration: 27, repeat: Infinity, ease: "easeInOut", delay: 4 },
+          y: { type: "tween", duration: 27, repeat: Infinity, ease: "easeInOut", delay: 4 },
+          scale: { type: "tween", duration: 27, repeat: Infinity, ease: "easeInOut", delay: 4 },
         }}
       />
 
+      {/* Blob 6 — lower left */}
       <motion.div
         className="absolute rounded-full"
         style={{
@@ -387,20 +485,19 @@ export default function LiquidBackground() {
           height: "280px",
           bottom: "30%",
           left: "10%",
-          background:
-            "radial-gradient(circle, rgba(255, 150, 50, 0.15) 0%, rgba(200, 80, 20, 0.06) 50%, transparent 70%)",
           filter: "blur(50px)",
         }}
         animate={{
+          background: blob6Backgrounds,
           x: [0, -40, 55, -30, 0],
           y: [0, -50, 35, -45, 0],
           scale: [1, 0.88, 1.18, 0.95, 1],
         }}
         transition={{
-          duration: 23,
-          repeat: Infinity,
-          ease: "easeInOut",
-          delay: 14,
+          background: { ...colorTransition, delay: 20 },
+          x: { type: "tween", duration: 23, repeat: Infinity, ease: "easeInOut", delay: 14 },
+          y: { type: "tween", duration: 23, repeat: Infinity, ease: "easeInOut", delay: 14 },
+          scale: { type: "tween", duration: 23, repeat: Infinity, ease: "easeInOut", delay: 14 },
         }}
       />
 
@@ -413,18 +510,17 @@ export default function LiquidBackground() {
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          background:
-            "radial-gradient(ellipse, rgba(100, 60, 200, 0.12) 0%, transparent 70%)",
           filter: "blur(40px)",
         }}
         animate={{
+          background: centerGlowBackgrounds,
           scale: [1, 1.1, 0.95, 1.05, 1],
           opacity: [0.7, 1, 0.8, 0.9, 0.7],
         }}
         transition={{
-          duration: 8,
-          repeat: Infinity,
-          ease: "easeInOut",
+          background: { ...colorTransition, delay: 7.5 },
+          scale: { type: "tween", duration: 8, repeat: Infinity, ease: "easeInOut" },
+          opacity: { type: "tween", duration: 8, repeat: Infinity, ease: "easeInOut" },
         }}
       />
 

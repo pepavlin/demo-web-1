@@ -269,7 +269,7 @@ export default function GeometricParticles() {
     <canvas
       ref={canvasRef}
       data-testid="geometric-particles-canvas"
-      className="absolute inset-0 pointer-events-none"
+      className="absolute inset-0 pointer-events-none color-cycle-canvas"
       style={{ opacity: 0.75 }}
     />
   );
