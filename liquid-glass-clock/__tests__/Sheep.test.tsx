@@ -92,11 +92,12 @@ describe("Sheep component", () => {
     expect(screen.queryByText("Beee!")).toBeNull();
   });
 
-  it("renders SVG with four leg rect elements", () => {
+  it("renders SVG with leg and hoof rect elements", () => {
     render(<Sheep />);
     flushMount();
     const rects = document.querySelectorAll("svg rect");
-    expect(rects.length).toBe(4);
+    // 4 legs + 4 hooves = 8 rect elements in the 3-D sheep SVG
+    expect(rects.length).toBe(8);
   });
 
   it("renders at least one SVG element for the sheep body", () => {

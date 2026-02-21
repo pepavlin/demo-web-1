@@ -14,19 +14,13 @@ const MIN_BLEAT_DELAY = 8000; // ms
 const MAX_BLEAT_DELAY = 22000; // ms
 const CORNER_TURN_PROB = 0.5;
 
-// ── Side type ─────────────────────────────────────────────────────────────────
 type Side = "bottom" | "right" | "top" | "left";
 const SIDES: Side[] = ["bottom", "right", "top", "left"];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function sideLenPx(side: Side): number {
   return side === "bottom" || side === "top" ? window.innerWidth : window.innerHeight;
 }
 
-/**
- * progress = distance from the clockwise-start corner of the side.
- * The sheep's perpendicular footprint on side walls = SHEEP_H (it rotates 90°).
- */
 function toScreenCenter(side: Side, progress: number): { cx: number; cy: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -38,17 +32,6 @@ function toScreenCenter(side: Side, progress: number): { cx: number; cy: number 
   }
 }
 
-/**
- * CSS transform for the sheep element. dir=+1 = clockwise movement.
- *   bottom +1 (right)  : none
- *   bottom -1 (left)   : scaleX(-1)
- *   right  +1 (up)     : rotate(-90deg)
- *   right  -1 (down)   : scaleX(-1) rotate(90deg)
- *   top    +1 (left)   : rotate(180deg)
- *   top    -1 (right)  : scaleY(-1)
- *   left   +1 (down)   : rotate(90deg)
- *   left   -1 (up)     : scaleX(-1) rotate(-90deg)
- */
 function sheepTransform(side: Side, dir: 1 | -1): string {
   if (side === "bottom") return dir ===  1 ? "none"                        : "scaleX(-1)";
   if (side === "right")  return dir ===  1 ? "rotate(-90deg)"              : "scaleX(-1) rotate(90deg)";
@@ -70,48 +53,104 @@ function dirTowardMouse(
 function nextSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 1) % 4]; }
 function prevSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 3) % 4]; }
 
-// ── SVG ───────────────────────────────────────────────────────────────────────
+// ── SVG with subtle 3-D depth using gradient fills ────────────────────────────
 function SheepSVG({ running }: { running: boolean }) {
   const legA = running ? "sheep-leg-a" : "";
   const legB = running ? "sheep-leg-b" : "";
 
   return (
     <svg width={SHEEP_W} height={SHEEP_H} viewBox="0 0 100 90" aria-hidden="true">
+      <defs>
+        {/* Wool gradient — light comes from top-left for 3-D roundness */}
+        <radialGradient id="woolGrad" cx="35%" cy="30%" r="65%">
+          <stop offset="0%"   stopColor="rgba(255,255,255,1)"   />
+          <stop offset="40%"  stopColor="rgba(235,235,245,0.95)" />
+          <stop offset="80%"  stopColor="rgba(200,195,220,0.9)"  />
+          <stop offset="100%" stopColor="rgba(160,155,185,0.85)" />
+        </radialGradient>
+        {/* Wool highlight overlay — top specular sheen */}
+        <radialGradient id="woolHighlight" cx="30%" cy="20%" r="50%">
+          <stop offset="0%"   stopColor="rgba(255,255,255,0.55)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0)"    />
+        </radialGradient>
+        {/* Head gradient — dark rounded head */}
+        <radialGradient id="headGrad" cx="35%" cy="30%" r="70%">
+          <stop offset="0%"   stopColor="#555" />
+          <stop offset="60%"  stopColor="#333" />
+          <stop offset="100%" stopColor="#1a1a1a" />
+        </radialGradient>
+        {/* Leg gradient */}
+        <linearGradient id="legGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%"  stopColor="#2a2a2a" />
+          <stop offset="50%" stopColor="#1a1a1a" />
+          <stop offset="100%" stopColor="#0a0a0a" />
+        </linearGradient>
+        {/* Ear gradient */}
+        <radialGradient id="earGrad" cx="40%" cy="35%" r="65%">
+          <stop offset="0%"  stopColor="#5a5a5a" />
+          <stop offset="100%" stopColor="#333" />
+        </radialGradient>
+        {/* Eye highlight */}
+        <radialGradient id="eyeHighlight" cx="35%" cy="30%" r="65%">
+          <stop offset="0%"   stopColor="rgba(255,255,255,0.9)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0)"   />
+        </radialGradient>
+      </defs>
+
+      {/* Drop shadow beneath sheep (ground contact) */}
+      <ellipse cx="45" cy="88" rx="36" ry="4" fill="rgba(0,0,0,0.25)" style={{ filter: "blur(3px)" }} />
+
       {/* Back legs */}
       <g className={legB}>
-        <rect x="52" y="60" width="8" height="26" rx="4" fill="#1a1a1a" />
+        <rect x="52" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+        {/* Hoof */}
+        <rect x="51" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
       </g>
       <g className={legA}>
-        <rect x="64" y="60" width="8" height="26" rx="4" fill="#1a1a1a" />
+        <rect x="64" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+        <rect x="63" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
       </g>
 
-      {/* Wool body */}
-      <ellipse cx="45" cy="48" rx="35" ry="22" fill="white" />
-      <circle cx="22" cy="35" r="16" fill="white" />
-      <circle cx="36" cy="27" r="18" fill="white" />
-      <circle cx="53" cy="25" r="18" fill="white" />
-      <circle cx="68" cy="31" r="15" fill="white" />
+      {/* Wool body — base with 3-D gradient */}
+      <ellipse cx="45" cy="48" rx="35" ry="22" fill="url(#woolGrad)" />
+      <circle cx="22" cy="35" r="16" fill="url(#woolGrad)" />
+      <circle cx="36" cy="27" r="18" fill="url(#woolGrad)" />
+      <circle cx="53" cy="25" r="18" fill="url(#woolGrad)" />
+      <circle cx="68" cy="31" r="15" fill="url(#woolGrad)" />
+
+      {/* Wool specular highlight */}
+      <ellipse cx="35" cy="28" rx="30" ry="18" fill="url(#woolHighlight)" />
 
       {/* Head */}
-      <ellipse cx="81" cy="43" rx="13" ry="12" fill="#333" />
+      <ellipse cx="81" cy="43" rx="13" ry="12" fill="url(#headGrad)" />
+
+      {/* Eye white */}
       <circle cx="85" cy="39" r="2.8" fill="white" />
+      {/* Pupil */}
       <circle cx="85.5" cy="39" r="1.4" fill="#0a0a0a" />
-      <ellipse cx="75" cy="32" rx="5" ry="3" fill="#444" transform="rotate(-15 75 32)" />
+      {/* Eye highlight */}
+      <circle cx="84.8" cy="38.4" r="0.6" fill="rgba(255,255,255,0.9)" />
+
+      {/* Ear */}
+      <ellipse cx="75" cy="32" rx="5" ry="3" fill="url(#earGrad)" transform="rotate(-15 75 32)" />
+
+      {/* Nostrils */}
       <circle cx="86" cy="48" r="1.2" fill="#555" />
       <circle cx="89" cy="47" r="1.2" fill="#555" />
 
       {/* Front legs */}
       <g className={legA}>
-        <rect x="18" y="60" width="8" height="26" rx="4" fill="#1a1a1a" />
+        <rect x="18" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+        <rect x="17" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
       </g>
       <g className={legB}>
-        <rect x="30" y="60" width="8" height="26" rx="4" fill="#1a1a1a" />
+        <rect x="30" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+        <rect x="29" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
       </g>
     </svg>
   );
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export default function Sheep() {
   const [mounted, setMounted] = useState(false);
   const [bleating, setBleating] = useState(false);
@@ -122,18 +161,21 @@ export default function Sheep() {
     transform: string;
   }>({ left: -SHEEP_W - 20, top: 0, transform: "none" });
 
+  /* Extra 3-D tilt state: slight perspective lean driven by speed/direction */
+  const [tilt3d, setTilt3d] = useState(0);
+
   const sideRef     = useRef<Side>("bottom");
-  const progressRef = useRef<number>(-SHEEP_W - 20); // start off-screen left
+  const progressRef = useRef<number>(-SHEEP_W - 20);
   const dirRef      = useRef<1 | -1>(1);
   const bleatRef    = useRef(false);
   const stoppedRef  = useRef(false);
   const rafRef      = useRef<number>(0);
   const mouseRef    = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef = useRef(false);
+  const prevProgressRef = useRef<number>(-SHEEP_W - 20);
 
   useEffect(() => { setMounted(true); }, []);
 
-  // ── Mouse tracking ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
 
@@ -155,7 +197,6 @@ export default function Sheep() {
     };
   }, [mounted]);
 
-  // ── Movement animation loop ─────────────────────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
 
@@ -201,7 +242,6 @@ export default function Sheep() {
 
         let newProgress = progress + dirRef.current * speed * dt;
 
-        // ── Corner handling ───────────────────────────────────────────────────
         if (dirRef.current === 1 && newProgress >= sideLen) {
           if (Math.random() < CORNER_TURN_PROB) {
             sideRef.current = nextSide(side);
@@ -223,6 +263,14 @@ export default function Sheep() {
 
         progressRef.current = newProgress;
 
+        /* Compute lean angle based on current speed */
+        const velocity = Math.abs(newProgress - prevProgressRef.current) / dt;
+        prevProgressRef.current = newProgress;
+        /* Lean forward slightly when running (positive = lean forward) */
+        const maxLean = 8; // degrees
+        const lean = Math.min(velocity / FLEE_SPEED, 1) * maxLean * dirRef.current;
+        setTilt3d(lean);
+
         const { cx: ncx, cy: ncy } = toScreenCenter(sideRef.current, newProgress);
         const t = sheepTransform(sideRef.current, dirRef.current);
         setSheepPos({ left: Math.round(ncx - SHEEP_W / 2), top: Math.round(ncy - SHEEP_H / 2), transform: t });
@@ -235,7 +283,6 @@ export default function Sheep() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [mounted]);
 
-  // ── Bleat scheduling ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
 
@@ -261,7 +308,6 @@ export default function Sheep() {
 
   if (!mounted) return null;
 
-  // Bubble positioned near the head (right side of SVG at ~80% width)
   const bubbleLeft = Math.floor(SHEEP_W * 0.45);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -286,6 +332,15 @@ export default function Sheep() {
         pointerEvents: "auto",
         cursor: stopped ? "not-allowed" : "default",
         willChange: "transform, left, top",
+        /*
+         * 3-D drop-shadow: a strong bottom shadow grounds the sheep,
+         * while a soft side shadow gives volumetric depth.
+         */
+        filter: [
+          "drop-shadow(0px 6px 6px rgba(0,0,0,0.55))",
+          "drop-shadow(0px 10px 18px rgba(0,0,0,0.4))",
+          "drop-shadow(2px 2px 3px rgba(0,0,0,0.3))",
+        ].join(" "),
       }}
     >
       {/* Speech bubble */}
@@ -309,7 +364,7 @@ export default function Sheep() {
               fontWeight: 700,
               fontFamily: "system-ui, -apple-system, sans-serif",
               whiteSpace: "nowrap",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.30)",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
               transformOrigin: "bottom left",
               userSelect: "none",
             }}
@@ -329,10 +384,21 @@ export default function Sheep() {
         )}
       </AnimatePresence>
 
-      {/* Sheep graphic — outer div is a structural wrapper so the bounce animation */}
-      {/* on the inner div cannot interfere with the container's transform */}
-      <div>
-        <div className={bleating ? "" : "sheep-running-bounce"}>
+      {/* Sheep graphic — outer wrapper applies perspective 3-D lean */}
+      <div
+        style={{
+          perspective: "300px",
+          perspectiveOrigin: "50% 100%",
+        }}
+      >
+        <div
+          className={bleating ? "" : "sheep-running-bounce"}
+          style={{
+            transform: `rotateY(${tilt3d}deg)`,
+            transition: "transform 0.15s ease-out",
+            transformStyle: "preserve-3d",
+          }}
+        >
           <SheepSVG running={!bleating} />
         </div>
       </div>

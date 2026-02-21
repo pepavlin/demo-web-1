@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
+import { motion, useTransform } from "framer-motion";
 import GeometricParticles from "./GeometricParticles";
+import { useMouseParallax } from "@/hooks/useMouseParallax";
 
 interface RisingParticle {
   id: number;
@@ -12,6 +13,8 @@ interface RisingParticle {
   delay: number;
   drift: number;
   color: string;
+  /** Depth layer 0 = far, 1 = near — affects parallax shift amount */
+  layer: number;
 }
 
 interface TwinkleStar {
@@ -23,6 +26,8 @@ interface TwinkleStar {
   delay: number;
   glow: number;
   color: string;
+  /** 0 = far, 1 = near */
+  layer: number;
 }
 
 interface ShootingStar {
@@ -90,9 +95,7 @@ const SPARK_COLORS = [
   "rgba(255, 100, 180, 0.8)",
 ];
 
-// Themed gradient strings for each blob — cycles through 4 palettes
-// Format must stay identical across all frames for smooth Framer Motion interpolation
-const BLOB_THEME_DURATION = 60; // seconds per full color cycle
+const BLOB_THEME_DURATION = 60;
 
 const blob1Backgrounds = [
   "radial-gradient(circle, rgba(120, 40, 200, 0.35) 0%, rgba(80, 20, 160, 0.15) 50%, rgba(0, 0, 0, 0) 70%)",
@@ -150,7 +153,6 @@ const centerGlowBackgrounds = [
   "radial-gradient(ellipse, rgba(100, 60, 200, 0.12) 0%, rgba(0, 0, 0, 0) 70%)",
 ];
 
-// Transition config for the color cycling (shared by all blobs)
 const colorTransition = {
   type: "tween" as const,
   duration: BLOB_THEME_DURATION,
@@ -167,6 +169,7 @@ function generateRisingParticles(count: number): RisingParticle[] {
     delay: Math.random() * 12,
     drift: (Math.random() - 0.5) * 260,
     color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)],
+    layer: Math.random(),
   }));
 }
 
@@ -180,6 +183,7 @@ function generateTwinkleStars(count: number): TwinkleStar[] {
     delay: Math.random() * 10,
     glow: Math.random() * 5 + 2,
     color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)],
+    layer: Math.random(),
   }));
 }
 
@@ -229,6 +233,20 @@ export default function LiquidBackground() {
   const [pulseOrbs, setPulseOrbs] = useState<PulseOrb[]>([]);
   const [energySparks, setEnergySparks] = useState<EnergySpark[]>([]);
 
+  const { normX, normY } = useMouseParallax();
+
+  /* Parallax translation values for each depth layer */
+  const farShiftX  = useTransform(normX, (x) => x * -8);
+  const farShiftY  = useTransform(normY, (y) => y * -8);
+  const midShiftX  = useTransform(normX, (x) => x * -18);
+  const midShiftY  = useTransform(normY, (y) => y * -18);
+  const nearShiftX = useTransform(normX, (x) => x * -32);
+  const nearShiftY = useTransform(normY, (y) => y * -32);
+
+  /* Subtle perspective tilt of the whole background */
+  const bgRotateX = useTransform(normY, (y) => y * -4);
+  const bgRotateY = useTransform(normX, (x) => x * 4);
+
   useEffect(() => {
     setRisingParticles(generateRisingParticles(65));
     setTwinkleStars(generateTwinkleStars(110));
@@ -237,10 +255,28 @@ export default function LiquidBackground() {
     setEnergySparks(generateEnergySparks(30));
   }, []);
 
+  /* Split stars by depth layer for parallax */
+  const farStars  = twinkleStars.filter((s) => s.layer < 0.4);
+  const midStars  = twinkleStars.filter((s) => s.layer >= 0.4 && s.layer < 0.75);
+  const nearStars = twinkleStars.filter((s) => s.layer >= 0.75);
+
+  /* Split rising particles similarly */
+  const farParticles  = risingParticles.filter((p) => p.layer < 0.4);
+  const midParticles  = risingParticles.filter((p) => p.layer >= 0.4 && p.layer < 0.75);
+  const nearParticles = risingParticles.filter((p) => p.layer >= 0.75);
+
   return (
-    <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      {/* ── Themed background gradient layers — crossfade between 4 palettes ── */}
-      {/* Purple night */}
+    <motion.div
+      className="fixed inset-0 overflow-hidden pointer-events-none"
+      style={{
+        perspective: "1200px",
+        perspectiveOrigin: "50% 50%",
+        rotateX: bgRotateX,
+        rotateY: bgRotateY,
+        transformStyle: "preserve-3d",
+      }}
+    >
+      {/* ── Theme gradient layers ─────────────────────────────────────── */}
       <div
         className="absolute inset-0 theme-bg-0"
         style={{
@@ -248,7 +284,6 @@ export default function LiquidBackground() {
             "radial-gradient(ellipse at 20% 50%, #1a0533 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #0d1b4b 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, #0a0a2e 0%, transparent 60%), #060612",
         }}
       />
-      {/* Ocean deep */}
       <div
         className="absolute inset-0 theme-bg-1"
         style={{
@@ -257,7 +292,6 @@ export default function LiquidBackground() {
           opacity: 0,
         }}
       />
-      {/* Forest green */}
       <div
         className="absolute inset-0 theme-bg-2"
         style={{
@@ -266,7 +300,6 @@ export default function LiquidBackground() {
           opacity: 0,
         }}
       />
-      {/* Crimson dusk */}
       <div
         className="absolute inset-0 theme-bg-3"
         style={{
@@ -276,27 +309,83 @@ export default function LiquidBackground() {
         }}
       />
 
-      {/* Twinkling star field */}
-      {twinkleStars.map((star) => (
-        <div
-          key={star.id}
-          className="particle-twinkle"
-          style={
-            {
-              left: `${star.x}%`,
-              top: `${star.y}%`,
-              width: `${star.size}px`,
-              height: `${star.size}px`,
-              background: star.color,
-              "--duration": `${star.duration}s`,
-              "--delay": `${star.delay}s`,
-              "--glow": `${star.glow}px`,
-            } as React.CSSProperties
-          }
-        />
-      ))}
+      {/* ── Far star layer (slowest parallax) ─────────────────────────── */}
+      <motion.div
+        className="absolute inset-0"
+        style={{ x: farShiftX, y: farShiftY }}
+      >
+        {farStars.map((star) => (
+          <div
+            key={star.id}
+            className="particle-twinkle"
+            style={
+              {
+                left: `${star.x}%`,
+                top: `${star.y}%`,
+                width: `${star.size * 0.7}px`,
+                height: `${star.size * 0.7}px`,
+                background: star.color,
+                "--duration": `${star.duration}s`,
+                "--delay": `${star.delay}s`,
+                "--glow": `${star.glow * 0.6}px`,
+                opacity: 0.6,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
 
-      {/* Shooting stars */}
+      {/* ── Mid star layer ─────────────────────────────────────────────── */}
+      <motion.div
+        className="absolute inset-0"
+        style={{ x: midShiftX, y: midShiftY }}
+      >
+        {midStars.map((star) => (
+          <div
+            key={star.id}
+            className="particle-twinkle"
+            style={
+              {
+                left: `${star.x}%`,
+                top: `${star.y}%`,
+                width: `${star.size}px`,
+                height: `${star.size}px`,
+                background: star.color,
+                "--duration": `${star.duration}s`,
+                "--delay": `${star.delay}s`,
+                "--glow": `${star.glow}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
+
+      {/* ── Near star layer (fastest parallax, largest / brightest) ───── */}
+      <motion.div
+        className="absolute inset-0"
+        style={{ x: nearShiftX, y: nearShiftY }}
+      >
+        {nearStars.map((star) => (
+          <div
+            key={star.id}
+            className="particle-twinkle"
+            style={
+              {
+                left: `${star.x}%`,
+                top: `${star.y}%`,
+                width: `${star.size * 1.6}px`,
+                height: `${star.size * 1.6}px`,
+                background: star.color,
+                "--duration": `${star.duration}s`,
+                "--delay": `${star.delay}s`,
+                "--glow": `${star.glow * 1.4}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
+
+      {/* ── Shooting stars ─────────────────────────────────────────────── */}
       {shootingStars.map((ss) => (
         <div
           key={ss.id}
@@ -316,7 +405,7 @@ export default function LiquidBackground() {
         />
       ))}
 
-      {/* Pulse orbs */}
+      {/* ── Pulse orbs ─────────────────────────────────────────────────── */}
       {pulseOrbs.map((orb) => (
         <div
           key={orb.id}
@@ -335,7 +424,7 @@ export default function LiquidBackground() {
         />
       ))}
 
-      {/* Energy sparks */}
+      {/* ── Energy sparks ──────────────────────────────────────────────── */}
       {energySparks.map((spark) => (
         <div
           key={spark.id}
@@ -355,18 +444,10 @@ export default function LiquidBackground() {
         />
       ))}
 
-      {/* ── Animated blobs — color cycles through 4 themes over 60s ── */}
-
-      {/* Blob 1 — upper left, large */}
+      {/* ── Animated blobs ─────────────────────────────────────────────── */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "600px",
-          height: "600px",
-          top: "10%",
-          left: "15%",
-          filter: "blur(60px)",
-        }}
+        style={{ width: "600px", height: "600px", top: "10%", left: "15%", filter: "blur(60px)" }}
         animate={{
           background: blob1Backgrounds,
           x: [0, 80, -40, 60, 0],
@@ -380,17 +461,9 @@ export default function LiquidBackground() {
           scale: { type: "tween", duration: 20, repeat: Infinity, ease: "easeInOut" },
         }}
       />
-
-      {/* Blob 2 — lower right */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "500px",
-          height: "500px",
-          bottom: "15%",
-          right: "10%",
-          filter: "blur(60px)",
-        }}
+        style={{ width: "500px", height: "500px", bottom: "15%", right: "10%", filter: "blur(60px)" }}
         animate={{
           background: blob2Backgrounds,
           x: [0, -70, 50, -40, 0],
@@ -404,17 +477,9 @@ export default function LiquidBackground() {
           scale: { type: "tween", duration: 25, repeat: Infinity, ease: "easeInOut", delay: 3 },
         }}
       />
-
-      {/* Blob 3 — center right */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "400px",
-          height: "400px",
-          top: "40%",
-          right: "25%",
-          filter: "blur(50px)",
-        }}
+        style={{ width: "400px", height: "400px", top: "40%", right: "25%", filter: "blur(50px)" }}
         animate={{
           background: blob3Backgrounds,
           x: [0, 60, -50, 30, 0],
@@ -428,17 +493,9 @@ export default function LiquidBackground() {
           scale: { type: "tween", duration: 18, repeat: Infinity, ease: "easeInOut", delay: 6 },
         }}
       />
-
-      {/* Blob 4 — lower left center */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "350px",
-          height: "350px",
-          top: "60%",
-          left: "30%",
-          filter: "blur(45px)",
-        }}
+        style={{ width: "350px", height: "350px", top: "60%", left: "30%", filter: "blur(45px)" }}
         animate={{
           background: blob4Backgrounds,
           x: [0, -50, 70, -20, 0],
@@ -452,17 +509,9 @@ export default function LiquidBackground() {
           scale: { type: "tween", duration: 22, repeat: Infinity, ease: "easeInOut", delay: 10 },
         }}
       />
-
-      {/* Blob 5 — upper center */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "320px",
-          height: "320px",
-          top: "20%",
-          right: "40%",
-          filter: "blur(55px)",
-        }}
+        style={{ width: "320px", height: "320px", top: "20%", right: "40%", filter: "blur(55px)" }}
         animate={{
           background: blob5Backgrounds,
           x: [0, 50, -30, 40, 0],
@@ -476,17 +525,9 @@ export default function LiquidBackground() {
           scale: { type: "tween", duration: 27, repeat: Infinity, ease: "easeInOut", delay: 4 },
         }}
       />
-
-      {/* Blob 6 — lower left */}
       <motion.div
         className="absolute rounded-full"
-        style={{
-          width: "280px",
-          height: "280px",
-          bottom: "30%",
-          left: "10%",
-          filter: "blur(50px)",
-        }}
+        style={{ width: "280px", height: "280px", bottom: "30%", left: "10%", filter: "blur(50px)" }}
         animate={{
           background: blob6Backgrounds,
           x: [0, -40, 55, -30, 0],
@@ -524,25 +565,67 @@ export default function LiquidBackground() {
         }}
       />
 
-      {/* Rising particles */}
-      {risingParticles.map((p) => (
-        <div
-          key={p.id}
-          className="particle"
-          style={
-            {
-              left: `${p.x}%`,
-              bottom: "-10px",
-              width: `${p.size}px`,
-              height: `${p.size}px`,
-              background: p.color,
-              "--duration": `${p.duration}s`,
-              "--delay": `${p.delay}s`,
-              "--drift": `${p.drift}px`,
-            } as React.CSSProperties
-          }
-        />
-      ))}
+      {/* ── Rising particles — three parallax layers ───────────────────── */}
+      <motion.div className="absolute inset-0" style={{ x: farShiftX, y: farShiftY }}>
+        {farParticles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={
+              {
+                left: `${p.x}%`,
+                bottom: "-10px",
+                width: `${p.size * 0.65}px`,
+                height: `${p.size * 0.65}px`,
+                background: p.color,
+                "--duration": `${p.duration}s`,
+                "--delay": `${p.delay}s`,
+                "--drift": `${p.drift}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
+      <motion.div className="absolute inset-0" style={{ x: midShiftX, y: midShiftY }}>
+        {midParticles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={
+              {
+                left: `${p.x}%`,
+                bottom: "-10px",
+                width: `${p.size}px`,
+                height: `${p.size}px`,
+                background: p.color,
+                "--duration": `${p.duration}s`,
+                "--delay": `${p.delay}s`,
+                "--drift": `${p.drift}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
+      <motion.div className="absolute inset-0" style={{ x: nearShiftX, y: nearShiftY }}>
+        {nearParticles.map((p) => (
+          <div
+            key={p.id}
+            className="particle"
+            style={
+              {
+                left: `${p.x}%`,
+                bottom: "-10px",
+                width: `${p.size * 1.5}px`,
+                height: `${p.size * 1.5}px`,
+                background: p.color,
+                "--duration": `${p.duration * 0.8}s`,
+                "--delay": `${p.delay}s`,
+                "--drift": `${p.drift}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </motion.div>
 
       {/* Subtle grid */}
       <div
@@ -559,6 +642,6 @@ export default function LiquidBackground() {
 
       {/* Noise texture */}
       <div className="noise-overlay" />
-    </div>
+    </motion.div>
   );
 }
