@@ -135,6 +135,18 @@ describe("GeometricParticles component", () => {
     expect(mockContext.beginPath).toHaveBeenCalled();
   });
 
+  it("applies inter-particle repulsion without throwing over multiple frames", () => {
+    render(<GeometricParticles />);
+    // Run several frames so repulsion forces have a chance to accumulate and be applied
+    act(() => {
+      for (let frame = 0; frame < 5; frame++) {
+        if (rafCallback) rafCallback(performance.now());
+      }
+    });
+    expect(mockContext.clearRect).toHaveBeenCalledTimes(5);
+    expect(mockContext.arc).toHaveBeenCalled();
+  });
+
   it("handles mousemove event without throwing", () => {
     render(<GeometricParticles />);
     act(() => {
