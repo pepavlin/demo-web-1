@@ -67,10 +67,12 @@ export default function Sheep() {
   const [x, setX] = useState(-SHEEP_W - 20);
   const [facing, setFacing] = useState<"right" | "left">("right");
   const [bleating, setBleating] = useState(false);
+  const [stopped, setStopped] = useState(false);
 
   const xRef = useRef(-SHEEP_W - 20);
   const dirRef = useRef<1 | -1>(1); // 1 = right, -1 = left
   const bleatRef = useRef(false);
+  const stoppedRef = useRef(false);
   const rafRef = useRef<number>(0);
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef = useRef(false);
@@ -119,7 +121,7 @@ export default function Sheep() {
       const dt = Math.min((now - prev) / 1000, 0.05); // cap delta to avoid jumps
       prev = now;
 
-      if (!bleatRef.current) {
+      if (!bleatRef.current && !stoppedRef.current) {
         const sw = window.innerWidth;
         // Sheep center x for distance calc
         const sheepCenterX = xRef.current + SHEEP_W / 2;
@@ -139,13 +141,13 @@ export default function Sheep() {
 
           if (dist < MOUSE_REACT_RADIUS) {
             if (clicking) {
-              // Attract: run towards mouse x position
+              // Flee: run away from mouse on click
+              currentSpeed = FLEE_SPEED;
+              newDir = dx > 0 ? 1 : -1; // run away: if mouse is to the left, run right
+            } else {
+              // Attract: run towards mouse x position by default
               currentSpeed = ATTRACT_SPEED;
               newDir = mouse.x > sheepCenterX ? 1 : -1;
-            } else {
-              // Flee: run away from mouse
-              currentSpeed = FLEE_SPEED;
-              newDir = dx > 0 ? 1 : -1; // run away: if mouse is to the right, run right
             }
           }
         }
@@ -213,16 +215,24 @@ export default function Sheep() {
   // Position the speech bubble near the head
   const bubbleLeft = flipped ? 0 : Math.floor(SHEEP_W * 0.45);
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    stoppedRef.current = !stoppedRef.current;
+    setStopped((prev) => !prev);
+  };
+
   return (
     <div
       data-testid="sheep"
+      onContextMenu={handleContextMenu}
       style={{
         position: "fixed",
         left: x,
         bottom: 0,
         zIndex: 40,
-        pointerEvents: "none",
+        pointerEvents: "auto",
         willChange: "left",
+        cursor: stopped ? "not-allowed" : "default",
       }}
     >
       {/* Speech bubble */}

@@ -27,8 +27,8 @@ const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
 const MAX_SPEED = 4;
 // Gravity-like mouse influence — force = K / distance, all particles affected
-const GRAVITY_K_REPEL = 14;   // repel constant (no click)
-const GRAVITY_K_ATTRACT = 7;  // attract constant (mouse held down)
+const GRAVITY_K_ATTRACT = 14; // attract constant (default, no click)
+const GRAVITY_K_REPEL = 7;    // repel constant (mouse held down)
 const MIN_DIST = 20;          // prevent infinite force at zero distance
 
 function createParticle(w: number, h: number): Particle {
@@ -114,15 +114,15 @@ export default function GeometricParticles() {
           if (dist > 0) {
             const effectiveDist = Math.max(dist, MIN_DIST);
             if (clicking) {
-              // Attract: pull towards mouse
-              const strength = GRAVITY_K_ATTRACT / effectiveDist;
-              p.vx -= (dx / dist) * strength;
-              p.vy -= (dy / dist) * strength;
-            } else {
-              // Repel: push away from mouse
+              // Repel: push away from mouse on click
               const strength = GRAVITY_K_REPEL / effectiveDist;
               p.vx += (dx / dist) * strength;
               p.vy += (dy / dist) * strength;
+            } else {
+              // Attract: pull towards mouse by default
+              const strength = GRAVITY_K_ATTRACT / effectiveDist;
+              p.vx -= (dx / dist) * strength;
+              p.vy -= (dy / dist) * strength;
             }
           }
         }
