@@ -34,6 +34,11 @@ describe("Sheep component", () => {
       configurable: true,
       value: 1280,
     });
+    Object.defineProperty(window, "innerHeight", {
+      writable: true,
+      configurable: true,
+      value: 800,
+    });
   });
 
   afterEach(() => {
@@ -53,11 +58,11 @@ describe("Sheep component", () => {
     expect(screen.getByTestId("sheep")).toBeInTheDocument();
   });
 
-  it("has fixed positioning at the bottom of the screen", () => {
+  it("has fixed positioning", () => {
     render(<Sheep />);
     flushMount();
     const el = screen.getByTestId("sheep");
-    expect(el).toHaveStyle({ position: "fixed", bottom: "0px" });
+    expect(el).toHaveStyle({ position: "fixed" });
   });
 
   it("does not show speech bubble initially", () => {

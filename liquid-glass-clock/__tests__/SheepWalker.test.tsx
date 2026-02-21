@@ -7,15 +7,6 @@ import "@testing-library/jest-dom";
 
 // ── Framer Motion mock ────────────────────────────────────────────────────────
 jest.mock("framer-motion", () => {
-  const mockMotionValue = (initial: number) => {
-    let val = initial;
-    return {
-      get: () => val,
-      set: (v: number) => { val = v; },
-      on: jest.fn(),
-    };
-  };
-
   return {
     motion: {
       div: ({
@@ -33,7 +24,14 @@ jest.mock("framer-motion", () => {
     },
     AnimatePresence: ({ children }: { children: React.ReactNode }) =>
       React.createElement(React.Fragment, null, children),
-    useMotionValue: mockMotionValue,
+    useMotionValue: (initial: number) => {
+      let val = initial;
+      return {
+        get: () => val,
+        set: (v: number) => { val = v; },
+        on: jest.fn(),
+      };
+    },
   };
 });
 
@@ -60,6 +58,11 @@ describe("SheepWalker component", () => {
       writable: true,
       configurable: true,
       value: 1280,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      writable: true,
+      configurable: true,
+      value: 800,
     });
   });
 
@@ -89,6 +92,13 @@ describe("SheepWalker component", () => {
       jest.advanceTimersByTime(0);
     });
     expect(getByLabelText("Ovečka")).toBeInTheDocument();
+  });
+
+  it("sheep walker has fixed positioning", () => {
+    const { getByTestId } = render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const el = getByTestId("sheep-walker");
+    expect(el).toHaveStyle({ position: "fixed" });
   });
 
   it("does not show the béé bubble immediately after mount", () => {
