@@ -5,10 +5,10 @@ import { motion, AnimatePresence, useMotionValue } from "framer-motion";
 
 const SHEEP_W = 130;
 const SHEEP_H = 88;
-const SPEED = 55; // pixels per second
-const FLEE_SPEED = 180; // pixels per second when scared
-const ATTRACT_SPEED = 130; // pixels per second when attracted
-const MOUSE_REACT_RADIUS = 200; // px distance to trigger reaction
+const SPEED = 55;          // base pixels per second
+const GRAVITY_K_FLEE = 6000;    // repel constant — extra speed = K / dist
+const GRAVITY_K_ATTRACT = 3500; // attract constant
+const MIN_DIST = 30;            // min distance to prevent extreme forces
 
 // ── Sheep SVG — cute side-view sheep facing right ───────────────────────────
 function SheepSVG() {
@@ -188,14 +188,17 @@ export default function SheepWalker() {
         const dy = sheepCenterY - mouse.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < MOUSE_REACT_RADIUS) {
+        if (dist > 0) {
+          const effectiveDist = Math.max(dist, MIN_DIST);
           if (clicking) {
-            // Attract: walk towards mouse x
-            currentSpeed = ATTRACT_SPEED;
+            // Attract: walk towards mouse, gravity-like speed boost
+            const boost = GRAVITY_K_ATTRACT / effectiveDist;
+            currentSpeed = SPEED + boost;
             newDir = mouse.x > sheepCenterX ? 1 : -1;
           } else {
-            // Flee: walk away from mouse
-            currentSpeed = FLEE_SPEED;
+            // Repel: flee from mouse, gravity-like speed boost
+            const boost = GRAVITY_K_FLEE / effectiveDist;
+            currentSpeed = SPEED + boost;
             newDir = dx > 0 ? 1 : -1;
           }
         }
