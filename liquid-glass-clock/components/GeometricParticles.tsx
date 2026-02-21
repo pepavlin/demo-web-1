@@ -21,9 +21,9 @@ const DOT_COLORS = [
   { dot: "rgba(255, 255, 255, 0.75)", glow: "rgba(255, 255, 255, 0.25)" },
 ];
 
-const PARTICLE_COUNT = 60;
-const CONNECTION_DISTANCE = 150;
-const MAX_LINE_OPACITY = 0.55;
+const PARTICLE_COUNT = 180;
+const CONNECTION_DISTANCE = 120;
+const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
 const MAX_SPEED = 4;
 // Gravity-like mouse influence — force = K / distance, all particles affected
@@ -40,7 +40,7 @@ function createParticle(w: number, h: number): Particle {
     y: Math.random() * h,
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
-    radius: Math.random() * 2 + 1.5,
+    radius: Math.random() * 1.5 + 1.0,
     color: colorEntry.dot,
     glowColor: colorEntry.glow,
   };
