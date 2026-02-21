@@ -25,14 +25,14 @@ const DOT_COLORS = [
   { dot: "rgba(255, 255, 255, 0.75)", glow: "rgba(255, 255, 255, 0.25)" },
 ];
 
-const PARTICLE_COUNT = 180;
+const PARTICLE_COUNT = 360;
 const CONNECTION_DISTANCE = 120;
 const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
 const MAX_SPEED = 3;
-const MOUSE_RADIUS = 160;
-const GRAVITY_K_ATTRACT = 3;
-const GRAVITY_K_REPEL = 6;
+const MOUSE_RADIUS = 320;
+const GRAVITY_K_ATTRACT = 6;
+const GRAVITY_K_REPEL = 12;
 const MIN_DIST = 20;
 const PARTICLE_REPEL_RADIUS = 60;
 const PARTICLE_REPEL_K = 0.8;
