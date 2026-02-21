@@ -27,10 +27,13 @@ const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
 const MAX_SPEED = 3;
 // Mouse influence — only affects particles within MOUSE_RADIUS, force = K / distance
-const MOUSE_RADIUS = 160;     // max distance at which mouse affects particles
-const GRAVITY_K_ATTRACT = 3;  // attract constant (default, no click) — reduced so own movement persists
-const GRAVITY_K_REPEL = 6;    // repel constant (mouse held down)
-const MIN_DIST = 20;          // prevent infinite force at zero distance
+const MOUSE_RADIUS = 160;        // max distance at which mouse affects particles
+const GRAVITY_K_ATTRACT = 3;    // attract constant (default, no click) — reduced so own movement persists
+const GRAVITY_K_REPEL = 6;      // repel constant (mouse held down)
+const MIN_DIST = 20;             // prevent infinite force at zero distance
+// Particle-to-particle repulsion — gentle push so dots spread out naturally
+const PARTICLE_REPEL_RADIUS = 60;  // distance within which particles repel each other
+const PARTICLE_REPEL_K = 0.8;      // repulsion strength (gentle)
 
 function createParticle(w: number, h: number): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
@@ -96,6 +99,10 @@ export default function GeometricParticles() {
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
 
+    // Reusable force accumulator buffers — allocated once to avoid GC pressure
+    const forceX = new Float32Array(PARTICLE_COUNT);
+    const forceY = new Float32Array(PARTICLE_COUNT);
+
     const draw = () => {
       const w = canvas.width;
       const h = canvas.height;
@@ -105,8 +112,41 @@ export default function GeometricParticles() {
       const mouse = mouseRef.current;
       const clicking = isClickingRef.current;
 
+      // Compute inter-particle repulsion forces (O(n²) over close pairs only)
+      forceX.fill(0);
+      forceY.fill(0);
+      const repelRadiusSq = PARTICLE_REPEL_RADIUS * PARTICLE_REPEL_RADIUS;
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const a = particles[i];
+          const b = particles[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq > 0 && distSq < repelRadiusSq) {
+            const dist = Math.sqrt(distSq);
+            const effectiveDist = Math.max(dist, MIN_DIST);
+            const falloff = 1 - dist / PARTICLE_REPEL_RADIUS;
+            const strength = (PARTICLE_REPEL_K / effectiveDist) * falloff;
+            const nx = dx / dist;
+            const ny = dy / dist;
+            // Equal and opposite forces
+            forceX[i] += nx * strength;
+            forceY[i] += ny * strength;
+            forceX[j] -= nx * strength;
+            forceY[j] -= ny * strength;
+          }
+        }
+      }
+
       // Update positions
-      for (const p of particles) {
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        // Apply accumulated inter-particle repulsion
+        p.vx += forceX[i];
+        p.vy += forceY[i];
+
         // Apply mouse force only within MOUSE_RADIUS — own movement persists beyond that
         if (mouse) {
           const dx = p.x - mouse.x;
