@@ -168,4 +168,22 @@ describe("Sheep component", () => {
     act(() => { el.dispatchEvent(event); });
     expect(preventDefaultSpy).toHaveBeenCalled();
   });
+
+  it("applies bounce animation and flip transform on separate divs so animation cannot override scaleX(-1)", () => {
+    render(<Sheep />);
+    flushMount();
+    const sheep = screen.getByTestId("sheep");
+    // The bounce class must exist somewhere inside the sheep
+    const bounceDiv = sheep.querySelector(".sheep-running-bounce");
+    expect(bounceDiv).not.toBeNull();
+    // The bounce div must NOT be the same element that carries the flip transform.
+    // The flip div is the direct parent of the bounce div.
+    const flipDiv = bounceDiv?.parentElement;
+    expect(flipDiv).not.toBeNull();
+    expect(flipDiv).not.toHaveClass("sheep-running-bounce");
+    // Initially facing right → flip div has no scaleX transform
+    expect(flipDiv).not.toHaveStyle({ transform: "scaleX(-1)" });
+    // The bounce div itself also must not carry a scaleX flip
+    expect(bounceDiv).not.toHaveStyle({ transform: "scaleX(-1)" });
+  });
 });

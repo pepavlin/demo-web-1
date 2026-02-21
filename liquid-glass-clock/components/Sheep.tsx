@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const SHEEP_W = 100;
@@ -115,6 +115,7 @@ function SheepSVG({ running }: { running: boolean }) {
 export default function Sheep() {
   const [mounted, setMounted] = useState(false);
   const [bleating, setBleating] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const [sheepPos, setSheepPos] = useState<{
     left: number;
     top: number;
@@ -125,6 +126,7 @@ export default function Sheep() {
   const progressRef = useRef<number>(-SHEEP_W - 20); // start off-screen left
   const dirRef      = useRef<1 | -1>(1);
   const bleatRef    = useRef(false);
+  const stoppedRef  = useRef(false);
   const rafRef      = useRef<number>(0);
   const mouseRef    = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef = useRef(false);
@@ -167,7 +169,7 @@ export default function Sheep() {
       const dt = Math.min((now - prev) / 1000, 0.05);
       prev = now;
 
-      if (!bleatRef.current) {
+      if (!bleatRef.current && !stoppedRef.current) {
         const side     = sideRef.current;
         const sideLen  = sideLenPx(side);
         const progress = progressRef.current;
@@ -262,9 +264,16 @@ export default function Sheep() {
   // Bubble positioned near the head (right side of SVG at ~80% width)
   const bubbleLeft = Math.floor(SHEEP_W * 0.45);
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    stoppedRef.current = !stoppedRef.current;
+    setStopped((prev) => !prev);
+  };
+
   return (
     <div
       data-testid="sheep"
+      onContextMenu={handleContextMenu}
       style={{
         position: "fixed",
         left: sheepPos.left,
@@ -274,7 +283,8 @@ export default function Sheep() {
         transform: sheepPos.transform,
         transformOrigin: "center center",
         zIndex: 40,
-        pointerEvents: "none",
+        pointerEvents: "auto",
+        cursor: stopped ? "not-allowed" : "default",
         willChange: "transform, left, top",
       }}
     >
@@ -319,9 +329,12 @@ export default function Sheep() {
         )}
       </AnimatePresence>
 
-      {/* Sheep graphic */}
-      <div className={bleating ? "" : "sheep-running-bounce"}>
-        <SheepSVG running={!bleating} />
+      {/* Sheep graphic — outer div is a structural wrapper so the bounce animation */}
+      {/* on the inner div cannot interfere with the container's transform */}
+      <div>
+        <div className={bleating ? "" : "sheep-running-bounce"}>
+          <SheepSVG running={!bleating} />
+        </div>
       </div>
     </div>
   );
