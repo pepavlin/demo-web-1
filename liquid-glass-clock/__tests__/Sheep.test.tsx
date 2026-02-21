@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import React from "react";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 jest.mock("framer-motion", () => ({
@@ -128,5 +128,39 @@ describe("Sheep component", () => {
     expect(events).toContain("mousedown");
     expect(events).toContain("mouseup");
     removeSpy.mockRestore();
+  });
+
+  it("has pointerEvents auto to allow right-click interaction", () => {
+    render(<Sheep />);
+    flushMount();
+    const el = screen.getByTestId("sheep");
+    expect(el).toHaveStyle({ pointerEvents: "auto" });
+  });
+
+  it("right-click (contextmenu) on sheep stops it and toggles stopped state", () => {
+    render(<Sheep />);
+    flushMount();
+    const el = screen.getByTestId("sheep");
+
+    // Initially not stopped — cursor is default
+    expect(el).toHaveStyle({ cursor: "default" });
+
+    // Right-click stops the sheep
+    act(() => { fireEvent.contextMenu(el); });
+    expect(el).toHaveStyle({ cursor: "not-allowed" });
+
+    // Right-click again resumes the sheep
+    act(() => { fireEvent.contextMenu(el); });
+    expect(el).toHaveStyle({ cursor: "default" });
+  });
+
+  it("prevents default context menu on right-click", () => {
+    render(<Sheep />);
+    flushMount();
+    const el = screen.getByTestId("sheep");
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const preventDefaultSpy = jest.spyOn(event, "preventDefault");
+    act(() => { el.dispatchEvent(event); });
+    expect(preventDefaultSpy).toHaveBeenCalled();
   });
 });
