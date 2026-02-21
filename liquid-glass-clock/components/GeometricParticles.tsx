@@ -26,10 +26,10 @@ const CONNECTION_DISTANCE = 150;
 const MAX_LINE_OPACITY = 0.55;
 const SPEED = 0.4;
 const MAX_SPEED = 4;
-// Mouse influence
-const MOUSE_RADIUS = 180;
-const REPEL_FORCE = 0.18;
-const ATTRACT_FORCE = 0.09;
+// Gravity-like mouse influence — force = K / distance, all particles affected
+const GRAVITY_K_REPEL = 14;   // repel constant (no click)
+const GRAVITY_K_ATTRACT = 7;  // attract constant (mouse held down)
+const MIN_DIST = 20;          // prevent infinite force at zero distance
 
 function createParticle(w: number, h: number): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
@@ -106,22 +106,23 @@ export default function GeometricParticles() {
 
       // Update positions
       for (const p of particles) {
-        // Apply mouse force
+        // Apply gravity-like mouse force — all particles affected, force ∝ 1/dist
         if (mouse) {
           const dx = p.x - mouse.x;
           const dy = p.y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < MOUSE_RADIUS && dist > 0) {
-            const strength = (1 - dist / MOUSE_RADIUS);
+          if (dist > 0) {
+            const effectiveDist = Math.max(dist, MIN_DIST);
             if (clicking) {
               // Attract: pull towards mouse
-              p.vx -= (dx / dist) * ATTRACT_FORCE * strength;
-              p.vy -= (dy / dist) * ATTRACT_FORCE * strength;
+              const strength = GRAVITY_K_ATTRACT / effectiveDist;
+              p.vx -= (dx / dist) * strength;
+              p.vy -= (dy / dist) * strength;
             } else {
               // Repel: push away from mouse
-              p.vx += (dx / dist) * REPEL_FORCE * strength;
-              p.vy += (dy / dist) * REPEL_FORCE * strength;
+              const strength = GRAVITY_K_REPEL / effectiveDist;
+              p.vx += (dx / dist) * strength;
+              p.vy += (dy / dist) * strength;
             }
           }
         }
@@ -133,17 +134,10 @@ export default function GeometricParticles() {
           p.vy = (p.vy / speed) * MAX_SPEED;
         }
 
-        // Gradually return to natural speed when no mouse influence
-        if (!mouse || (() => {
-          const dx = p.x - mouse.x;
-          const dy = p.y - mouse.y;
-          return Math.sqrt(dx * dx + dy * dy) >= MOUSE_RADIUS;
-        })()) {
-          const naturalSpeed = SPEED * 0.9;
-          if (speed > naturalSpeed) {
-            p.vx *= 0.99;
-            p.vy *= 0.99;
-          }
+        // Gradually dampen speed towards natural base (friction)
+        if (speed > SPEED * 0.9) {
+          p.vx *= 0.99;
+          p.vy *= 0.99;
         }
 
         p.x += p.vx;
@@ -210,22 +204,6 @@ export default function GeometricParticles() {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fillStyle = p.color;
-        ctx.fill();
-      }
-
-      // Draw mouse influence ring (visual feedback)
-      if (mouse) {
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, MOUSE_RADIUS, 0, Math.PI * 2);
-        if (clicking) {
-          ctx.strokeStyle = "rgba(0, 200, 255, 0.15)";
-          ctx.fillStyle = "rgba(0, 200, 255, 0.04)";
-        } else {
-          ctx.strokeStyle = "rgba(168, 85, 247, 0.15)";
-          ctx.fillStyle = "rgba(168, 85, 247, 0.03)";
-        }
-        ctx.lineWidth = 1;
-        ctx.stroke();
         ctx.fill();
       }
 
