@@ -5,11 +5,27 @@ import React from "react";
 import { render, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
+const mockMotionValue = (initial: number) => {
+  let val = initial;
+  return { get: () => val, set: (v: number) => { val = v; }, subscribe: jest.fn(() => jest.fn()) };
+};
+
 jest.mock("framer-motion", () => ({
   motion: {
     div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) =>
       React.createElement("div", props, children),
   },
+  useMotionValue: (initial: number) => mockMotionValue(initial),
+  useSpring: (val: unknown) => val,
+  useTransform: () => mockMotionValue(0),
+}));
+
+// Mock the useMouseParallax hook so 3-D parallax doesn't throw in tests
+jest.mock("@/hooks/useMouseParallax", () => ({
+  useMouseParallax: () => ({
+    normX: { get: () => 0, subscribe: jest.fn(() => jest.fn()) },
+    normY: { get: () => 0, subscribe: jest.fn(() => jest.fn()) },
+  }),
 }));
 
 import LiquidBackground from "../components/LiquidBackground";

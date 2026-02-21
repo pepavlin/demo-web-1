@@ -10,6 +10,10 @@ interface Particle {
   radius: number;
   color: string;
   glowColor: string;
+  /** Depth layer: -1 = far back, +1 = close to viewer */
+  z: number;
+  /** Z drift speed */
+  vz: number;
 }
 
 const DOT_COLORS = [
@@ -26,14 +30,15 @@ const CONNECTION_DISTANCE = 120;
 const MAX_LINE_OPACITY = 0.45;
 const SPEED = 0.4;
 const MAX_SPEED = 3;
-// Mouse influence — only affects particles within MOUSE_RADIUS, force = K / distance
-const MOUSE_RADIUS = 160;        // max distance at which mouse affects particles
-const GRAVITY_K_ATTRACT = 3;    // attract constant (default, no click) — reduced so own movement persists
-const GRAVITY_K_REPEL = 6;      // repel constant (mouse held down)
-const MIN_DIST = 20;             // prevent infinite force at zero distance
-// Particle-to-particle repulsion — gentle push so dots spread out naturally
-const PARTICLE_REPEL_RADIUS = 60;  // distance within which particles repel each other
-const PARTICLE_REPEL_K = 0.8;      // repulsion strength (gentle)
+const MOUSE_RADIUS = 160;
+const GRAVITY_K_ATTRACT = 3;
+const GRAVITY_K_REPEL = 6;
+const MIN_DIST = 20;
+const PARTICLE_REPEL_RADIUS = 60;
+const PARTICLE_REPEL_K = 0.8;
+
+/** Max canvas tilt angle driven by mouse (degrees) */
+const MAX_TILT_DEG = 8;
 
 function createParticle(w: number, h: number): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
@@ -47,6 +52,9 @@ function createParticle(w: number, h: number): Particle {
     radius: Math.random() * 1.5 + 1.0,
     color: colorEntry.dot,
     glowColor: colorEntry.glow,
+    /* Random depth; near particles rendered larger / brighter */
+    z: Math.random() * 2 - 1,
+    vz: (Math.random() - 0.5) * 0.002,
   };
 }
 
@@ -62,6 +70,12 @@ export default function GeometricParticles() {
   const rafRef = useRef<number>(0);
   const mouseRef = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef = useRef(false);
+
+  /* Smoothed tilt values driven by mouse (deg) */
+  const tiltXRef = useRef(0); // rotateY (left-right)
+  const tiltYRef = useRef(0); // rotateX (up-down)
+  const smoothTiltXRef = useRef(0);
+  const smoothTiltYRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,23 +97,23 @@ export default function GeometricParticles() {
 
     const onMouseMove = (e: MouseEvent) => {
       mouseRef.current = { x: e.clientX, y: e.clientY };
+      /* Update target tilt from normalised mouse position */
+      tiltXRef.current = ((e.clientX / window.innerWidth) * 2 - 1) * MAX_TILT_DEG;
+      tiltYRef.current = ((e.clientY / window.innerHeight) * 2 - 1) * -MAX_TILT_DEG;
     };
     const onMouseLeave = () => {
       mouseRef.current = null;
+      tiltXRef.current = 0;
+      tiltYRef.current = 0;
     };
-    const onMouseDown = () => {
-      isClickingRef.current = true;
-    };
-    const onMouseUp = () => {
-      isClickingRef.current = false;
-    };
+    const onMouseDown = () => { isClickingRef.current = true; };
+    const onMouseUp   = () => { isClickingRef.current = false; };
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseleave", onMouseLeave);
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
 
-    // Reusable force accumulator buffers — allocated once to avoid GC pressure
     const forceX = new Float32Array(PARTICLE_COUNT);
     const forceY = new Float32Array(PARTICLE_COUNT);
 
@@ -112,7 +126,18 @@ export default function GeometricParticles() {
       const mouse = mouseRef.current;
       const clicking = isClickingRef.current;
 
-      // Compute inter-particle repulsion forces (O(n²) over close pairs only)
+      /* ── Lerp tilt toward target ──────────────────────────────────── */
+      const lerpFactor = 0.04;
+      smoothTiltXRef.current += (tiltXRef.current - smoothTiltXRef.current) * lerpFactor;
+      smoothTiltYRef.current += (tiltYRef.current - smoothTiltYRef.current) * lerpFactor;
+
+      /* Apply CSS 3-D transform to the canvas element */
+      canvas.style.transform =
+        `perspective(900px) ` +
+        `rotateX(${smoothTiltYRef.current.toFixed(3)}deg) ` +
+        `rotateY(${smoothTiltXRef.current.toFixed(3)}deg)`;
+
+      /* ── Inter-particle repulsion ─────────────────────────────────── */
       forceX.fill(0);
       forceY.fill(0);
       const repelRadiusSq = PARTICLE_REPEL_RADIUS * PARTICLE_REPEL_RADIUS;
@@ -130,7 +155,6 @@ export default function GeometricParticles() {
             const strength = (PARTICLE_REPEL_K / effectiveDist) * falloff;
             const nx = dx / dist;
             const ny = dy / dist;
-            // Equal and opposite forces
             forceX[i] += nx * strength;
             forceY[i] += ny * strength;
             forceX[j] -= nx * strength;
@@ -139,30 +163,25 @@ export default function GeometricParticles() {
         }
       }
 
-      // Update positions
+      /* ── Update positions ─────────────────────────────────────────── */
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
 
-        // Apply accumulated inter-particle repulsion
         p.vx += forceX[i];
         p.vy += forceY[i];
 
-        // Apply mouse force only within MOUSE_RADIUS — own movement persists beyond that
         if (mouse) {
           const dx = p.x - mouse.x;
           const dy = p.y - mouse.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > 0 && dist < MOUSE_RADIUS) {
             const effectiveDist = Math.max(dist, MIN_DIST);
-            // Fade influence near the edge of the radius for smooth transition
             const falloff = 1 - dist / MOUSE_RADIUS;
             if (clicking) {
-              // Repel: push away from mouse on click
               const strength = (GRAVITY_K_REPEL / effectiveDist) * falloff;
               p.vx += (dx / dist) * strength;
               p.vy += (dy / dist) * strength;
             } else {
-              // Attract: pull towards mouse by default
               const strength = (GRAVITY_K_ATTRACT / effectiveDist) * falloff;
               p.vx -= (dx / dist) * strength;
               p.vy -= (dy / dist) * strength;
@@ -170,14 +189,11 @@ export default function GeometricParticles() {
           }
         }
 
-        // Clamp speed
         const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
         if (speed > MAX_SPEED) {
           p.vx = (p.vx / speed) * MAX_SPEED;
           p.vy = (p.vy / speed) * MAX_SPEED;
         }
-
-        // Gradually dampen speed towards natural base (friction) — stronger so own velocity recovers quicker
         if (speed > SPEED * 0.9) {
           p.vx *= 0.98;
           p.vy *= 0.98;
@@ -186,23 +202,18 @@ export default function GeometricParticles() {
         p.x += p.vx;
         p.y += p.vy;
 
-        if (p.x < 0) {
-          p.x = 0;
-          p.vx = Math.abs(p.vx);
-        } else if (p.x > w) {
-          p.x = w;
-          p.vx = -Math.abs(p.vx);
-        }
-        if (p.y < 0) {
-          p.y = 0;
-          p.vy = Math.abs(p.vy);
-        } else if (p.y > h) {
-          p.y = h;
-          p.vy = -Math.abs(p.vy);
-        }
+        /* Slowly oscillate Z depth so particles drift toward / away */
+        p.z += p.vz;
+        if (p.z > 1) { p.z = 1; p.vz = -Math.abs(p.vz); }
+        if (p.z < -1) { p.z = -1; p.vz = Math.abs(p.vz); }
+
+        if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx); }
+        else if (p.x > w) { p.x = w; p.vx = -Math.abs(p.vx); }
+        if (p.y < 0) { p.y = 0; p.vy = Math.abs(p.vy); }
+        else if (p.y > h) { p.y = h; p.vy = -Math.abs(p.vy); }
       }
 
-      // Draw lines between nearby particles
+      /* ── Draw lines ───────────────────────────────────────────────── */
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const a = particles[i];
@@ -212,7 +223,11 @@ export default function GeometricParticles() {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < CONNECTION_DISTANCE) {
-            const opacity = (1 - dist / CONNECTION_DISTANCE) * MAX_LINE_OPACITY;
+            /* Fade lines for far-back particles */
+            const avgZ = (a.z + b.z) / 2;
+            const depthFade = (avgZ + 1) / 2; // 0 (far) .. 1 (near)
+            const opacity =
+              (1 - dist / CONNECTION_DISTANCE) * MAX_LINE_OPACITY * (0.3 + depthFade * 0.7);
             const ca = parseRgba(a.color);
             const cb = parseRgba(b.color);
             const r = Math.round((ca.r + cb.r) / 2);
@@ -223,30 +238,55 @@ export default function GeometricParticles() {
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
             ctx.strokeStyle = `rgba(${r},${g},${b2},${opacity.toFixed(3)})`;
-            ctx.lineWidth = 0.8;
+            ctx.lineWidth = 0.5 + depthFade * 0.6;
             ctx.stroke();
           }
         }
       }
 
-      // Draw dots
-      for (const p of particles) {
-        // Glow halo
+      /* ── Draw dots — sorted back-to-front so near dots overdraw far ones ── */
+      const sorted = [...particles].sort((a, b) => a.z - b.z);
+
+      for (const p of sorted) {
+        /* Scale both size and brightness by depth */
+        const depthScale = (p.z + 2) / 2; // 0.5 (far) .. 1.5 (near)
+        const drawRadius = p.radius * depthScale;
+
+        /* Glow halo */
+        const glowRadius = drawRadius * 5;
         const gradient = ctx.createRadialGradient(
           p.x, p.y, 0,
-          p.x, p.y, p.radius * 5
+          p.x, p.y, glowRadius
         );
         gradient.addColorStop(0, p.glowColor);
         gradient.addColorStop(1, "rgba(0,0,0,0)");
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius * 5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
         ctx.fillStyle = gradient;
+        ctx.globalAlpha = 0.3 + depthScale * 0.5;
         ctx.fill();
+        ctx.globalAlpha = 1;
 
-        // Core dot
+        /* Core dot — near dots get a small highlight circle for sphere look */
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
+        ctx.arc(p.x, p.y, drawRadius, 0, Math.PI * 2);
+
+        if (depthScale > 1.1) {
+          /* Near particle: radial gradient for 3-D sphere illusion */
+          const sphereGrad = ctx.createRadialGradient(
+            p.x - drawRadius * 0.3,
+            p.y - drawRadius * 0.3,
+            0,
+            p.x, p.y, drawRadius
+          );
+          const { r, g, b: bv } = parseRgba(p.color);
+          sphereGrad.addColorStop(0, `rgba(255,255,255,0.9)`);
+          sphereGrad.addColorStop(0.3, p.color);
+          sphereGrad.addColorStop(1, `rgba(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(bv * 0.4)},0.8)`);
+          ctx.fillStyle = sphereGrad;
+        } else {
+          ctx.fillStyle = p.color;
+        }
         ctx.fill();
       }
 
@@ -270,7 +310,12 @@ export default function GeometricParticles() {
       ref={canvasRef}
       data-testid="geometric-particles-canvas"
       className="absolute inset-0 pointer-events-none color-cycle-canvas"
-      style={{ opacity: 0.75 }}
+      style={{
+        opacity: 0.75,
+        transformOrigin: "50% 50%",
+        transformStyle: "preserve-3d",
+        willChange: "transform",
+      }}
     />
   );
 }
