@@ -134,8 +134,12 @@ export default function ElementSuggestionMenu() {
 
     setStatus("sending");
 
+    const elementContext = elementInfo
+      ? `[Element: ${getElementDescription(elementInfo)}]\n`
+      : "";
+
     const payload: Record<string, unknown> = {
-      message: trimmed,
+      message: `${elementContext}${trimmed}`,
       type: "element_suggestion",
     };
 
