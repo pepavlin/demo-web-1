@@ -3,58 +3,55 @@
 import { useEffect, useRef } from "react";
 
 interface Particle {
-  x: number;
-  y: number;
+  /** World space 3D position – centred at origin in a ±WORLD_SIZE cube */
+  wx: number;
+  wy: number;
+  wz: number;
+  /** World space 3D velocity */
   vx: number;
   vy: number;
+  vz: number;
   radius: number;
   color: string;
   glowColor: string;
-  /** Depth layer: -1 = far back, +1 = close to viewer */
-  z: number;
-  /** Z drift speed */
-  vz: number;
 }
 
 const DOT_COLORS = [
-  { dot: "rgba(168, 85, 247, 0.9)", glow: "rgba(168, 85, 247, 0.4)" },
-  { dot: "rgba(99, 102, 241, 0.9)", glow: "rgba(99, 102, 241, 0.4)" },
-  { dot: "rgba(59, 130, 246, 0.9)", glow: "rgba(59, 130, 246, 0.4)" },
-  { dot: "rgba(0, 200, 255, 0.85)", glow: "rgba(0, 200, 255, 0.35)" },
-  { dot: "rgba(236, 72, 153, 0.8)", glow: "rgba(236, 72, 153, 0.3)" },
+  { dot: "rgba(168, 85, 247, 0.9)",  glow: "rgba(168, 85, 247, 0.4)" },
+  { dot: "rgba(99, 102, 241, 0.9)",  glow: "rgba(99, 102, 241, 0.4)" },
+  { dot: "rgba(59, 130, 246, 0.9)",  glow: "rgba(59, 130, 246, 0.4)" },
+  { dot: "rgba(0, 200, 255, 0.85)",  glow: "rgba(0, 200, 255, 0.35)" },
+  { dot: "rgba(236, 72, 153, 0.8)",  glow: "rgba(236, 72, 153, 0.3)" },
   { dot: "rgba(255, 255, 255, 0.75)", glow: "rgba(255, 255, 255, 0.25)" },
 ];
 
-const PARTICLE_COUNT = 360;
-const CONNECTION_DISTANCE = 120;
-const MAX_LINE_OPACITY = 0.45;
-const SPEED = 0.4;
-const MAX_SPEED = 3;
-const MOUSE_RADIUS = 320;
-const GRAVITY_K_ATTRACT = 6;
-const GRAVITY_K_REPEL = 12;
-const MIN_DIST = 20;
-const PARTICLE_REPEL_RADIUS = 60;
-const PARTICLE_REPEL_K = 0.8;
+const PARTICLE_COUNT      = 250;
+const WORLD_SIZE          = 450;   // Half-size of the 3-D world cube
+const CAMERA_DIST         = 800;   // Camera sits at z = -CAMERA_DIST looking toward +z
+const FOV                 = 550;   // Perspective focal length (pixels)
+const NEAR_CLIP           = 100;   // Discard geometry closer than this to camera
+const CONNECTION_DIST_3D  = 175;   // 3-D distance threshold for connecting lines
+const MAX_LINE_OPACITY    = 0.45;
+const PARTICLE_SPEED      = 0.35;
+const MAX_CAMERA_ROT      = 0.45;  // Maximum camera rotation in radians (~26°)
+const PARTICLE_WORLD_R    = 3.5;   // Physical particle radius in world units
 
-/** Max canvas tilt angle driven by mouse (degrees) */
-const MAX_TILT_DEG = 8;
-
-function createParticle(w: number, h: number): Particle {
+function createParticle(): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
-  const angle = Math.random() * Math.PI * 2;
-  const speed = SPEED * (0.5 + Math.random() * 1.0);
+  // Uniform random direction on the unit sphere
+  const theta = Math.random() * Math.PI * 2;
+  const phi   = Math.acos(2 * Math.random() - 1);
+  const speed = PARTICLE_SPEED * (0.5 + Math.random() * 0.8);
   return {
-    x: Math.random() * w,
-    y: Math.random() * h,
-    vx: Math.cos(angle) * speed,
-    vy: Math.sin(angle) * speed,
+    wx: (Math.random() - 0.5) * WORLD_SIZE * 2,
+    wy: (Math.random() - 0.5) * WORLD_SIZE * 2,
+    wz: (Math.random() - 0.5) * WORLD_SIZE * 2,
+    vx: Math.sin(phi) * Math.cos(theta) * speed,
+    vy: Math.cos(phi) * speed,
+    vz: Math.sin(phi) * Math.sin(theta) * speed,
     radius: Math.random() * 1.5 + 1.0,
     color: colorEntry.dot,
     glowColor: colorEntry.glow,
-    /* Random depth; near particles rendered larger / brighter */
-    z: Math.random() * 2 - 1,
-    vz: (Math.random() - 0.5) * 0.002,
   };
 }
 
@@ -65,57 +62,62 @@ function parseRgba(color: string): { r: number; g: number; b: number } {
 }
 
 export default function GeometricParticles() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Particle[]>([]);
-  const rafRef = useRef<number>(0);
-  const mouseRef = useRef<{ x: number; y: number } | null>(null);
-  const isClickingRef = useRef(false);
+  const rafRef      = useRef<number>(0);
 
-  /* Smoothed tilt values driven by mouse (deg) */
-  const tiltXRef = useRef(0); // rotateY (left-right)
-  const tiltYRef = useRef(0); // rotateX (up-down)
-  const smoothTiltXRef = useRef(0);
-  const smoothTiltYRef = useRef(0);
+  /** Target camera angles driven by mouse (radians) */
+  const targetRotYRef = useRef(0);  // yaw   – left / right
+  const targetRotXRef = useRef(0);  // pitch – up   / down
+
+  /** Smoothed camera angles */
+  const camRotYRef = useRef(0);
+  const camRotXRef = useRef(0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const resize = () => {
-      canvas.width = window.innerWidth;
+      canvas.width  = window.innerWidth;
       canvas.height = window.innerHeight;
     };
     resize();
     window.addEventListener("resize", resize);
 
-    particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () =>
-      createParticle(canvas.width, canvas.height)
-    );
+    particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => createParticle());
 
     const onMouseMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY };
-      /* Update target tilt from normalised mouse position */
-      tiltXRef.current = ((e.clientX / window.innerWidth) * 2 - 1) * MAX_TILT_DEG;
-      tiltYRef.current = ((e.clientY / window.innerHeight) * 2 - 1) * -MAX_TILT_DEG;
+      // Map mouse position to camera rotation angles
+      targetRotYRef.current = ((e.clientX / window.innerWidth)  * 2 - 1) *  MAX_CAMERA_ROT;
+      targetRotXRef.current = ((e.clientY / window.innerHeight) * 2 - 1) * -MAX_CAMERA_ROT;
     };
     const onMouseLeave = () => {
-      mouseRef.current = null;
-      tiltXRef.current = 0;
-      tiltYRef.current = 0;
+      targetRotYRef.current = 0;
+      targetRotXRef.current = 0;
     };
-    const onMouseDown = () => { isClickingRef.current = true; };
-    const onMouseUp   = () => { isClickingRef.current = false; };
+    const onMouseDown = () => { /* reserved for future interaction */ };
+    const onMouseUp   = () => { /* reserved for future interaction */ };
 
-    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mousemove",  onMouseMove);
     window.addEventListener("mouseleave", onMouseLeave);
-    window.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousedown",  onMouseDown);
+    window.addEventListener("mouseup",    onMouseUp);
 
-    const forceX = new Float32Array(PARTICLE_COUNT);
-    const forceY = new Float32Array(PARTICLE_COUNT);
+    // ─── Perspective projection ──────────────────────────────────────────────
+    // Camera sits at (0, 0, -CAMERA_DIST) looking along +z.
+    // Mouse drives yaw (rotY) and pitch (rotX) of the camera.
+    // We apply the inverse camera rotation to each world point, then project.
+    //
+    //   Step 1 – translate to camera space:        tz = wz + CAMERA_DIST
+    //   Step 2 – yaw   R_Y(−rotY):   rx1 = wx·cosY − tz·sinY
+    //                                rz1 = wx·sinY + tz·cosY
+    //   Step 3 – pitch R_X(+rotX):   ry  = wy·cosX − rz1·sinX
+    //                                rz2 = wy·sinX + rz1·cosX
+    //   Step 4 – perspective divide: sx = w/2 + rx1·(FOV/rz2)
+    //                                sy = h/2 − ry ·(FOV/rz2)
 
     const draw = () => {
       const w = canvas.width;
@@ -123,171 +125,118 @@ export default function GeometricParticles() {
       ctx.clearRect(0, 0, w, h);
 
       const particles = particlesRef.current;
-      const mouse = mouseRef.current;
-      const clicking = isClickingRef.current;
 
-      /* ── Lerp tilt toward target ──────────────────────────────────── */
-      const lerpFactor = 0.04;
-      smoothTiltXRef.current += (tiltXRef.current - smoothTiltXRef.current) * lerpFactor;
-      smoothTiltYRef.current += (tiltYRef.current - smoothTiltYRef.current) * lerpFactor;
+      // Smooth camera rotation toward target
+      const lerp = 0.04;
+      camRotYRef.current += (targetRotYRef.current - camRotYRef.current) * lerp;
+      camRotXRef.current += (targetRotXRef.current - camRotXRef.current) * lerp;
 
-      /* Apply CSS 3-D transform to the canvas element */
-      canvas.style.transform =
-        `perspective(900px) ` +
-        `rotateX(${smoothTiltYRef.current.toFixed(3)}deg) ` +
-        `rotateY(${smoothTiltXRef.current.toFixed(3)}deg)`;
+      const cosY = Math.cos(camRotYRef.current);
+      const sinY = Math.sin(camRotYRef.current);
+      const cosX = Math.cos(camRotXRef.current);
+      const sinX = Math.sin(camRotXRef.current);
 
-      /* ── Inter-particle repulsion ─────────────────────────────────── */
-      forceX.fill(0);
-      forceY.fill(0);
-      const repelRadiusSq = PARTICLE_REPEL_RADIUS * PARTICLE_REPEL_RADIUS;
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const a = particles[i];
-          const b = particles[j];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const distSq = dx * dx + dy * dy;
-          if (distSq > 0 && distSq < repelRadiusSq) {
-            const dist = Math.sqrt(distSq);
-            const effectiveDist = Math.max(dist, MIN_DIST);
-            const falloff = 1 - dist / PARTICLE_REPEL_RADIUS;
-            const strength = (PARTICLE_REPEL_K / effectiveDist) * falloff;
-            const nx = dx / dist;
-            const ny = dy / dist;
-            forceX[i] += nx * strength;
-            forceY[i] += ny * strength;
-            forceX[j] -= nx * strength;
-            forceY[j] -= ny * strength;
-          }
+      const project = (wx: number, wy: number, wz: number) => {
+        const tz  = wz + CAMERA_DIST;
+        const rx1 = wx * cosY - tz  * sinY;
+        const rz1 = wx * sinY + tz  * cosY;
+        const ry  = wy * cosX - rz1 * sinX;
+        const rz2 = wy * sinX + rz1 * cosX;
+        if (rz2 < NEAR_CLIP) return null;
+        const scale = FOV / rz2;
+        return { sx: w / 2 + rx1 * scale, sy: h / 2 - ry * scale, depth: rz2, scale };
+      };
+
+      // ── Update world positions ───────────────────────────────────────────
+      for (const p of particles) {
+        p.wx += p.vx;
+        p.wy += p.vy;
+        p.wz += p.vz;
+        if (p.wx >  WORLD_SIZE) { p.wx =  WORLD_SIZE; p.vx = -Math.abs(p.vx); }
+        if (p.wx < -WORLD_SIZE) { p.wx = -WORLD_SIZE; p.vx =  Math.abs(p.vx); }
+        if (p.wy >  WORLD_SIZE) { p.wy =  WORLD_SIZE; p.vy = -Math.abs(p.vy); }
+        if (p.wy < -WORLD_SIZE) { p.wy = -WORLD_SIZE; p.vy =  Math.abs(p.vy); }
+        if (p.wz >  WORLD_SIZE) { p.wz =  WORLD_SIZE; p.vz = -Math.abs(p.vz); }
+        if (p.wz < -WORLD_SIZE) { p.wz = -WORLD_SIZE; p.vz =  Math.abs(p.vz); }
+      }
+
+      // ── Project all particles ────────────────────────────────────────────
+      const projected = particles.map((p) => ({ p, proj: project(p.wx, p.wy, p.wz) }));
+
+      const maxDepth = CAMERA_DIST + WORLD_SIZE; // furthest possible depth
+
+      // ── Draw connecting lines (3-D distance check) ───────────────────────
+      for (let i = 0; i < projected.length; i++) {
+        const a = projected[i];
+        if (!a.proj) continue;
+        for (let j = i + 1; j < projected.length; j++) {
+          const b = projected[j];
+          if (!b.proj) continue;
+          const dx = a.p.wx - b.p.wx;
+          const dy = a.p.wy - b.p.wy;
+          const dz = a.p.wz - b.p.wz;
+          const dist3d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (dist3d >= CONNECTION_DIST_3D) continue;
+
+          const avgDepth  = (a.proj.depth + b.proj.depth) / 2;
+          const depthFade = Math.max(0, 1 - (avgDepth - NEAR_CLIP) / (maxDepth - NEAR_CLIP));
+          const opacity   = (1 - dist3d / CONNECTION_DIST_3D) * MAX_LINE_OPACITY * (0.3 + depthFade * 0.7);
+
+          const ca = parseRgba(a.p.color);
+          const cb = parseRgba(b.p.color);
+          ctx.beginPath();
+          ctx.moveTo(a.proj.sx, a.proj.sy);
+          ctx.lineTo(b.proj.sx, b.proj.sy);
+          ctx.strokeStyle = `rgba(${Math.round((ca.r + cb.r) / 2)},${Math.round((ca.g + cb.g) / 2)},${Math.round((ca.b + cb.b) / 2)},${opacity.toFixed(3)})`;
+          ctx.lineWidth   = Math.max(0.3, depthFade * 1.2);
+          ctx.stroke();
         }
       }
 
-      /* ── Update positions ─────────────────────────────────────────── */
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
+      // ── Draw dots – sorted back-to-front so near dots overdraw far ones ──
+      const visible = projected
+        .filter((item) => item.proj !== null)
+        .sort((a, b) => b.proj!.depth - a.proj!.depth);
 
-        p.vx += forceX[i];
-        p.vy += forceY[i];
+      for (const { p, proj } of visible) {
+        if (!proj) continue;
+        const { sx, sy, depth, scale } = proj;
+        const drawRadius = Math.max(0.5, Math.min(8, PARTICLE_WORLD_R * scale));
+        const depthFade  = Math.max(0, 1 - (depth - NEAR_CLIP) / (maxDepth - NEAR_CLIP));
 
-        if (mouse) {
-          const dx = p.x - mouse.x;
-          const dy = p.y - mouse.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > 0 && dist < MOUSE_RADIUS) {
-            const effectiveDist = Math.max(dist, MIN_DIST);
-            const falloff = 1 - dist / MOUSE_RADIUS;
-            if (clicking) {
-              const strength = (GRAVITY_K_REPEL / effectiveDist) * falloff;
-              p.vx += (dx / dist) * strength;
-              p.vy += (dy / dist) * strength;
-            } else {
-              const strength = (GRAVITY_K_ATTRACT / effectiveDist) * falloff;
-              p.vx -= (dx / dist) * strength;
-              p.vy -= (dy / dist) * strength;
-            }
-          }
-        }
-
-        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        if (speed > MAX_SPEED) {
-          p.vx = (p.vx / speed) * MAX_SPEED;
-          p.vy = (p.vy / speed) * MAX_SPEED;
-        }
-        if (speed > SPEED * 0.9) {
-          p.vx *= 0.98;
-          p.vy *= 0.98;
-        }
-
-        p.x += p.vx;
-        p.y += p.vy;
-
-        /* Slowly oscillate Z depth so particles drift toward / away */
-        p.z += p.vz;
-        if (p.z > 1) { p.z = 1; p.vz = -Math.abs(p.vz); }
-        if (p.z < -1) { p.z = -1; p.vz = Math.abs(p.vz); }
-
-        if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx); }
-        else if (p.x > w) { p.x = w; p.vx = -Math.abs(p.vx); }
-        if (p.y < 0) { p.y = 0; p.vy = Math.abs(p.vy); }
-        else if (p.y > h) { p.y = h; p.vy = -Math.abs(p.vy); }
-      }
-
-      /* ── Draw lines ───────────────────────────────────────────────── */
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const a = particles[i];
-          const b = particles[j];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < CONNECTION_DISTANCE) {
-            /* Fade lines for far-back particles */
-            const avgZ = (a.z + b.z) / 2;
-            const depthFade = (avgZ + 1) / 2; // 0 (far) .. 1 (near)
-            const opacity =
-              (1 - dist / CONNECTION_DISTANCE) * MAX_LINE_OPACITY * (0.3 + depthFade * 0.7);
-            const ca = parseRgba(a.color);
-            const cb = parseRgba(b.color);
-            const r = Math.round((ca.r + cb.r) / 2);
-            const g = Math.round((ca.g + cb.g) / 2);
-            const b2 = Math.round((ca.b + cb.b) / 2);
-
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.strokeStyle = `rgba(${r},${g},${b2},${opacity.toFixed(3)})`;
-            ctx.lineWidth = 0.5 + depthFade * 0.6;
-            ctx.stroke();
-          }
-        }
-      }
-
-      /* ── Draw dots — sorted back-to-front so near dots overdraw far ones ── */
-      const sorted = [...particles].sort((a, b) => a.z - b.z);
-
-      for (const p of sorted) {
-        /* Scale both size and brightness by depth */
-        const depthScale = (p.z + 2) / 2; // 0.5 (far) .. 1.5 (near)
-        const drawRadius = p.radius * depthScale;
-
-        /* Glow halo */
+        // Glow halo
         const glowRadius = drawRadius * 5;
-        const gradient = ctx.createRadialGradient(
-          p.x, p.y, 0,
-          p.x, p.y, glowRadius
-        );
-        gradient.addColorStop(0, p.glowColor);
-        gradient.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
-        ctx.fillStyle = gradient;
-        ctx.globalAlpha = 0.3 + depthScale * 0.5;
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        if (glowRadius > 1) {
+          const gradient = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowRadius);
+          gradient.addColorStop(0, p.glowColor);
+          gradient.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.beginPath();
+          ctx.arc(sx, sy, glowRadius, 0, Math.PI * 2);
+          ctx.fillStyle  = gradient;
+          ctx.globalAlpha = depthFade * 0.6;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
 
-        /* Core dot — near dots get a small highlight circle for sphere look */
+        // Core dot – near particles get a sphere-shading gradient
         ctx.beginPath();
-        ctx.arc(p.x, p.y, drawRadius, 0, Math.PI * 2);
-
-        if (depthScale > 1.1) {
-          /* Near particle: radial gradient for 3-D sphere illusion */
+        ctx.arc(sx, sy, drawRadius, 0, Math.PI * 2);
+        if (depthFade > 0.5) {
           const sphereGrad = ctx.createRadialGradient(
-            p.x - drawRadius * 0.3,
-            p.y - drawRadius * 0.3,
-            0,
-            p.x, p.y, drawRadius
+            sx - drawRadius * 0.3, sy - drawRadius * 0.3, 0,
+            sx, sy, drawRadius
           );
           const { r, g, b: bv } = parseRgba(p.color);
-          sphereGrad.addColorStop(0, `rgba(255,255,255,0.9)`);
+          sphereGrad.addColorStop(0, "rgba(255,255,255,0.9)");
           sphereGrad.addColorStop(0.3, p.color);
           sphereGrad.addColorStop(1, `rgba(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(bv * 0.4)},0.8)`);
           ctx.fillStyle = sphereGrad;
         } else {
           ctx.fillStyle = p.color;
         }
+        ctx.globalAlpha = Math.max(0.15, depthFade);
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
       rafRef.current = requestAnimationFrame(draw);
@@ -297,11 +246,11 @@ export default function GeometricParticles() {
 
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("resize",     resize);
+      window.removeEventListener("mousemove",  onMouseMove);
       window.removeEventListener("mouseleave", onMouseLeave);
-      window.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousedown",  onMouseDown);
+      window.removeEventListener("mouseup",    onMouseUp);
     };
   }, []);
 
@@ -310,12 +259,7 @@ export default function GeometricParticles() {
       ref={canvasRef}
       data-testid="geometric-particles-canvas"
       className="absolute inset-0 pointer-events-none color-cycle-canvas"
-      style={{
-        opacity: 0.75,
-        transformOrigin: "50% 50%",
-        transformStyle: "preserve-3d",
-        willChange: "transform",
-      }}
+      style={{ opacity: 0.75 }}
     />
   );
 }
