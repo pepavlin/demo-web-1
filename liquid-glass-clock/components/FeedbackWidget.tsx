@@ -1,16 +1,64 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const WEBHOOK_URL = "https://n8n.pavlin.dev/webhook/demo-web-1-create-issue";
+const POLL_INTERVAL_MS = 30_000;
 
 type Status = "idle" | "sending" | "sent" | "error";
+
+interface TaskCounts {
+  running: number;
+  queued: number;
+}
+
+function parseTaskCounts(data: unknown): TaskCounts {
+  let tasks: Array<{ status?: string }> = [];
+
+  if (Array.isArray(data)) {
+    tasks = data;
+  } else if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.tasks)) tasks = obj.tasks as typeof tasks;
+    else if (Array.isArray(obj.data)) tasks = obj.data as typeof tasks;
+    else if (Array.isArray(obj.items)) tasks = obj.items as typeof tasks;
+  }
+
+  return {
+    running: tasks.filter((t) => t?.status === "running").length,
+    queued: tasks.filter((t) => t?.status === "queued").length,
+  };
+}
+
+function useTaskCounts(): TaskCounts {
+  const [counts, setCounts] = useState<TaskCounts>({ running: 0, queued: 0 });
+
+  const fetchCounts = useCallback(async () => {
+    try {
+      const res = await fetch(WEBHOOK_URL, { method: "GET" });
+      if (!res.ok) return;
+      const data: unknown = await res.json();
+      setCounts(parseTaskCounts(data));
+    } catch {
+      // silently ignore — badge just stays at 0
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCounts();
+    const id = setInterval(fetchCounts, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchCounts]);
+
+  return counts;
+}
 
 export default function FeedbackWidget() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const taskCounts = useTaskCounts();
 
   useEffect(() => {
     if (open && status === "idle" && textareaRef.current) {
@@ -52,6 +100,8 @@ export default function FeedbackWidget() {
     setStatus("idle");
     setMessage("");
   };
+
+  const hasActiveTasks = taskCounts.running > 0 || taskCounts.queued > 0;
 
   return (
     <>
@@ -155,7 +205,7 @@ export default function FeedbackWidget() {
                   </svg>
                 </div>
                 <p className="text-white/85 text-sm font-semibold mb-1">
-                  Nápad odeslán!
+                  Nápad byl odeslán k implementaci!
                 </p>
                 <p className="text-white/40" style={{ fontSize: "0.75rem" }}>
                   Díky, podíváme se na to.
@@ -252,69 +302,155 @@ export default function FeedbackWidget() {
         </div>
       )}
 
-      {/* Floating toggle button */}
-      <button
-        onClick={handleToggle}
-        aria-label={open ? "Zavřít panel nápadů" : "Otevřít panel nápadů"}
-        className="fixed bottom-5 right-5 z-[100] w-12 h-12 flex items-center justify-center transition-transform active:scale-95"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(120,80,255,0.9), rgba(80,160,255,0.9))",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          border: "1px solid rgba(255,255,255,0.2)",
-          borderRadius: "50%",
-          boxShadow:
-            "0 4px 24px rgba(100,80,255,0.4), inset 0 1px 0 rgba(255,255,255,0.2)",
-        }}
+      {/* Floating bottom-right cluster */}
+      <div
+        className="fixed bottom-5 right-5 z-[100] flex items-center gap-2"
+        style={{ alignItems: "center" }}
       >
-        {open ? (
-          /* X icon */
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+        {/* Task counts pill — shown only when there are active tasks */}
+        {hasActiveTasks && (
+          <div
+            aria-label={`${taskCounts.running} běžících, ${taskCounts.queued} čekajících`}
+            data-testid="task-counts"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "rgba(10, 8, 28, 0.88)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "999px",
+              padding: "5px 10px",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            }}
           >
-            <line
-              x1="2"
-              y1="2"
-              x2="16"
-              y2="16"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-            <line
-              x1="16"
-              y1="2"
-              x2="2"
-              y2="16"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        ) : (
-          /* Chat bubble icon */
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M21 15C21 15.5304 20.7893 16.0391 20.4142 16.4142C20.0391 16.7893 19.5304 17 19 17H7L3 21V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V15Z"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+            {taskCounts.running > 0 && (
+              <span
+                data-testid="running-count"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  color: "rgba(80,220,160,0.95)",
+                  lineHeight: 1,
+                }}
+              >
+                {/* Running indicator dot */}
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: "rgba(80,220,160,1)",
+                    boxShadow: "0 0 6px rgba(80,220,160,0.8)",
+                    flexShrink: 0,
+                    animation: "pulse 1.4s ease-in-out infinite",
+                  }}
+                />
+                {taskCounts.running}
+              </span>
+            )}
+            {taskCounts.running > 0 && taskCounts.queued > 0 && (
+              <span style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.65rem" }}>|</span>
+            )}
+            {taskCounts.queued > 0 && (
+              <span
+                data-testid="queued-count"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  color: "rgba(180,150,255,0.9)",
+                  lineHeight: 1,
+                }}
+              >
+                {/* Queued indicator */}
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="4" cy="4" r="3" stroke="rgba(180,150,255,0.9)" strokeWidth="1.5" />
+                </svg>
+                {taskCounts.queued}
+              </span>
+            )}
+          </div>
         )}
-      </button>
+
+        {/* Floating toggle button */}
+        <button
+          onClick={handleToggle}
+          aria-label={open ? "Zavřít panel nápadů" : "Otevřít panel nápadů"}
+          className="w-12 h-12 flex items-center justify-center transition-transform active:scale-95"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(120,80,255,0.9), rgba(80,160,255,0.9))",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: "50%",
+            boxShadow:
+              "0 4px 24px rgba(100,80,255,0.4), inset 0 1px 0 rgba(255,255,255,0.2)",
+          }}
+        >
+          {open ? (
+            /* X icon */
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <line
+                x1="2"
+                y1="2"
+                x2="16"
+                y2="16"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+              <line
+                x1="16"
+                y1="2"
+                x2="2"
+                y2="16"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          ) : (
+            /* Chat bubble icon */
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M21 15C21 15.5304 20.7893 16.0391 20.4142 16.4142C20.0391 16.7893 19.5304 17 19 17H7L3 21V5C3 4.46957 3.21071 3.96086 3.58579 3.58579C3.96086 3.21071 4.46957 3 5 3H19C19.5304 3 20.0391 3.21071 20.4142 3.58579C20.7893 3.96086 21 4.46957 21 5V15Z"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Pulse animation for running tasks */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.75); }
+        }
+      `}</style>
     </>
   );
 }
