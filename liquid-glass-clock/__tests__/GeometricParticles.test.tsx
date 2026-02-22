@@ -95,7 +95,7 @@ describe("GeometricParticles component", () => {
     removeSpy.mockRestore();
   });
 
-  it("registers mouse event listeners for interaction", () => {
+  it("registers mouse event listeners for camera control", () => {
     const addSpy = jest.spyOn(window, "addEventListener");
     render(<GeometricParticles />);
     const events = addSpy.mock.calls.map((c) => c[0]);
@@ -135,9 +135,9 @@ describe("GeometricParticles component", () => {
     expect(mockContext.beginPath).toHaveBeenCalled();
   });
 
-  it("applies inter-particle repulsion without throwing over multiple frames", () => {
+  it("renders correctly over multiple frames without throwing", () => {
     render(<GeometricParticles />);
-    // Run several frames so repulsion forces have a chance to accumulate and be applied
+    // Run several frames so 3-D projection and line drawing accumulate
     act(() => {
       for (let frame = 0; frame < 5; frame++) {
         if (rafCallback) rafCallback(performance.now());
@@ -147,7 +147,7 @@ describe("GeometricParticles component", () => {
     expect(mockContext.arc).toHaveBeenCalled();
   });
 
-  it("handles mousemove event without throwing", () => {
+  it("handles mousemove to rotate camera without throwing", () => {
     render(<GeometricParticles />);
     act(() => {
       window.dispatchEvent(
@@ -159,7 +159,7 @@ describe("GeometricParticles component", () => {
     expect(mockContext.clearRect).toHaveBeenCalled();
   });
 
-  it("handles mousedown/mouseup (attract mode) without throwing", () => {
+  it("handles mousedown/mouseup without throwing", () => {
     render(<GeometricParticles />);
     act(() => {
       window.dispatchEvent(new MouseEvent("mousemove", { clientX: 50, clientY: 50 }));
