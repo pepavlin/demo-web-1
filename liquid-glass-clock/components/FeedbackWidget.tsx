@@ -7,50 +7,59 @@ const POLL_INTERVAL_MS = 30_000;
 
 type Status = "idle" | "sending" | "sent" | "error";
 
+interface Task {
+  id?: string | number;
+  status?: string;
+  message?: string;
+  title?: string;
+  name?: string;
+}
+
 interface TaskCounts {
   running: number;
   queued: number;
 }
 
-function parseTaskCounts(data: unknown): TaskCounts {
-  let tasks: Array<{ status?: string }> = [];
-
-  if (Array.isArray(data)) {
-    tasks = data;
-  } else if (data && typeof data === "object") {
-    const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj.tasks)) tasks = obj.tasks as typeof tasks;
-    else if (Array.isArray(obj.data)) tasks = obj.data as typeof tasks;
-    else if (Array.isArray(obj.items)) tasks = obj.items as typeof tasks;
-  }
-
-  return {
-    running: tasks.filter((t) => t?.status === "running").length,
-    queued: tasks.filter((t) => t?.status === "queued").length,
-  };
+function getTaskLabel(task: Task): string {
+  return (task.message || task.title || task.name || "").trim();
 }
 
-function useTaskCounts(): TaskCounts {
-  const [counts, setCounts] = useState<TaskCounts>({ running: 0, queued: 0 });
+export function parseTasks(data: unknown): Task[] {
+  let items: unknown[] = [];
 
-  const fetchCounts = useCallback(async () => {
+  if (Array.isArray(data)) {
+    items = data;
+  } else if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.tasks)) items = obj.tasks;
+    else if (Array.isArray(obj.data)) items = obj.data;
+    else if (Array.isArray(obj.items)) items = obj.items;
+  }
+
+  return items.filter((t): t is Task => t !== null && typeof t === "object");
+}
+
+function useTasks(): Task[] {
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch(WEBHOOK_URL, { method: "GET" });
       if (!res.ok) return;
       const data: unknown = await res.json();
-      setCounts(parseTaskCounts(data));
+      setTasks(parseTasks(data));
     } catch {
-      // silently ignore — badge just stays at 0
+      // silently ignore — list stays empty
     }
   }, []);
 
   useEffect(() => {
-    fetchCounts();
-    const id = setInterval(fetchCounts, POLL_INTERVAL_MS);
+    fetchTasks();
+    const id = setInterval(fetchTasks, POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [fetchCounts]);
+  }, [fetchTasks]);
 
-  return counts;
+  return tasks;
 }
 
 export default function FeedbackWidget() {
@@ -58,7 +67,15 @@ export default function FeedbackWidget() {
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const taskCounts = useTaskCounts();
+
+  const tasks = useTasks();
+  const runningTasks = tasks.filter((t) => t?.status === "running");
+  const queuedTasks = tasks.filter((t) => t?.status === "queued");
+  const taskCounts: TaskCounts = {
+    running: runningTasks.length,
+    queued: queuedTasks.length,
+  };
+  const hasActiveTasks = taskCounts.running > 0 || taskCounts.queued > 0;
 
   useEffect(() => {
     if (open && status === "idle" && textareaRef.current) {
@@ -100,8 +117,6 @@ export default function FeedbackWidget() {
     setStatus("idle");
     setMessage("");
   };
-
-  const hasActiveTasks = taskCounts.running > 0 || taskCounts.queued > 0;
 
   return (
     <>
@@ -297,6 +312,131 @@ export default function FeedbackWidget() {
                   Enter pro odeslání · Shift+Enter pro nový řádek
                 </p>
               </>
+            )}
+
+            {/* Task list — shown whenever the panel is open and there are active tasks */}
+            {hasActiveTasks && (
+              <div
+                data-testid="task-list"
+                style={{
+                  marginTop: "1rem",
+                  paddingTop: "0.875rem",
+                  borderTop: "1px solid rgba(255,255,255,0.07)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: "0.65rem",
+                    color: "rgba(255,255,255,0.3)",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.55rem",
+                  }}
+                >
+                  Probíhající tasky
+                </p>
+
+                {runningTasks.length > 0 && (
+                  <div data-testid="running-tasks" style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                    {runningTasks.map((task, i) => (
+                      <div
+                        key={task.id ?? `running-${i}`}
+                        data-testid="task-item"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: "6px",
+                            height: "6px",
+                            borderRadius: "50%",
+                            background: "rgba(80,220,160,1)",
+                            boxShadow: "0 0 6px rgba(80,220,160,0.7)",
+                            flexShrink: 0,
+                            animation: "pulse 1.4s ease-in-out infinite",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "rgba(255,255,255,0.72)",
+                            lineHeight: 1.4,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {getTaskLabel(task) || `Implementace #${i + 1}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {queuedTasks.length > 0 && (
+                  <div
+                    data-testid="queued-tasks"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.35rem",
+                      marginTop: runningTasks.length > 0 ? "0.5rem" : 0,
+                    }}
+                  >
+                    {runningTasks.length > 0 && (
+                      <p
+                        style={{
+                          fontSize: "0.65rem",
+                          color: "rgba(255,255,255,0.25)",
+                          fontWeight: 600,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          marginBottom: "0.25rem",
+                        }}
+                      >
+                        Ve frontě
+                      </p>
+                    )}
+                    {queuedTasks.map((task, i) => (
+                      <div
+                        key={task.id ?? `queued-${i}`}
+                        data-testid="task-item"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        <svg
+                          width="6"
+                          height="6"
+                          viewBox="0 0 6 6"
+                          fill="none"
+                          style={{ flexShrink: 0 }}
+                        >
+                          <circle cx="3" cy="3" r="2.25" stroke="rgba(180,150,255,0.7)" strokeWidth="1.5" />
+                        </svg>
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "rgba(180,150,255,0.75)",
+                            lineHeight: 1.4,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {getTaskLabel(task) || `Ve frontě #${i + 1}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

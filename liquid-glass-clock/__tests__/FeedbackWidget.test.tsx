@@ -5,7 +5,7 @@ import React from "react";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
-import FeedbackWidget from "../components/FeedbackWidget";
+import FeedbackWidget, { parseTasks } from "../components/FeedbackWidget";
 
 const WEBHOOK_URL = "https://n8n.pavlin.dev/webhook/demo-web-1-create-issue";
 
@@ -233,7 +233,7 @@ describe("FeedbackWidget", () => {
     expect(screen.getByPlaceholderText(/co by se tu mělo/i)).toBeInTheDocument();
   });
 
-  // ─── Task counts ───────────────────────────────────────────────────────────
+  // ─── Task counts badge ──────────────────────────────────────────────────────
 
   it("does not show task-counts badge when GET returns empty array", async () => {
     mockGetEmpty();
@@ -387,5 +387,235 @@ describe("FeedbackWidget", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── Task list inside open panel ───────────────────────────────────────────
+
+  it("does not show task-list inside panel when no tasks", async () => {
+    mockGetEmpty();
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    expect(screen.queryByTestId("task-list")).not.toBeInTheDocument();
+  });
+
+  it("shows task-list inside panel when panel is open and tasks exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "running", message: "Přidat tmavý režim" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("task-list")).toBeInTheDocument();
+    });
+  });
+
+  it("does not show task-list when panel is closed even if tasks exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "running", message: "Něco" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    // Panel is closed by default — task-list should not be in the DOM
+    await waitFor(() => {
+      expect(screen.queryByTestId("task-list")).not.toBeInTheDocument();
+    });
+  });
+
+  it("displays running task message in the task list", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "running", message: "Přidat tmavý režim" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("running-tasks")).toBeInTheDocument();
+      expect(screen.getByText("Přidat tmavý režim")).toBeInTheDocument();
+    });
+  });
+
+  it("displays task title as fallback when message field is absent", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "running", title: "Fix navigation" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Fix navigation")).toBeInTheDocument();
+    });
+  });
+
+  it("displays fallback label when task has no message or title", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "running" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/implementace #1/i)).toBeInTheDocument();
+    });
+  });
+
+  it("displays queued task message in the task list", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "1", status: "queued", message: "Opravit navigaci" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("queued-tasks")).toBeInTheDocument();
+      expect(screen.getByText("Opravit navigaci")).toBeInTheDocument();
+    });
+  });
+
+  it("displays fallback label for queued task without message", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "2", status: "queued" }],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/ve frontě #1/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows both running-tasks and queued-tasks sections when mixed", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "1", status: "running", message: "Running task A" },
+        { id: "2", status: "queued", message: "Queued task B" },
+      ],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("running-tasks")).toBeInTheDocument();
+      expect(screen.getByTestId("queued-tasks")).toBeInTheDocument();
+      expect(screen.getByText("Running task A")).toBeInTheDocument();
+      expect(screen.getByText("Queued task B")).toBeInTheDocument();
+    });
+  });
+
+  it("renders multiple task-item entries for multiple tasks", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "1", status: "running", message: "Task 1" },
+        { id: "2", status: "running", message: "Task 2" },
+        { id: "3", status: "queued", message: "Task 3" },
+      ],
+    });
+
+    await act(async () => {
+      render(<FeedbackWidget />);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /otevřít panel nápadů/i }));
+
+    await waitFor(() => {
+      const items = screen.getAllByTestId("task-item");
+      expect(items).toHaveLength(3);
+    });
+  });
+
+  // ─── parseTasks unit tests ──────────────────────────────────────────────────
+
+  describe("parseTasks", () => {
+    it("returns empty array for empty array input", () => {
+      expect(parseTasks([])).toEqual([]);
+    });
+
+    it("returns tasks from a root array", () => {
+      const input = [{ id: "1", status: "running", message: "Do something" }];
+      expect(parseTasks(input)).toEqual(input);
+    });
+
+    it("extracts tasks from { tasks: [...] } object", () => {
+      const task = { id: "1", status: "queued" };
+      expect(parseTasks({ tasks: [task] })).toEqual([task]);
+    });
+
+    it("extracts tasks from { data: [...] } object", () => {
+      const task = { id: "2", status: "running" };
+      expect(parseTasks({ data: [task] })).toEqual([task]);
+    });
+
+    it("extracts tasks from { items: [...] } object", () => {
+      const task = { id: "3", status: "running" };
+      expect(parseTasks({ items: [task] })).toEqual([task]);
+    });
+
+    it("filters out null/non-object entries", () => {
+      const result = parseTasks([null, { id: "1", status: "running" }, "string", 42]);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({ id: "1", status: "running" });
+    });
+
+    it("returns empty array for null input", () => {
+      expect(parseTasks(null)).toEqual([]);
+    });
+
+    it("returns empty array for a plain string input", () => {
+      expect(parseTasks("unexpected")).toEqual([]);
+    });
   });
 });
