@@ -7,7 +7,6 @@ import {
   useAnimationControls,
   useTransform,
 } from "framer-motion";
-import SlimeJumper from "./SlimeJumper";
 import { useMouseParallax } from "@/hooks/useMouseParallax";
 
 interface TimeState {
@@ -356,11 +355,7 @@ export default function Clock() {
           </motion.div>
         </motion.div>
 
-        <SlimeJumper
-          panelRef={panelRef}
-          second={parseInt(time.seconds)}
-          shakeSignal={shakeSignal}
-        />
+
       </motion.div>
 
       {/* Date */}
