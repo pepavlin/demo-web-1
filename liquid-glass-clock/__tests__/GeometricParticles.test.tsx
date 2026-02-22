@@ -95,7 +95,7 @@ describe("GeometricParticles component", () => {
     removeSpy.mockRestore();
   });
 
-  it("registers mouse event listeners for camera control", () => {
+  it("registers mouse and wheel event listeners for camera control and zoom", () => {
     const addSpy = jest.spyOn(window, "addEventListener");
     render(<GeometricParticles />);
     const events = addSpy.mock.calls.map((c) => c[0]);
@@ -103,10 +103,11 @@ describe("GeometricParticles component", () => {
     expect(events).toContain("mouseleave");
     expect(events).toContain("mousedown");
     expect(events).toContain("mouseup");
+    expect(events).toContain("wheel");
     addSpy.mockRestore();
   });
 
-  it("removes mouse event listeners on unmount", () => {
+  it("removes mouse and wheel event listeners on unmount", () => {
     const removeSpy = jest.spyOn(window, "removeEventListener");
     const { unmount } = render(<GeometricParticles />);
     unmount();
@@ -115,7 +116,20 @@ describe("GeometricParticles component", () => {
     expect(events).toContain("mouseleave");
     expect(events).toContain("mousedown");
     expect(events).toContain("mouseup");
+    expect(events).toContain("wheel");
     removeSpy.mockRestore();
+  });
+
+  it("handles wheel event for zoom without throwing", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      // Scroll down (zoom out)
+      window.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 }));
+      // Scroll up (zoom in)
+      window.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+      if (rafCallback) rafCallback(performance.now());
+    });
+    expect(mockContext.clearRect).toHaveBeenCalled();
   });
 
   it("creates radial gradients for glow effect", () => {
