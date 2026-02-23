@@ -100,9 +100,9 @@ describe("GeometricParticles component", () => {
     render(<GeometricParticles />);
     const events = addSpy.mock.calls.map((c) => c[0]);
     expect(events).toContain("wheel");
-    // Mouse rotation events are no longer registered (camera uses auto breathing)
-    expect(events).not.toContain("mousemove");
-    expect(events).not.toContain("mouseleave");
+    // Mouse interaction events are registered for magnetic attraction
+    expect(events).toContain("mousemove");
+    expect(events).toContain("mouseleave");
     addSpy.mockRestore();
   });
 
