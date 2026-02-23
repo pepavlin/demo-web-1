@@ -356,4 +356,34 @@ describe("Game3D component", () => {
   it("accepts a playerName prop without crashing", () => {
     expect(() => render(<Game3D playerName="Karel" />)).not.toThrow();
   });
+
+  // ── Weapon selection tests ─────────────────────────────────────────────────────
+
+  it("clicking Hrát! shows weapon select overlay", () => {
+    const { getByRole, getByTestId } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const btn = getByRole("button", { name: "Hrát!" });
+    act(() => { btn.click(); });
+    expect(getByTestId("weapon-select-overlay")).toBeInTheDocument();
+  });
+
+  it("clicking Hrát! hides intro overlay and shows weapon select", () => {
+    const { getByRole, queryByText, getByTestId } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const btn = getByRole("button", { name: "Hrát!" });
+    act(() => { btn.click(); });
+    // Intro should be hidden
+    expect(queryByText("Open World")).toBeNull();
+    // Weapon select should be visible
+    expect(getByTestId("weapon-select-overlay")).toBeInTheDocument();
+  });
+
+  it("weapon select shows all three weapon options", () => {
+    const { getByRole, getByTestId } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    act(() => { getByRole("button", { name: "Hrát!" }).click(); });
+    expect(getByTestId("weapon-card-pistol")).toBeInTheDocument();
+    expect(getByTestId("weapon-card-sword")).toBeInTheDocument();
+    expect(getByTestId("weapon-card-sniper")).toBeInTheDocument();
+  });
 });

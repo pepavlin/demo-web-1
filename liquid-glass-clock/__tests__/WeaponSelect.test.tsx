@@ -1,0 +1,152 @@
+/**
+ * @jest-environment jsdom
+ */
+import React from "react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import WeaponSelect from "../components/WeaponSelect";
+
+describe("WeaponSelect component", () => {
+  it("renders without crashing", () => {
+    expect(() => render(<WeaponSelect onConfirm={jest.fn()} />)).not.toThrow();
+  });
+
+  it("shows the overlay", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByTestId("weapon-select-overlay")).toBeInTheDocument();
+  });
+
+  it("shows all three weapon cards", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByTestId("weapon-card-pistol")).toBeInTheDocument();
+    expect(screen.getByTestId("weapon-card-sword")).toBeInTheDocument();
+    expect(screen.getByTestId("weapon-card-sniper")).toBeInTheDocument();
+  });
+
+  it("shows weapon names in Czech", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByText("Pistole")).toBeInTheDocument();
+    expect(screen.getByText("Meč")).toBeInTheDocument();
+    expect(screen.getByText("Sniperka")).toBeInTheDocument();
+  });
+
+  it("renders a confirm button", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByTestId("weapon-confirm-btn")).toBeInTheDocument();
+  });
+
+  it("defaults to pistol selected and confirm button says Pistole", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Pistole/);
+  });
+
+  it("clicking a weapon card selects it", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const swordCard = screen.getByTestId("weapon-card-sword");
+    fireEvent.click(swordCard);
+    // After clicking sword, confirm button should say Meč
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Meč/);
+  });
+
+  it("clicking the confirm button calls onConfirm with selected weapon", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByTestId("weapon-confirm-btn"));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("pistol");
+  });
+
+  it("selecting sword and confirming calls onConfirm with 'sword'", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByTestId("weapon-card-sword"));
+    fireEvent.click(screen.getByTestId("weapon-confirm-btn"));
+    expect(onConfirm).toHaveBeenCalledWith("sword");
+  });
+
+  it("selecting sniper and confirming calls onConfirm with 'sniper'", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByTestId("weapon-card-sniper"));
+    fireEvent.click(screen.getByTestId("weapon-confirm-btn"));
+    expect(onConfirm).toHaveBeenCalledWith("sniper");
+  });
+
+  it("keyboard shortcut '2' selects sword", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "2" });
+    });
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Meč/);
+  });
+
+  it("keyboard shortcut '3' selects sniper", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "3" });
+    });
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Sniperka/);
+  });
+
+  it("keyboard shortcut '1' selects pistol", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    // First switch to sword, then back to pistol
+    act(() => {
+      fireEvent.keyDown(window, { key: "2" });
+    });
+    act(() => {
+      fireEvent.keyDown(window, { key: "1" });
+    });
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Pistole/);
+  });
+
+  it("Enter key calls onConfirm with currently selected weapon", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "3" });
+    });
+    act(() => {
+      fireEvent.keyDown(window, { key: "Enter" });
+    });
+    expect(onConfirm).toHaveBeenCalledWith("sniper");
+  });
+
+  it("shows keyboard shortcut hints [1] [2] [3]", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByText("[1]")).toBeInTheDocument();
+    expect(screen.getByText("[2]")).toBeInTheDocument();
+    expect(screen.getByText("[3]")).toBeInTheDocument();
+  });
+
+  it("shows the header title 'Vyber zbraň'", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    expect(screen.getByText("Vyber zbraň")).toBeInTheDocument();
+  });
+
+  it("pistol card is initially marked as pressed (selected)", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const pistolCard = screen.getByTestId("weapon-card-pistol");
+    expect(pistolCard).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("sword card is not pressed by default", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const swordCard = screen.getByTestId("weapon-card-sword");
+    expect(swordCard).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("clicking sword card updates aria-pressed", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const swordCard = screen.getByTestId("weapon-card-sword");
+    fireEvent.click(swordCard);
+    expect(swordCard).toHaveAttribute("aria-pressed", "true");
+    // Pistol should be deselected
+    expect(screen.getByTestId("weapon-card-pistol")).toHaveAttribute("aria-pressed", "false");
+  });
+});

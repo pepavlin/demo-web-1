@@ -1,5 +1,54 @@
 import * as THREE from "three";
 
+// ─── Weapon system ────────────────────────────────────────────────────────────
+export type WeaponType = "pistol" | "sword" | "sniper";
+
+export interface WeaponConfig {
+  type: WeaponType;
+  /** Display name shown in the HUD */
+  label: string;
+  /** Melee hit damage (and bullet damage) */
+  damage: number;
+  /** Melee attack range in world units */
+  range: number;
+  /** Seconds between attacks */
+  cooldown: number;
+  /** Bullet travel speed (units/s); 0 means melee-only (no bullet spawned) */
+  bulletSpeed: number;
+  /** CSS accent color for UI elements */
+  color: string;
+}
+
+export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
+  pistol: {
+    type: "pistol",
+    label: "Pistole",
+    damage: 25,
+    range: 5,
+    cooldown: 0.65,
+    bulletSpeed: 55,
+    color: "#6ee7b7",
+  },
+  sword: {
+    type: "sword",
+    label: "Meč",
+    damage: 50,
+    range: 4.5,
+    cooldown: 0.38,
+    bulletSpeed: 0, // melee only
+    color: "#fbbf24",
+  },
+  sniper: {
+    type: "sniper",
+    label: "Sniperka",
+    damage: 90,
+    range: 8,
+    cooldown: 2.0,
+    bulletSpeed: 130,
+    color: "#f87171",
+  },
+};
+
 export interface SheepData {
   mesh: THREE.Group;
   velocity: THREE.Vector2;
