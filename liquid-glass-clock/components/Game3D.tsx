@@ -461,17 +461,35 @@ export default function Game3D() {
     }
     terrainGeo.computeVertexNormals();
 
+    // Smooth terrain color gradient: deep water → beach → grass → highland → rock
+    const lerpC = (a: number[], b: number[], t: number) => {
+      const tc = Math.max(0, Math.min(1, t));
+      return [a[0] + (b[0] - a[0]) * tc, a[1] + (b[1] - a[1]) * tc, a[2] + (b[2] - a[2]) * tc];
+    };
+    const deepWater   = [0.12, 0.22, 0.50];
+    const shallowWater= [0.22, 0.44, 0.68];
+    const sand        = [0.74, 0.68, 0.44];
+    const brightGrass = [0.40, 0.68, 0.22];
+    const midGrass    = [0.30, 0.54, 0.17];
+    const darkGrass   = [0.23, 0.43, 0.13];
+    const rockBrown   = [0.50, 0.42, 0.30];
+    const rockGray    = [0.62, 0.59, 0.56];
+
     const colors = new Float32Array(positions.count * 3);
     for (let i = 0; i < positions.count; i++) {
       const y = positions.getY(i);
-      let r: number, g: number, b: number;
-      if (y < -0.5) { r = 0.2; g = 0.35; b = 0.55; }
-      else if (y < 2) { r = 0.35; g = 0.6; b = 0.25; }
-      else if (y < 15) { r = 0.28; g = 0.5; b = 0.2; }
-      else { r = 0.55; g = 0.48; b = 0.38; }
-      colors[i * 3] = r;
-      colors[i * 3 + 1] = g;
-      colors[i * 3 + 2] = b;
+      let col: number[];
+      if (y < -3)        col = deepWater;
+      else if (y < -0.5) col = lerpC(deepWater, shallowWater, (y + 3) / 2.5);
+      else if (y < 0.4)  col = lerpC(shallowWater, sand, (y + 0.5) / 0.9);
+      else if (y < 2.5)  col = lerpC(sand, brightGrass, (y - 0.4) / 2.1);
+      else if (y < 7)    col = lerpC(brightGrass, midGrass, (y - 2.5) / 4.5);
+      else if (y < 17)   col = lerpC(midGrass, darkGrass, (y - 7) / 10);
+      else if (y < 28)   col = lerpC(darkGrass, rockBrown, (y - 17) / 11);
+      else               col = lerpC(rockBrown, rockGray, Math.min(1, (y - 28) / 12));
+      colors[i * 3] = col[0];
+      colors[i * 3 + 1] = col[1];
+      colors[i * 3 + 2] = col[2];
     }
     terrainGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
@@ -494,9 +512,9 @@ export default function Game3D() {
 
     // ── Grass ───────────────────────────────────────────────────────────────
     {
-      const GRASS_COUNT = 5000;
-      const BLADE_H = 0.52;
-      const BLADE_W = 0.09;
+      const GRASS_COUNT = 20000;
+      const BLADE_H = 0.65;
+      const BLADE_W = 0.10;
       let gSeed = 7391;
       const gRng = () => {
         gSeed = (gSeed * 1664525 + 1013904223) & 0xffffffff;
@@ -515,22 +533,36 @@ export default function Game3D() {
         const wx = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
         const wz = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
         const wy = getTerrainHeight(wx, wz);
-        if (wy < 0.3 || wy > 11) continue; // only green flat terrain
+        if (wy < 0.3 || wy > 14) continue; // green terrain zones
 
-        const h = BLADE_H * (0.55 + gRng() * 0.9);
-        const w = BLADE_W * (0.6 + gRng() * 0.8);
-        // Random tilt direction
-        const tiltX = (gRng() - 0.5) * 0.14;
-        const tiltZ = (gRng() - 0.5) * 0.14;
-        // Wind phase varies by world position
+        const h = BLADE_H * (0.5 + gRng() * 1.1);
+        const w = BLADE_W * (0.55 + gRng() * 0.9);
+        // Slight random lean direction
+        const tiltX = (gRng() - 0.5) * 0.18;
+        const tiltZ = (gRng() - 0.5) * 0.18;
+        // Wind phase varies by world position for wave-like field motion
         const phase = wx * 0.48 + wz * 0.73;
-        // Color: dark base → lighter tip (green tones with slight variation)
-        const greenVariant = 0.48 + gRng() * 0.18;
-        const baseR = 0.12 + gRng() * 0.06;
-        const tipR = 0.22 + gRng() * 0.08;
+        // Color variation: fresh green, dry yellowish, or dark lush
+        const colorRoll = gRng();
+        let greenVariant: number, baseR: number, tipR: number;
+        if (colorRoll < 0.2) {
+          // Dry/yellowish tufts
+          greenVariant = 0.55 + gRng() * 0.15;
+          baseR = 0.22 + gRng() * 0.08;
+          tipR  = 0.45 + gRng() * 0.12;
+        } else if (colorRoll < 0.55) {
+          // Bright fresh green
+          greenVariant = 0.60 + gRng() * 0.15;
+          baseR = 0.10 + gRng() * 0.05;
+          tipR  = 0.20 + gRng() * 0.08;
+        } else {
+          // Lush dark green
+          greenVariant = 0.45 + gRng() * 0.12;
+          baseR = 0.08 + gRng() * 0.04;
+          tipR  = 0.18 + gRng() * 0.06;
+        }
 
-        // Blade as two crossed quads (12 vertices), each with height factor 0 (base) or 1 (tip)
-        // [localX, localY, localZ, heightFactor, r_base, g_base vs tip]
+        // Two crossed quads (12 vertices), heightFactor: 0=base, 1=tip
         const verts: [number, number, number, number][] = [
           // Quad 1 (facing Z)
           [-w / 2, 0,  0,  0],
@@ -552,11 +584,11 @@ export default function Game3D() {
           gPos.push(wx + bx, wy + by, wz + bz);
           gHeightFactor.push(hf);
           gWindPhase.push(phase);
-          // Interpolate color base→tip
+          // Base is darker/slightly bluer, tip is lighter and slightly yellow-green
           gColor.push(
             baseR + (tipR - baseR) * hf,
-            greenVariant * (0.75 + hf * 0.25),
-            0.1 + hf * 0.04
+            greenVariant * (0.68 + hf * 0.32),
+            0.08 + hf * 0.06
           );
         }
         placed++;
@@ -578,11 +610,14 @@ export default function Game3D() {
           varying vec3 vColor;
           void main() {
             vec3 pos = position;
-            // Wind sway: stronger at blade tip, alternates direction
-            float wind = (sin(windPhase + time * 1.9) * 0.6 + cos(windPhase * 1.3 + time * 1.4) * 0.4);
-            pos.x += wind * heightFactor * 0.13;
-            pos.z += wind * heightFactor * 0.065;
-            vColor = color;
+            // Quadratic curve: tips sway more than base, creating natural blade bend
+            float curve = heightFactor * heightFactor;
+            float wind = (sin(windPhase + time * 1.7) * 0.55 + cos(windPhase * 1.4 + time * 1.2) * 0.45);
+            float gust  = sin(time * 0.4 + windPhase * 0.05) * 0.3; // slow gusts
+            pos.x += (wind + gust) * curve * 0.18;
+            pos.z += wind * curve * 0.09;
+            // Darken grass base (ambient occlusion hint)
+            vColor = color * (0.60 + heightFactor * 0.40);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
           }
         `,
@@ -593,13 +628,82 @@ export default function Game3D() {
           }
         `,
         side: THREE.DoubleSide,
-        vertexColors: true,
+        // vertexColors handled manually via 'color' attribute in the shader
       });
 
       const grassMesh = new THREE.Mesh(grassGeo, grassMat);
       grassMesh.receiveShadow = false;
       scene.add(grassMesh);
       grassMatRef.current = grassMat;
+    }
+
+    // ── Wildflowers ─────────────────────────────────────────────────────────
+    {
+      const FLOWER_COUNT = 700;
+      let fSeed = 4219;
+      const fRng = () => {
+        fSeed = (fSeed * 1664525 + 1013904223) & 0xffffffff;
+        return (fSeed >>> 0) / 0xffffffff;
+      };
+
+      // Each flower: a small cross of 2 quads (petals) + thin stem triangle
+      const flowerPalette: [number, number, number][] = [
+        [1.00, 0.95, 0.15], // golden yellow
+        [0.98, 0.98, 0.98], // white
+        [0.92, 0.30, 0.52], // pink
+        [0.65, 0.25, 0.88], // violet
+        [1.00, 0.52, 0.08], // orange
+        [0.20, 0.72, 0.95], // sky blue
+      ];
+
+      const fPos: number[] = [];
+      const fCol: number[] = [];
+
+      let placed = 0;
+      let tries = 0;
+      while (placed < FLOWER_COUNT && tries < FLOWER_COUNT * 8) {
+        tries++;
+        const wx = (fRng() - 0.5) * (WORLD_SIZE * 0.75);
+        const wz = (fRng() - 0.5) * (WORLD_SIZE * 0.75);
+        const wy = getTerrainHeight(wx, wz);
+        if (wy < 0.5 || wy > 10) continue;
+
+        const ps = 0.07 + fRng() * 0.09;  // petal size
+        const sh = 0.25 + fRng() * 0.45;  // stem height
+        const [cr, cg, cb] = flowerPalette[Math.floor(fRng() * flowerPalette.length)];
+
+        // Two diamond-shaped crossed petals
+        const petals: [number, number, number][] = [
+          // Petal quad 1 (XY plane)
+          [-ps, sh, 0], [0, sh + ps * 1.4, 0], [ps, sh, 0],
+          [-ps, sh, 0], [ps, sh, 0],             [0, sh - ps * 0.5, 0],
+          // Petal quad 2 (ZY plane)
+          [0, sh, -ps], [0, sh + ps * 1.4, 0], [0, sh, ps],
+          [0, sh, -ps], [0, sh, ps],             [0, sh - ps * 0.5, 0],
+        ];
+        // Thin green stem
+        const stem: [number, number, number][] = [
+          [-0.015, 0, 0], [0.015, 0, 0], [0, sh, 0],
+          [0, 0, -0.015], [0, 0, 0.015], [0, sh, 0],
+        ];
+
+        for (const [bx, by, bz] of petals) {
+          fPos.push(wx + bx, wy + by, wz + bz);
+          fCol.push(cr, cg, cb);
+        }
+        for (const [bx, by, bz] of stem) {
+          fPos.push(wx + bx, wy + by, wz + bz);
+          fCol.push(0.18, 0.58, 0.12); // green stem
+        }
+        placed++;
+      }
+
+      const flowerGeo = new THREE.BufferGeometry();
+      flowerGeo.setAttribute("position", new THREE.Float32BufferAttribute(fPos, 3));
+      flowerGeo.setAttribute("color",    new THREE.Float32BufferAttribute(fCol, 3));
+      const flowerMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+      const flowerMesh = new THREE.Mesh(flowerGeo, flowerMat);
+      scene.add(flowerMesh);
     }
 
     // ── Clouds ───────────────────────────────────────────────────────────────
