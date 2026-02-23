@@ -14,6 +14,11 @@ export interface FoxData {
   mesh: THREE.Group;
   wanderTimer: number;
   wanderAngle: number;
+  hp: number;
+  maxHp: number;
+  isAlive: boolean;
+  attackCooldown: number;
+  hitFlashTimer: number;
 }
 
 export interface CoinData {
@@ -30,4 +35,7 @@ export interface GameState {
   stamina: number;
   timeLabel: string;
   direction: string;
+  playerHp: number;
+  foxesDefeated: number;
+  attackReady: boolean;
 }
