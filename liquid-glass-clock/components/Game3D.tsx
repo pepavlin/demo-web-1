@@ -1686,13 +1686,14 @@ export default function Game3D() {
       {/* ═══════════════ LEFT SIDE PANEL ═══════════════ */}
       {gameState.isLocked && (
         <div
-          className="fixed left-4 top-4 pointer-events-none select-none flex flex-col gap-2"
-          style={{ width: 220 }}
+          className="fixed left-5 top-5 pointer-events-none select-none flex flex-col gap-3"
+          style={{ width: 248 }}
         >
           {/* Player stats card */}
           <div
-            className="rounded-2xl p-4 text-white"
+            className="rounded-2xl text-white"
             style={{
+              padding: "18px 20px 20px",
               background: "rgba(5,8,20,0.72)",
               backdropFilter: "blur(16px)",
               border: "1px solid rgba(255,255,255,0.10)",
@@ -1701,15 +1702,15 @@ export default function Game3D() {
           >
             {/* Section label */}
             <div
-              className="text-xs font-semibold uppercase tracking-widest mb-3"
-              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em" }}
+              className="text-xs font-semibold uppercase tracking-widest"
+              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em", marginBottom: 14 }}
             >
               Hráč
             </div>
 
             {/* HP bar */}
-            <div className="mb-3">
-              <div className="flex justify-between items-center mb-1.5">
+            <div style={{ marginBottom: 14 }}>
+              <div className="flex justify-between items-center" style={{ marginBottom: 7 }}>
                 <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>❤️ Zdraví</span>
                 <span className="text-xs font-bold tabular-nums" style={{ color: hpColor }}>
                   {Math.round(gameState.playerHp)}/{PLAYER_MAX_HP}
@@ -1731,8 +1732,8 @@ export default function Game3D() {
             </div>
 
             {/* Stamina bar */}
-            <div className="mb-4">
-              <div className="flex justify-between items-center mb-1.5">
+            <div style={{ marginBottom: 18 }}>
+              <div className="flex justify-between items-center" style={{ marginBottom: 7 }}>
                 <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>⚡ Výdrž</span>
                 <span className="text-xs font-bold tabular-nums" style={{ color: staminaColor }}>
                   {Math.round(staminaPct)}%
@@ -1754,18 +1755,18 @@ export default function Game3D() {
             </div>
 
             {/* Divider */}
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 12 }} />
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 16 }} />
 
             {/* Section label */}
             <div
-              className="text-xs font-semibold uppercase tracking-widest mb-3"
-              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em" }}
+              className="text-xs font-semibold uppercase tracking-widest"
+              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em", marginBottom: 12 }}
             >
               Úkoly
             </div>
 
             {/* Stats */}
-            <div className="space-y-2.5">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="flex justify-between items-center">
                 <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🐑 Ohrady</span>
                 <span className="text-xs font-bold text-green-300 tabular-nums">
@@ -1791,7 +1792,7 @@ export default function Game3D() {
             {/* Foxes defeated (conditional) */}
             {gameState.foxesDefeated > 0 && (
               <>
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "12px 0" }} />
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
                 <div className="flex justify-between items-center">
                   <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🦊 Poraženo</span>
                   <span className="text-xs font-bold text-orange-300 tabular-nums">
@@ -1805,8 +1806,9 @@ export default function Game3D() {
           {/* Win notifications */}
           {gameState.sheepCollected === SHEEP_COUNT && (
             <div
-              className="rounded-xl px-3 py-2 text-center text-yellow-300 font-bold text-xs animate-pulse"
+              className="rounded-xl text-center text-yellow-300 font-bold text-xs animate-pulse"
               style={{
+                padding: "10px 14px",
                 background: "rgba(10,8,0,0.70)",
                 backdropFilter: "blur(10px)",
                 border: "1px solid rgba(255,210,0,0.20)",
@@ -1817,8 +1819,9 @@ export default function Game3D() {
           )}
           {gameState.coinsCollected === COIN_COUNT && (
             <div
-              className="rounded-xl px-3 py-2 text-center text-yellow-200 font-bold text-xs animate-pulse"
+              className="rounded-xl text-center text-yellow-200 font-bold text-xs animate-pulse"
               style={{
+                padding: "10px 14px",
                 background: "rgba(10,8,0,0.70)",
                 backdropFilter: "blur(10px)",
                 border: "1px solid rgba(255,200,0,0.20)",
@@ -1832,11 +1835,11 @@ export default function Game3D() {
 
       {/* ═══════════════ RIGHT SIDE PANEL ═══════════════ */}
       {gameState.isLocked && (
-        <div className="fixed right-4 top-4 pointer-events-none select-none flex flex-col items-end gap-2">
+        <div className="fixed right-5 top-5 pointer-events-none select-none flex flex-col items-end gap-3">
           {/* Minimap with glass frame */}
           <div
             style={{
-              borderRadius: 14,
+              borderRadius: 16,
               overflow: "hidden",
               border: "1px solid rgba(255,255,255,0.14)",
               boxShadow: "0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
@@ -1847,8 +1850,9 @@ export default function Game3D() {
 
           {/* Time + compass */}
           <div
-            className="rounded-xl px-3 py-2 text-white text-xs font-medium flex items-center gap-2"
+            className="rounded-xl text-white text-xs font-medium flex items-center gap-3"
             style={{
+              padding: "9px 14px",
               background: "rgba(5,8,20,0.72)",
               backdropFilter: "blur(16px)",
               border: "1px solid rgba(255,255,255,0.10)",
@@ -1862,9 +1866,10 @@ export default function Game3D() {
 
           {/* Attack button */}
           <div
-            className="rounded-xl px-4 py-2.5 text-xs font-bold text-center transition-all duration-150"
+            className="rounded-xl text-xs font-bold text-center transition-all duration-150"
             style={{
-              width: 160,
+              width: 168,
+              padding: "11px 16px",
               background: gameState.attackReady
                 ? "rgba(210,70,10,0.82)"
                 : "rgba(40,40,50,0.70)",
@@ -1885,10 +1890,11 @@ export default function Game3D() {
 
       {/* ═══════════════ CENTER TOP — Fox warning ═══════════════ */}
       {foxWarning && gameState.isLocked && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
-            className="rounded-xl px-5 py-2 text-white font-bold text-sm animate-pulse"
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
             style={{
+              padding: "10px 22px",
               background: "rgba(160,30,0,0.80)",
               backdropFilter: "blur(10px)",
               border: "1px solid rgba(255,80,30,0.25)",
@@ -1904,24 +1910,25 @@ export default function Game3D() {
       {nearFoxHp && gameState.isLocked && (
         <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
-            className="rounded-2xl px-5 py-3 text-white text-xs text-center"
+            className="rounded-2xl text-white text-xs text-center"
             style={{
+              padding: "14px 22px 16px",
               background: "rgba(5,8,20,0.72)",
               backdropFilter: "blur(14px)",
               border: "1px solid rgba(255,255,255,0.10)",
-              minWidth: 190,
+              minWidth: 210,
               boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
             }}
           >
             <div
-              className="mb-2 font-bold text-sm"
-              style={{ color: "#fb923c" }}
+              className="font-bold text-sm"
+              style={{ color: "#fb923c", marginBottom: 10 }}
             >
               {nearFoxHp.name}
             </div>
             <div
-              className="h-3 rounded-full overflow-hidden mb-1.5"
-              style={{ background: "rgba(255,255,255,0.08)" }}
+              className="h-3 rounded-full overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.08)", marginBottom: 8 }}
             >
               <div
                 className="h-full rounded-full transition-all duration-100"
@@ -1963,10 +1970,11 @@ export default function Game3D() {
 
       {/* ═══════════════ BOTTOM CENTER — Controls hint ═══════════════ */}
       {gameState.isLocked && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
-            className="rounded-xl px-4 py-2 text-white text-xs"
+            className="rounded-xl text-white text-xs"
             style={{
+              padding: "10px 20px",
               background: "rgba(5,8,20,0.60)",
               backdropFilter: "blur(10px)",
               border: "1px solid rgba(255,255,255,0.07)",
@@ -2008,23 +2016,25 @@ export default function Game3D() {
           onClick={lockPointer}
         >
           <div
-            className="rounded-2xl p-10 text-center text-white max-w-sm"
+            className="rounded-2xl text-center text-white max-w-sm w-full"
             style={{
+              padding: "44px 40px 40px",
               background: "rgba(8,16,36,0.92)",
               border: "1px solid rgba(255,255,255,0.12)",
               boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
             }}
           >
-            <div className="text-5xl mb-3">⏸</div>
-            <h2 className="text-3xl font-bold mb-2">Hra pozastavena</h2>
-            <p className="text-gray-400 text-sm mb-2">
+            <div className="text-5xl" style={{ marginBottom: 16 }}>⏸</div>
+            <h2 className="text-3xl font-bold" style={{ marginBottom: 12 }}>Hra pozastavena</h2>
+            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>
               Klikni kamkoliv nebo stiskni tlačítko pro pokračování
             </p>
-            <p className="text-gray-600 text-xs mb-6">
+            <p className="text-gray-600 text-xs" style={{ marginBottom: 28 }}>
               Tip: napiš <span className="font-bold text-purple-400">IMPLEMENT</span> pro návrh nápadu
             </p>
             <button
-              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
+              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold rounded-xl text-lg w-full"
+              style={{ padding: "14px 32px" }}
               onClick={(e) => { e.stopPropagation(); lockPointer(); }}
             >
               Pokračovat
@@ -2040,21 +2050,23 @@ export default function Game3D() {
           style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", zIndex: 100 }}
         >
           <div
-            className="rounded-2xl p-10 text-center text-white max-w-sm"
+            className="rounded-2xl text-center text-white max-w-sm w-full"
             style={{
+              padding: "44px 40px 40px",
               background: "rgba(60,10,10,0.95)",
               border: "1px solid rgba(255,80,80,0.3)",
               boxShadow: "0 8px 40px rgba(0,0,0,0.7)",
             }}
           >
-            <div className="text-5xl mb-3">💀</div>
-            <h2 className="text-3xl font-bold mb-2">Byl jsi poražen!</h2>
-            <p className="text-gray-400 text-sm mb-2">Lišky tě dostaly…</p>
-            <p className="text-gray-500 text-xs mb-6">
+            <div className="text-5xl" style={{ marginBottom: 16 }}>💀</div>
+            <h2 className="text-3xl font-bold" style={{ marginBottom: 12 }}>Byl jsi poražen!</h2>
+            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky tě dostaly…</p>
+            <p className="text-gray-500 text-xs" style={{ marginBottom: 28 }}>
               Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
             </p>
             <button
-              className="bg-red-700 hover:bg-red-600 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
+              className="bg-red-700 hover:bg-red-600 transition-colors text-white font-bold rounded-xl text-lg w-full"
+              style={{ padding: "14px 32px" }}
               onClick={() => window.location.reload()}
             >
               Zkusit znovu
@@ -2074,28 +2086,31 @@ export default function Game3D() {
           onClick={lockPointer}
         >
           <div
-            className="rounded-2xl p-10 text-center text-white max-w-lg"
+            className="rounded-2xl text-center text-white max-w-lg w-full"
             style={{
+              padding: "40px 40px 36px",
               background: "rgba(8,16,36,0.93)",
               border: "1px solid rgba(255,255,255,0.12)",
               boxShadow: "0 8px 48px rgba(0,0,0,0.65)",
             }}
           >
-            <div className="text-5xl mb-3">🌍</div>
-            <h1 className="text-3xl font-bold mb-1">Open World</h1>
-            <p className="text-gray-400 text-sm mb-5">
+            <div className="text-5xl" style={{ marginBottom: 14 }}>🌍</div>
+            <h1 className="text-3xl font-bold" style={{ marginBottom: 8 }}>Open World</h1>
+            <p className="text-gray-400 text-sm" style={{ marginBottom: 24 }}>
               Prozkoumej otevřený 3D svět s cyklem dne a noci
             </p>
 
             {/* Objectives grid */}
             <div
-              className="rounded-xl p-4 mb-5 text-left"
+              className="rounded-xl text-left"
               style={{
+                padding: "16px 20px",
+                marginBottom: 16,
                 background: "rgba(255,255,255,0.04)",
                 border: "1px solid rgba(255,255,255,0.07)",
               }}
             >
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-gray-300">
+              <div className="grid grid-cols-2 text-sm text-gray-300" style={{ gap: "12px 28px" }}>
                 <div>🐑 Zažeň <strong className="text-white">{SHEEP_COUNT} ovcí</strong> do ohrady</div>
                 <div>🌅 Dynaminký <strong className="text-white">den/noc</strong></div>
                 <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
@@ -2107,10 +2122,15 @@ export default function Game3D() {
 
             {/* Controls */}
             <div
-              className="rounded-xl p-4 mb-6 text-xs text-gray-500 space-y-1.5"
+              className="rounded-xl text-xs text-gray-500"
               style={{
+                padding: "14px 20px",
+                marginBottom: 24,
                 background: "rgba(255,255,255,0.03)",
                 border: "1px solid rgba(255,255,255,0.06)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
               }}
             >
               <div className="flex gap-6 justify-center flex-wrap">
@@ -2127,7 +2147,8 @@ export default function Game3D() {
             </div>
 
             <button
-              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
+              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold rounded-xl text-lg w-full"
+              style={{ padding: "14px 32px" }}
               onClick={(e) => { e.stopPropagation(); lockPointer(); }}
             >
               Hrát!
