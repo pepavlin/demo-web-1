@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 
 interface Particle {
-  /** World-space 3-D position – camera sits at origin inside this cloud */
+  /** World-space 3-D position – camera sits at (0,0,camZ) looking along +Z */
   wx: number;
   wy: number;
   wz: number;
@@ -26,20 +26,21 @@ const DOT_COLORS = [
 ];
 
 // ─── Scene constants ─────────────────────────────────────────────────────────
-const PARTICLE_COUNT     = 600;   // Dense cloud surrounds the camera
-const WORLD_SIZE         = 2200;  // Half-size of the 3-D world cube (camera at origin, vast space)
-const FOV_DEFAULT        = 650;   // Default focal length (perspective strength)
-const FOV_MIN            = 350;   // Widest zoom-out
-const FOV_MAX            = 1400;  // Narrowest zoom-in
-const NEAR_CLIP          = 18;    // Discard geometry this close to camera
-const CONNECTION_DIST_3D = 420;   // 3-D distance threshold for connecting lines
+const PARTICLE_COUNT     = 600;
+const WORLD_SIZE         = 2200;  // Half-size of the world cube
+const FOV_DEFAULT        = 650;   // Default focal length
+const FOV_MIN            = 350;
+const FOV_MAX            = 1400;
+const NEAR_CLIP          = 18;    // Discard particles this close to camera
+const CONNECTION_DIST_3D = 420;
 const MAX_LINE_OPACITY   = 0.35;
 const PARTICLE_SPEED     = 0.28;
-const MAX_CAMERA_ROT     = 0.22;  // Max camera yaw/pitch in radians (~12.6°) – gentle
-const PARTICLE_WORLD_R   = 4.5;   // Physical dot radius in world units
-const CAM_LERP           = 0.04;  // Camera smoothing factor (lower = smoother/slower)
-const FOV_LERP           = 0.06;  // Zoom smoothing factor
-const SCROLL_ZOOM_SPEED  = 80;    // FOV units per scroll tick
+const PARTICLE_WORLD_R   = 4.5;
+const FOV_LERP           = 0.06;
+const SCROLL_ZOOM_SPEED  = 80;
+const BREATHE_AMPLITUDE  = 280;    // Camera moves ±280 world units along Z
+const BREATHE_SPEED      = 0.00045; // Slow oscillation (~14 s per cycle at 60 fps)
+const CAM_Z_LERP         = 0.018;   // Camera Z smoothing
 
 function createParticle(): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
@@ -49,7 +50,7 @@ function createParticle(): Particle {
   return {
     wx: (Math.random() - 0.5) * WORLD_SIZE * 2,
     wy: (Math.random() - 0.5) * WORLD_SIZE * 2,
-    wz: (Math.random() - 0.5) * WORLD_SIZE * 2,
+    wz: NEAR_CLIP + Math.random() * WORLD_SIZE * 2, // spawn in front of camera
     vx: Math.sin(phi) * Math.cos(theta) * speed,
     vy: Math.cos(phi) * speed,
     vz: Math.sin(phi) * Math.sin(theta) * speed,
@@ -70,13 +71,11 @@ export default function GeometricParticles() {
   const particlesRef = useRef<Particle[]>([]);
   const rafRef       = useRef<number>(0);
 
-  /** Target camera angles driven by mouse (radians) */
-  const targetRotYRef = useRef(0);  // yaw   – left / right
-  const targetRotXRef = useRef(0);  // pitch – up   / down
+  /** Animation time counter (incremented each frame) */
+  const timeRef      = useRef(0);
 
-  /** Smoothed camera angles */
-  const camRotYRef = useRef(0);
-  const camRotXRef = useRef(0);
+  /** Smoothed camera Z position */
+  const camZRef      = useRef(0);
 
   /** Zoom (focal length) */
   const targetFovRef = useRef(FOV_DEFAULT);
@@ -97,48 +96,23 @@ export default function GeometricParticles() {
 
     particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => createParticle());
 
-    // ── Mouse: gentle camera rotation ────────────────────────────────────────
-    const onMouseMove = (e: MouseEvent) => {
-      targetRotYRef.current = ((e.clientX / window.innerWidth)  * 2 - 1) *  MAX_CAMERA_ROT;
-      targetRotXRef.current = ((e.clientY / window.innerHeight) * 2 - 1) * -MAX_CAMERA_ROT;
-    };
-    const onMouseLeave = () => {
-      targetRotYRef.current = 0;
-      targetRotXRef.current = 0;
-    };
-    const onMouseDown = () => { /* reserved */ };
-    const onMouseUp   = () => { /* reserved */ };
-
     // ── Scroll wheel: zoom (adjusts FOV / focal length) ──────────────────────
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      // Scroll up (negative deltaY) → zoom in → larger FOV value
       targetFovRef.current = Math.max(
         FOV_MIN,
         Math.min(FOV_MAX, targetFovRef.current - e.deltaY * (SCROLL_ZOOM_SPEED / 100))
       );
     };
 
-    window.addEventListener("mousemove",  onMouseMove);
-    window.addEventListener("mouseleave", onMouseLeave);
-    window.addEventListener("mousedown",  onMouseDown);
-    window.addEventListener("mouseup",    onMouseUp);
-    window.addEventListener("wheel",      onWheel, { passive: false });
+    window.addEventListener("wheel", onWheel, { passive: false });
 
     // ─── Perspective projection ───────────────────────────────────────────────
-    // Camera is at the ORIGIN (0, 0, 0), looking along +z.
-    // Particles are distributed in a ±WORLD_SIZE cube in all directions.
-    // Mouse drives yaw (rotY) and pitch (rotX) of the camera view.
-    // We apply the inverse camera rotation to each world point, then project.
-    //
-    //   Yaw   R_Y(rotY):  rx1 = wx·cosY − wz·sinY
-    //                      rz1 = wx·sinY + wz·cosY
-    //   Pitch R_X(rotX):  ry  = wy·cosX − rz1·sinX
-    //                      rz2 = wy·sinX + rz1·cosX
-    //   Perspective:       scale = FOV / rz2
-    //                      sx = w/2 + rx1·scale
-    //                      sy = h/2 − ry ·scale
-    //   Near clip:         rz2 < NEAR_CLIP → skip
+    // Camera at (0, 0, camZ) looking along +Z (no rotation).
+    // Depth of a particle: rz = wz − camZ
+    // Projection:  scale = FOV / rz
+    //              sx = w/2 + wx·scale
+    //              sy = h/2 − wy·scale
 
     const draw = () => {
       const w = canvas.width;
@@ -147,28 +121,22 @@ export default function GeometricParticles() {
 
       const particles = particlesRef.current;
 
-      // Smooth camera & zoom toward targets
-      camRotYRef.current += (targetRotYRef.current - camRotYRef.current) * CAM_LERP;
-      camRotXRef.current += (targetRotXRef.current - camRotXRef.current) * CAM_LERP;
-      fovRef.current     += (targetFovRef.current  - fovRef.current)     * FOV_LERP;
+      // ── Advance animation time & compute breathing camera Z ───────────────
+      timeRef.current += 1;
+      const targetCamZ = BREATHE_AMPLITUDE * Math.sin(timeRef.current * BREATHE_SPEED);
+      camZRef.current += (targetCamZ - camZRef.current) * CAM_Z_LERP;
+      const camZ = camZRef.current;
 
-      const cosY = Math.cos(camRotYRef.current);
-      const sinY = Math.sin(camRotYRef.current);
-      const cosX = Math.cos(camRotXRef.current);
-      const sinX = Math.sin(camRotXRef.current);
-      const fov  = fovRef.current;
+      // Smooth zoom
+      fovRef.current += (targetFovRef.current - fovRef.current) * FOV_LERP;
+      const fov = fovRef.current;
 
-      // Camera at origin – no CAMERA_DIST translation needed
+      // ── Projection (no camera rotation) ──────────────────────────────────
       const project = (wx: number, wy: number, wz: number) => {
-        // Yaw (Y-axis rotation)
-        const rx1 = wx * cosY - wz * sinY;
-        const rz1 = wx * sinY + wz * cosY;
-        // Pitch (X-axis rotation)
-        const ry  = wy * cosX - rz1 * sinX;
-        const rz2 = wy * sinX + rz1 * cosX;
-        if (rz2 < NEAR_CLIP) return null;
-        const scale = fov / rz2;
-        return { sx: w / 2 + rx1 * scale, sy: h / 2 - ry * scale, depth: rz2, scale };
+        const rz = wz - camZ;
+        if (rz < NEAR_CLIP) return null;
+        const scale = fov / rz;
+        return { sx: w / 2 + wx * scale, sy: h / 2 - wy * scale, depth: rz, scale };
       };
 
       // ── Update world positions ────────────────────────────────────────────
@@ -180,15 +148,19 @@ export default function GeometricParticles() {
         if (p.wx < -WORLD_SIZE) { p.wx = -WORLD_SIZE; p.vx =  Math.abs(p.vx); }
         if (p.wy >  WORLD_SIZE) { p.wy =  WORLD_SIZE; p.vy = -Math.abs(p.vy); }
         if (p.wy < -WORLD_SIZE) { p.wy = -WORLD_SIZE; p.vy =  Math.abs(p.vy); }
-        if (p.wz >  WORLD_SIZE) { p.wz =  WORLD_SIZE; p.vz = -Math.abs(p.vz); }
-        if (p.wz < -WORLD_SIZE) { p.wz = -WORLD_SIZE; p.vz =  Math.abs(p.vz); }
+        // Wrap Z: when a particle falls behind camera, move it to far side
+        if (p.wz < camZ - NEAR_CLIP) {
+          p.wz = camZ + WORLD_SIZE * 1.5 + Math.random() * WORLD_SIZE * 0.5;
+          p.wx = (Math.random() - 0.5) * WORLD_SIZE * 2;
+          p.wy = (Math.random() - 0.5) * WORLD_SIZE * 2;
+        }
+        if (p.wz > camZ + WORLD_SIZE * 2) { p.wz = camZ + NEAR_CLIP + Math.random() * WORLD_SIZE; }
       }
 
       // ── Project all particles ─────────────────────────────────────────────
       const projected = particles.map((p) => ({ p, proj: project(p.wx, p.wy, p.wz) }));
 
-      // Depth fade: camera is at origin, visible range NEAR_CLIP … WORLD_SIZE
-      const maxDepth = WORLD_SIZE;
+      const maxDepth = WORLD_SIZE * 2;
 
       // ── Draw connecting lines (3-D distance check) ────────────────────────
       for (let i = 0; i < projected.length; i++) {
@@ -218,7 +190,7 @@ export default function GeometricParticles() {
         }
       }
 
-      // ── Draw dots – sorted back-to-front so near dots overdraw far ones ───
+      // ── Draw dots – sorted back-to-front ─────────────────────────────────
       const visible = projected
         .filter((item) => item.proj !== null)
         .sort((a, b) => b.proj!.depth - a.proj!.depth);
@@ -229,7 +201,7 @@ export default function GeometricParticles() {
         const depthFade  = Math.max(0, 1 - (depth - NEAR_CLIP) / (maxDepth - NEAR_CLIP));
         const drawRadius = Math.max(0.4, Math.min(10, PARTICLE_WORLD_R * scale));
 
-        // Glow halo – more intense for nearby particles
+        // Glow halo
         const glowRadius = drawRadius * 4.5;
         if (glowRadius > 0.8) {
           const gradient = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowRadius);
@@ -243,7 +215,7 @@ export default function GeometricParticles() {
           ctx.globalAlpha = 1;
         }
 
-        // Core dot – near particles get sphere-shading gradient
+        // Core dot
         ctx.beginPath();
         ctx.arc(sx, sy, drawRadius, 0, Math.PI * 2);
         if (depthFade > 0.45) {
@@ -271,12 +243,8 @@ export default function GeometricParticles() {
 
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize",     resize);
-      window.removeEventListener("mousemove",  onMouseMove);
-      window.removeEventListener("mouseleave", onMouseLeave);
-      window.removeEventListener("mousedown",  onMouseDown);
-      window.removeEventListener("mouseup",    onMouseUp);
-      window.removeEventListener("wheel",      onWheel);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("wheel",  onWheel);
     };
   }, []);
 

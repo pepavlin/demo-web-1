@@ -95,27 +95,22 @@ describe("GeometricParticles component", () => {
     removeSpy.mockRestore();
   });
 
-  it("registers mouse and wheel event listeners for camera control and zoom", () => {
+  it("registers wheel event listener for zoom", () => {
     const addSpy = jest.spyOn(window, "addEventListener");
     render(<GeometricParticles />);
     const events = addSpy.mock.calls.map((c) => c[0]);
-    expect(events).toContain("mousemove");
-    expect(events).toContain("mouseleave");
-    expect(events).toContain("mousedown");
-    expect(events).toContain("mouseup");
     expect(events).toContain("wheel");
+    // Mouse rotation events are no longer registered (camera uses auto breathing)
+    expect(events).not.toContain("mousemove");
+    expect(events).not.toContain("mouseleave");
     addSpy.mockRestore();
   });
 
-  it("removes mouse and wheel event listeners on unmount", () => {
+  it("removes wheel event listener on unmount", () => {
     const removeSpy = jest.spyOn(window, "removeEventListener");
     const { unmount } = render(<GeometricParticles />);
     unmount();
     const events = removeSpy.mock.calls.map((c) => c[0]);
-    expect(events).toContain("mousemove");
-    expect(events).toContain("mouseleave");
-    expect(events).toContain("mousedown");
-    expect(events).toContain("mouseup");
     expect(events).toContain("wheel");
     removeSpy.mockRestore();
   });
@@ -123,9 +118,7 @@ describe("GeometricParticles component", () => {
   it("handles wheel event for zoom without throwing", () => {
     render(<GeometricParticles />);
     act(() => {
-      // Scroll down (zoom out)
       window.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 }));
-      // Scroll up (zoom in)
       window.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
       if (rafCallback) rafCallback(performance.now());
     });
@@ -145,13 +138,11 @@ describe("GeometricParticles component", () => {
     act(() => {
       if (rafCallback) rafCallback(performance.now());
     });
-    // stroke is called for lines
     expect(mockContext.beginPath).toHaveBeenCalled();
   });
 
   it("renders correctly over multiple frames without throwing", () => {
     render(<GeometricParticles />);
-    // Run several frames so 3-D projection and line drawing accumulate
     act(() => {
       for (let frame = 0; frame < 5; frame++) {
         if (rafCallback) rafCallback(performance.now());
@@ -161,26 +152,14 @@ describe("GeometricParticles component", () => {
     expect(mockContext.arc).toHaveBeenCalled();
   });
 
-  it("handles mousemove to rotate camera without throwing", () => {
+  it("advances breathing animation across frames without throwing", () => {
     render(<GeometricParticles />);
+    // Run many frames to let the sine-wave camera Z oscillation progress
     act(() => {
-      window.dispatchEvent(
-        new MouseEvent("mousemove", { clientX: 100, clientY: 200 })
-      );
-      if (rafCallback) rafCallback(performance.now());
+      for (let frame = 0; frame < 20; frame++) {
+        if (rafCallback) rafCallback(performance.now());
+      }
     });
-    // clearRect should still be called — no crash from mouse handling
-    expect(mockContext.clearRect).toHaveBeenCalled();
-  });
-
-  it("handles mousedown/mouseup without throwing", () => {
-    render(<GeometricParticles />);
-    act(() => {
-      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 50, clientY: 50 }));
-      window.dispatchEvent(new MouseEvent("mousedown"));
-      if (rafCallback) rafCallback(performance.now());
-      window.dispatchEvent(new MouseEvent("mouseup"));
-    });
-    expect(mockContext.clearRect).toHaveBeenCalled();
+    expect(mockContext.clearRect).toHaveBeenCalledTimes(20);
   });
 });
