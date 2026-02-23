@@ -46,10 +46,10 @@ const CONN_SAMPLE        = 500;
 
 // ─── Mouse attraction / repulsion constants ───────────────────────────────────
 const MOUSE_INFLUENCE_R  = 200;   // Screen-space radius of mouse influence (px)
-const ATTRACT_STRENGTH   = 0.022; // Acceleration per frame at max influence (attraction)
-const REPULSE_STRENGTH   = 0.040; // Acceleration per frame at max influence (repulsion)
+const ATTRACT_STRENGTH   = 0.088; // Acceleration per frame at max influence (attraction) – 4× stronger
+const REPULSE_STRENGTH   = 0.160; // Acceleration per frame at max influence (repulsion) – 4× stronger
 const MOUSE_DAMP         = 0.97;  // Velocity damping applied inside influence radius
-const MAX_SPEED_BOOST    = 2.2;   // Speed cap (units/frame) during mouse interaction
+const MAX_SPEED_BOOST    = 8.8;   // Speed cap (units/frame) during mouse interaction – 4× higher
 
 function createParticle(): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
