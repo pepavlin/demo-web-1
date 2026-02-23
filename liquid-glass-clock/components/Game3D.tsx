@@ -22,6 +22,7 @@ import {
   buildLighthouse,
   buildBulletMesh,
   buildWeaponMesh,
+  type SheepMeshParts,
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, GameState } from "@/lib/gameTypes";
 
@@ -36,10 +37,13 @@ const FOX_COUNT = 12;
 const COIN_COUNT = 35;
 const TREE_COUNT = 180;
 const ROCK_COUNT = 90;
-const SHEEP_SPEED = 2.5;
+const SHEEP_SPEED = 1.4;       // slow peaceful walk (was 2.5)
 const SHEEP_FLEE_RADIUS = 12;
-const SHEEP_FLEE_SPEED = 8;
-const SHEEP_TURN_SPEED = 3.5; // max radians/second for smooth direction change
+const SHEEP_FLEE_SPEED = 7;
+const SHEEP_TURN_SPEED = 2.2;  // gentle turning (was 3.5)
+const SHEEP_STEP_FREQ = 3.8;   // step cycles per unit of distance travelled
+const SHEEP_LEG_SWING = 0.52;  // max leg swing amplitude (radians) when walking
+const SHEEP_LEG_SWING_FLEE = 0.78; // wider swing when fleeing
 const FOX_SPEED = 3.8;
 const FOX_CHASE_RADIUS = 90;
 const COIN_COLLECT_RADIUS = 2.2;
@@ -670,20 +674,41 @@ export default function Game3D() {
     // ── Sheep ────────────────────────────────────────────────────────────────
     const sheepPoints = generateSpawnPoints(SHEEP_COUNT, 10, 120, 789);
     sheepListRef.current = sheepPoints.map((p) => {
-      const mesh = buildSheepMesh();
-      mesh.position.set(p.x, p.y, p.z);
+      const parts: SheepMeshParts = buildSheepMesh();
+      const { group, legPivots, headGroup, bodyGroup, tailGroup } = parts;
+      group.position.set(p.x, p.y, p.z);
       const initialAngle = Math.random() * Math.PI * 2;
-      mesh.rotation.y = -initialAngle + Math.PI / 2;
-      scene.add(mesh);
+      group.rotation.y = -initialAngle + Math.PI / 2;
+      scene.add(group);
+
+      // Spread out phase offsets so sheep don't all graze/move in lockstep
+      const phaseOffset = Math.random() * Math.PI * 2;
+
+      // Stagger grazing — half start grazing, half start walking
+      const startGrazing = Math.random() < 0.3;
+
       return {
-        mesh,
+        mesh: group,
         velocity: new THREE.Vector2(0, 0),
         targetAngle: initialAngle,
         currentAngle: initialAngle,
-        wanderTimer: Math.random() * 3,
+        wanderTimer: 1.5 + Math.random() * 4,
         isFleeing: false,
         bleating: false,
-        bleatTimer: 8 + Math.random() * 15,
+        bleatTimer: 5 + Math.random() * 20,
+        // animation
+        walkPhase: phaseOffset,
+        phaseOffset,
+        legPivots,
+        headGroup,
+        bodyGroup,
+        tailGroup,
+        isGrazing: startGrazing,
+        grazingTimer: startGrazing
+          ? 2 + Math.random() * 6     // will start in graze
+          : 10 + Math.random() * 25,  // will start walking
+        headPitchTarget: startGrazing ? -0.65 : 0,
+        headPitchCurrent: 0,
       };
     });
 
@@ -1224,7 +1249,7 @@ export default function Game3D() {
         setNearFoxHp(null);
       }
 
-      // ── Sheep AI ───────────────────────────────────────────────────────────
+      // ── Sheep AI & Animation ────────────────────────────────────────────────
       let closeSheepCount = 0;
       sheepListRef.current.forEach((sheep) => {
         const s = sheep.mesh;
@@ -1247,28 +1272,53 @@ export default function Game3D() {
         if (!sheep.isFleeing) sheep.isFleeing = fleeingFromPlayer;
 
         let movingSpeed = SHEEP_SPEED;
+
         if (sheep.isFleeing) {
+          // Fleeing: run away from threat
           const angle = fleeingFromPlayer
             ? Math.atan2(-dz, -dx)
             : sheep.targetAngle;
           sheep.targetAngle = angle;
           movingSpeed = SHEEP_FLEE_SPEED;
-          // Reset flee flag each frame (set by fox AI or player proximity)
-          sheep.isFleeing = false;
+          sheep.isFleeing = false;   // reset each frame — set by fox AI or player proximity
+          sheep.isGrazing = false;   // stop grazing when fleeing
         } else {
-          sheep.wanderTimer -= dt;
-          if (sheep.wanderTimer <= 0) {
-            // Smaller angle change (max ±45°) for gradual natural direction shifts
-            sheep.targetAngle += (Math.random() - 0.5) * Math.PI * 0.5;
-            sheep.wanderTimer = 0.8 + Math.random() * 2.0;
+          // ── Grazing logic ──────────────────────────────────────────────────
+          sheep.grazingTimer -= dt;
+          if (sheep.grazingTimer <= 0) {
+            sheep.isGrazing = !sheep.isGrazing;
+            if (sheep.isGrazing) {
+              // Graze for 3–9 seconds
+              sheep.grazingTimer = 3 + Math.random() * 6;
+            } else {
+              // Walk for 12–35 seconds before next graze
+              sheep.grazingTimer = 12 + Math.random() * 23;
+            }
+          }
+
+          if (!sheep.isGrazing) {
+            // Natural wandering with gentle direction changes
+            sheep.wanderTimer -= dt;
+            if (sheep.wanderTimer <= 0) {
+              // Small course corrections — max ±40° per change
+              sheep.targetAngle += (Math.random() - 0.5) * Math.PI * 0.44;
+              // Wander in one direction for 2–6 seconds
+              sheep.wanderTimer = 2 + Math.random() * 4;
+            }
+            // Natural speed variation: combine two slow sine waves
+            const t = elapsed + sheep.phaseOffset;
+            const speedMult = 0.82 + 0.12 * Math.sin(t * 0.38) + 0.07 * Math.sin(t * 0.9 + 1.7);
+            movingSpeed = SHEEP_SPEED * speedMult;
+          } else {
+            movingSpeed = 0; // standing still while grazing
           }
         }
 
-        // Smooth turning: gradually rotate currentAngle toward targetAngle
-        // Fleeing sheep can turn faster (more reactive), wandering sheep turn gently
-        const turnRate = movingSpeed >= SHEEP_FLEE_SPEED ? SHEEP_TURN_SPEED * 2.0 : SHEEP_TURN_SPEED;
+        // ── Smooth turning — always face direction of travel ────────────────
+        const isFlee = movingSpeed >= SHEEP_FLEE_SPEED;
+        const turnRate = isFlee ? SHEEP_TURN_SPEED * 2.2 : SHEEP_TURN_SPEED;
         let angleDiff = sheep.targetAngle - sheep.currentAngle;
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        while (angleDiff > Math.PI)  angleDiff -= 2 * Math.PI;
         while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
         const maxTurn = turnRate * dt;
         if (Math.abs(angleDiff) < maxTurn) {
@@ -1277,7 +1327,7 @@ export default function Game3D() {
           sheep.currentAngle += Math.sign(angleDiff) * maxTurn;
         }
 
-        // Move using smoothed currentAngle
+        // ── Movement ─────────────────────────────────────────────────────────
         const spd = movingSpeed * dt;
         const sheepPrevX = s.position.x;
         const sheepPrevZ = s.position.z;
@@ -1291,7 +1341,7 @@ export default function Game3D() {
           sheep.targetAngle = sheep.currentAngle + Math.PI * (0.75 + Math.random() * 0.5);
         }
 
-        // Boundary: reflect targetAngle off currentAngle so the turn is smooth
+        // Boundary: reflect targetAngle so turning is smooth at edges
         const half = WORLD_SIZE / 2 - 20;
         if (Math.abs(s.position.x) > half) {
           s.position.x = Math.sign(s.position.x) * half;
@@ -1303,20 +1353,51 @@ export default function Game3D() {
         }
 
         s.position.y = getTerrainHeight(s.position.x, s.position.z);
-        // Use smoothed currentAngle for visual rotation
+        // Sheep rotation always matches currentAngle (it already turns smoothly)
         s.rotation.y = -sheep.currentAngle + Math.PI / 2;
 
-        // Leg animation — speed scales with movement (faster when fleeing)
-        const legSpeed = movingSpeed >= SHEEP_FLEE_SPEED ? 14 : 6;
-        const legAnim = Math.sin(elapsed * legSpeed + s.position.x) * 0.3;
-        // Diagonal gait: FL+BR in phase, FR+BL in opposite phase (natural trot)
-        // Children: 0=body, 1=head, 2=leftEye, 3=rightEye, 4-7=legs
-        const diagPhase = [1, -1, -1, 1]; // front-left, front-right, back-left, back-right
-        s.children.forEach((child, i) => {
-          if (i >= 4 && i <= 7) {
-            (child as THREE.Mesh).rotation.x = diagPhase[i - 4] * legAnim;
-          }
-        });
+        // ── Walk phase ───────────────────────────────────────────────────────
+        // Phase advances proportionally to actual speed
+        sheep.walkPhase += movingSpeed * SHEEP_STEP_FREQ * dt;
+
+        // ── Leg animation — diagonal gait ────────────────────────────────────
+        // Pairs: (front-right[0] + back-left[3]) opposite to (front-left[1] + back-right[2])
+        const swing = isFlee ? SHEEP_LEG_SWING_FLEE : SHEEP_LEG_SWING;
+        const legA =  swing * Math.sin(sheep.walkPhase);
+        const legB = -swing * Math.sin(sheep.walkPhase);
+        if (sheep.legPivots.length === 4) {
+          sheep.legPivots[0].rotation.z = legA;   // front-right
+          sheep.legPivots[1].rotation.z = legB;   // front-left
+          sheep.legPivots[2].rotation.z = legB;   // back-right
+          sheep.legPivots[3].rotation.z = legA;   // back-left
+        }
+
+        // ── Body bounce — 2 small lifts per stride ───────────────────────────
+        // Body rises slightly each time a diagonal pair lifts
+        const bodyLift = (isFlee ? 0.07 : 0.035) * Math.abs(Math.sin(sheep.walkPhase));
+        sheep.bodyGroup.position.y = bodyLift;
+
+        // Subtle lateral body sway (sheep body rocks slightly side to side)
+        const swayAmp = isFlee ? 0.04 : 0.018;
+        sheep.bodyGroup.rotation.x = swayAmp * Math.sin(sheep.walkPhase + sheep.phaseOffset * 0.3);
+
+        // ── Head animation ────────────────────────────────────────────────────
+        // Smooth interpolation toward target pitch (graze = down, walk = gentle nod)
+        const headTarget = sheep.isGrazing
+          ? -0.65   // head lowered to graze
+          : 0.08 * Math.sin(sheep.walkPhase * 2 + sheep.phaseOffset); // gentle nod while walking
+        sheep.headPitchCurrent += (headTarget - sheep.headPitchCurrent) * Math.min(1, dt * 2.5);
+        sheep.headGroup.rotation.z = sheep.headPitchCurrent;
+
+        // Slight head yaw: sheep look slightly into turns
+        const headLookAhead = Math.max(-0.22, Math.min(0.22, angleDiff * 0.4));
+        sheep.headGroup.rotation.y = headLookAhead;
+
+        // ── Tail wag — independent gentle oscillation ─────────────────────────
+        const tailPhase = elapsed * 2.8 + sheep.phaseOffset * 1.5;
+        const tailAmp = isFlee ? 0.6 : 0.28;
+        sheep.tailGroup.rotation.y = tailAmp * Math.sin(tailPhase);
+        sheep.tailGroup.rotation.x = 0.12 * Math.sin(tailPhase * 0.7 + 0.5);
       });
 
       // ── Minimap ────────────────────────────────────────────────────────────

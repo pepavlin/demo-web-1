@@ -5,16 +5,14 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const SHEEP_W = 130;
 const SHEEP_H = 88;
-const SPEED = 55; // pixels per second
-const FLEE_SPEED = 180;
-const ATTRACT_SPEED = 130;
+const SPEED = 38;          // px/s — slow, peaceful walk
+const FLEE_SPEED = 175;
+const ATTRACT_SPEED = 125;
 const MOUSE_REACT_RADIUS = 200;
-const CORNER_TURN_PROB = 0.5; // probability of turning onto adjacent side at corner
+const CORNER_TURN_PROB = 0.5;
 
 // ── Side type ────────────────────────────────────────────────────────────────
 type Side = "bottom" | "right" | "top" | "left";
-
-// Clockwise order of sides
 const SIDES: Side[] = ["bottom", "right", "top", "left"];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -46,18 +44,18 @@ function toScreenCenter(side: Side, progress: number): { cx: number; cy: number 
 }
 
 /**
- * CSS transform for the sheep element.
+ * CSS transform for the sheep element so it always faces the direction of travel.
  * dir=+1 means clockwise movement along the current side.
  *
  * Transform derivation (sheep SVG has head at right, feet at bottom):
- *   bottom +1 (right)   : no transform            → head right,  feet down
- *   bottom -1 (left)    : scaleX(-1)              → head left,   feet down
- *   right  +1 (up)      : rotate(-90deg)          → head up,     feet right
- *   right  -1 (down)    : scaleX(-1) rotate(90deg)→ head down,   feet right
- *   top    +1 (left)    : rotate(180deg)           → head left,   feet up
- *   top    -1 (right)   : scaleY(-1)              → head right,  feet up
- *   left   +1 (down)    : rotate(90deg)            → head down,   feet left
- *   left   -1 (up)      : scaleX(-1) rotate(-90deg)→ head up,    feet left
+ *   bottom +1 (right)   : no transform
+ *   bottom -1 (left)    : scaleX(-1)
+ *   right  +1 (up)      : rotate(-90deg)
+ *   right  -1 (down)    : scaleX(-1) rotate(90deg)
+ *   top    +1 (left)    : rotate(180deg)
+ *   top    -1 (right)   : scaleY(-1)
+ *   left   +1 (down)    : rotate(90deg)
+ *   left   -1 (up)      : scaleX(-1) rotate(-90deg)
  */
 function sheepTransform(side: Side, dir: 1 | -1): string {
   if (side === "bottom") return dir ===  1 ? "none"                       : "scaleX(-1)";
@@ -72,9 +70,9 @@ function dirTowardMouse(
 ): 1 | -1 {
   switch (side) {
     case "bottom": return mx >= cx ? 1 : -1;
-    case "right":  return my <= cy ? 1 : -1; // progress↑ = going up = cy↓
-    case "top":    return mx <= cx ? 1 : -1; // progress↑ = going left = cx↓
-    case "left":   return my >= cy ? 1 : -1; // progress↑ = going down = cy↑
+    case "right":  return my <= cy ? 1 : -1;
+    case "top":    return mx <= cx ? 1 : -1;
+    case "left":   return my >= cy ? 1 : -1;
   }
 }
 
@@ -82,7 +80,11 @@ function nextSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 1) % 4]; }
 function prevSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 3) % 4]; }
 
 // ── SheepSVG ─────────────────────────────────────────────────────────────────
-function SheepSVG() {
+interface SheepSVGProps {
+  grazing: boolean;
+}
+
+function SheepSVG({ grazing }: SheepSVGProps) {
   return (
     <svg
       viewBox="0 0 130 88"
@@ -94,9 +96,11 @@ function SheepSVG() {
       {/* Ground shadow */}
       <ellipse cx="62" cy="87" rx="52" ry="5" fill="rgba(0,0,0,0.18)" />
 
-      {/* Tail — left side */}
-      <circle cx="11" cy="44" r="10" fill="white" />
-      <circle cx="14" cy="38" r="7" fill="white" />
+      {/* ── Tail — wagging independently ── */}
+      <g className="sheep-tail-wag">
+        <circle cx="11" cy="44" r="10" fill="white" />
+        <circle cx="14" cy="38" r="7"  fill="white" />
+      </g>
 
       {/* ── Back legs (behind wool body) ── */}
       <g className="sheep-leg-b1">
@@ -119,8 +123,8 @@ function SheepSVG() {
       <circle cx="48" cy="27" r="17" fill="white" />
       <circle cx="66" cy="25" r="17" fill="white" />
       <circle cx="83" cy="29" r="14" fill="white" />
-      <circle cx="48" cy="27" r="8" fill="#fffbfb" opacity="0.85" />
-      <circle cx="66" cy="23" r="9" fill="#fffbfb" opacity="0.85" />
+      <circle cx="48" cy="27" r="8"  fill="#fffbfb" opacity="0.85" />
+      <circle cx="66" cy="23" r="9"  fill="#fffbfb" opacity="0.85" />
 
       {/* ── Front legs ── */}
       <g className="sheep-leg-f1">
@@ -132,17 +136,42 @@ function SheepSVG() {
         <ellipse cx="79" cy="84" rx="6" ry="3" fill="#2a1505" />
       </g>
 
-      {/* ── Head ── */}
-      <circle cx="100" cy="41" r="16" fill="white" />
-      <ellipse cx="116" cy="30" rx="6" ry="10" fill="#c8956a" transform="rotate(20 116 30)" />
-      <ellipse cx="116" cy="30" rx="3.5" ry="6" fill="#ddb090" transform="rotate(20 116 30)" />
-      <ellipse cx="116" cy="52" rx="16" ry="14" fill="#c8956a" />
-      <circle cx="123" cy="48" r="4.5" fill="#1a0a00" />
-      <circle cx="124.5" cy="46.5" r="1.8" fill="white" />
-      <path d="M 118.5 46 Q 123 43 127.5 46" fill="none" stroke="#3d2210" strokeWidth="1.2" />
-      <circle cx="128" cy="55" r="2" fill="#8B5030" />
-      <circle cx="123" cy="57" r="2" fill="#8B5030" />
-      <path d="M 122 59 Q 126 63 130 59" stroke="#8B5030" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {/* ── Head — animated group (nod when walking, graze when stopped) ── */}
+      <g className={grazing ? "sheep-head-graze" : "sheep-head-anim"}>
+        <circle cx="100" cy="41" r="16" fill="white" />
+        {/* Ear */}
+        <ellipse
+          cx="116" cy="30" rx="6" ry="10" fill="#c8956a"
+          transform="rotate(20 116 30)"
+        />
+        <ellipse
+          cx="116" cy="30" rx="3.5" ry="6" fill="#ddb090"
+          transform="rotate(20 116 30)"
+        />
+        {/* Face */}
+        <ellipse cx="116" cy="52" rx="16" ry="14" fill="#c8956a" />
+        {/* Eye */}
+        <circle cx="123" cy="48" r="4.5" fill="#1a0a00" />
+        <circle cx="124.5" cy="46.5" r="1.8" fill="white" />
+        {/* Mouth */}
+        <path
+          d="M 118.5 46 Q 123 43 127.5 46"
+          fill="none"
+          stroke="#3d2210"
+          strokeWidth="1.2"
+        />
+        {/* Nostrils */}
+        <circle cx="128" cy="55" r="2" fill="#8B5030" />
+        <circle cx="123" cy="57" r="2" fill="#8B5030" />
+        {/* Smile */}
+        <path
+          d="M 122 59 Q 126 63 130 59"
+          stroke="#8B5030"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+        />
+      </g>
     </svg>
   );
 }
@@ -151,20 +180,23 @@ function SheepSVG() {
 export default function SheepWalker() {
   const [mounted, setMounted] = useState(false);
   const [showBeee, setShowBeee] = useState(false);
+  const [grazing, setGrazing] = useState(false);
   const [sheepPos, setSheepPos] = useState<{
     left: number;
     top: number;
     transform: string;
   }>({ left: -SHEEP_W, top: 0, transform: "none" });
 
-  const sideRef = useRef<Side>("bottom");
-  const progressRef = useRef<number>(-SHEEP_W); // start off-screen left
-  const dirRef = useRef<1 | -1>(1);
-  const lastTsRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const beeeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mouseRef = useRef<{ x: number; y: number } | null>(null);
-  const isClickingRef = useRef(false);
+  const sideRef         = useRef<Side>("bottom");
+  const progressRef     = useRef<number>(-SHEEP_W);
+  const dirRef          = useRef<1 | -1>(1);
+  const lastTsRef       = useRef<number | null>(null);
+  const rafRef          = useRef<number | null>(null);
+  const beeeTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const grazingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const grazingRef      = useRef(false);
+  const mouseRef        = useRef<{ x: number; y: number } | null>(null);
+  const isClickingRef   = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -190,79 +222,112 @@ export default function SheepWalker() {
     };
   }, [mounted]);
 
+  // ── Grazing scheduler ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mounted) return;
+
+    const scheduleGraze = () => {
+      // Walk for 15–40 s, then graze for 3–8 s
+      const walkDelay = 15000 + Math.random() * 25000;
+      grazingTimerRef.current = setTimeout(() => {
+        if (mouseRef.current) {
+          // Don't start grazing if mouse is near — reschedule
+          scheduleGraze();
+          return;
+        }
+        grazingRef.current = true;
+        setGrazing(true);
+        const graze = 3000 + Math.random() * 5000;
+        grazingTimerRef.current = setTimeout(() => {
+          grazingRef.current = false;
+          setGrazing(false);
+          scheduleGraze();
+        }, graze);
+      }, walkDelay);
+    };
+
+    scheduleGraze();
+    return () => { if (grazingTimerRef.current) clearTimeout(grazingTimerRef.current); };
+  }, [mounted]);
+
   // ── Walking animation loop ──────────────────────────────────────────────────
   useEffect(() => {
     if (!mounted) return;
 
-    // Initialise starting position (off-screen bottom-left)
-    sideRef.current    = "bottom";
+    sideRef.current     = "bottom";
     progressRef.current = -SHEEP_W;
-    dirRef.current     = 1;
+    dirRef.current      = 1;
 
     const loop = (ts: number) => {
       if (lastTsRef.current === null) lastTsRef.current = ts;
       const dt = Math.min((ts - lastTsRef.current) / 1000, 0.1);
       lastTsRef.current = ts;
 
-      const side    = sideRef.current;
-      const sideLen = sideLenPx(side);
-      const progress = progressRef.current;
-      const { cx, cy } = toScreenCenter(side, progress);
+      // Don't move when grazing
+      if (!grazingRef.current) {
+        const side     = sideRef.current;
+        const sideLen  = sideLenPx(side);
+        const progress = progressRef.current;
+        const { cx, cy } = toScreenCenter(side, progress);
 
-      let speed  = SPEED;
-      let newDir = dirRef.current;
+        let speed  = SPEED;
+        let newDir = dirRef.current;
 
-      // Mouse interaction
-      const mouse = mouseRef.current;
-      if (mouse) {
-        const dx   = cx - mouse.x;
-        const dy   = cy - mouse.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MOUSE_REACT_RADIUS) {
-          const toward = dirTowardMouse(side, cx, cy, mouse.x, mouse.y);
-          if (isClickingRef.current) {
-            speed  = ATTRACT_SPEED;
-            newDir = toward;
-          } else {
-            speed  = FLEE_SPEED;
-            newDir = (toward === 1 ? -1 : 1) as 1 | -1;
+        // Mouse interaction — flee or attract, override grazing
+        const mouse = mouseRef.current;
+        if (mouse) {
+          const dx   = cx - mouse.x;
+          const dy   = cy - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < MOUSE_REACT_RADIUS) {
+            const toward = dirTowardMouse(side, cx, cy, mouse.x, mouse.y);
+            if (isClickingRef.current) {
+              speed  = ATTRACT_SPEED;
+              newDir = toward;
+            } else {
+              speed  = FLEE_SPEED;
+              newDir = (toward === 1 ? -1 : 1) as 1 | -1;
+            }
           }
         }
-      }
 
-      dirRef.current = newDir;
-
-      let newProgress = progress + speed * dirRef.current * dt;
-
-      // ── Corner handling ─────────────────────────────────────────────────────
-      if (dirRef.current === 1 && newProgress >= sideLen) {
-        if (Math.random() < CORNER_TURN_PROB) {
-          // Turn onto the next clockwise side
-          sideRef.current = nextSide(side);
-          newProgress = 0;
-        } else {
-          // Reverse direction
-          dirRef.current = -1;
-          newProgress = sideLen;
+        // Natural speed variation: two overlapping sine waves give organic feel
+        if (speed === SPEED) {
+          const t = ts / 1000;
+          const variation = 1 + 0.13 * Math.sin(t * 0.42) + 0.08 * Math.sin(t * 0.95 + 1.4);
+          speed *= variation;
         }
-      } else if (dirRef.current === -1 && newProgress <= 0) {
-        if (Math.random() < CORNER_TURN_PROB) {
-          // Turn onto the previous (counter-clockwise) side
-          const ps = prevSide(side);
-          newProgress = sideLenPx(ps);
-          sideRef.current = ps;
-        } else {
-          dirRef.current = 1;
-          newProgress = 0;
+
+        dirRef.current = newDir;
+
+        let newProgress = progress + speed * dirRef.current * dt;
+
+        // ── Corner handling ──────────────────────────────────────────────────
+        if (dirRef.current === 1 && newProgress >= sideLen) {
+          if (Math.random() < CORNER_TURN_PROB) {
+            sideRef.current = nextSide(side);
+            newProgress = 0;
+          } else {
+            dirRef.current = -1;
+            newProgress = sideLen;
+          }
+        } else if (dirRef.current === -1 && newProgress <= 0) {
+          if (Math.random() < CORNER_TURN_PROB) {
+            const ps = prevSide(side);
+            newProgress = sideLenPx(ps);
+            sideRef.current = ps;
+          } else {
+            dirRef.current = 1;
+            newProgress = 0;
+          }
         }
+
+        progressRef.current = newProgress;
+
+        const { cx: ncx, cy: ncy } = toScreenCenter(sideRef.current, newProgress);
+        const t = sheepTransform(sideRef.current, dirRef.current);
+        setSheepPos({ left: ncx - SHEEP_W / 2, top: ncy - SHEEP_H / 2, transform: t });
       }
-
-      progressRef.current = newProgress;
-
-      // Update React state for re-render
-      const { cx: ncx, cy: ncy } = toScreenCenter(sideRef.current, newProgress);
-      const t = sheepTransform(sideRef.current, dirRef.current);
-      setSheepPos({ left: ncx - SHEEP_W / 2, top: ncy - SHEEP_H / 2, transform: t });
 
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -318,9 +383,7 @@ export default function SheepWalker() {
         willChange: "transform, left, top",
       }}
     >
-      {/* ── "béé" speech bubble — positioned in sheep's own coordinate space ── */}
-      {/* The bubble always sits above the head (right side of SVG), and the    */}
-      {/* transform on the parent rotates it into the correct screen position.   */}
+      {/* ── "béé" speech bubble ── */}
       <AnimatePresence>
         {showBeee && (
           <motion.div
@@ -333,7 +396,7 @@ export default function SheepWalker() {
             style={{
               position: "absolute",
               bottom: SHEEP_H + 8,
-              left: "89%", // head is always at ~89% from left in SVG coordinate space
+              left: "89%",
               transform: "translateX(-50%)",
               background: "white",
               border: "2.5px solid rgba(80, 50, 20, 0.8)",
@@ -376,9 +439,9 @@ export default function SheepWalker() {
         )}
       </AnimatePresence>
 
-      {/* ── Sheep body ── */}
-      <div className="sheep-body-bob">
-        <SheepSVG />
+      {/* ── Sheep body — use idle sway when grazing, walk bob when moving ── */}
+      <div className={grazing ? "sheep-body-idle" : "sheep-body-bob"}>
+        <SheepSVG grazing={grazing} />
       </div>
     </div>
   );

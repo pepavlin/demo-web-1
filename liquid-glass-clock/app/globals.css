@@ -310,58 +310,106 @@ body {
   100% { transform: translateX(-50%) scaleY(0.85) scaleX(1.08); opacity: 0.72; }
 }
 
-/* ── Sheep running animations ──────────────────────────────────────────────── */
+/* ── Sheep running animations (used by Sheep.tsx) ─────────────────────────── */
 @keyframes sheep-leg-a {
-  0%, 100% { transform: rotate(-20deg); }
-  50%       { transform: rotate(20deg);  }
+  0%   { transform: rotate(-22deg); }
+  45%  { transform: rotate(22deg);  }
+  100% { transform: rotate(-22deg); }
 }
 
 @keyframes sheep-leg-b {
-  0%, 100% { transform: rotate(20deg);  }
-  50%       { transform: rotate(-20deg); }
+  0%   { transform: rotate(22deg);  }
+  45%  { transform: rotate(-22deg); }
+  100% { transform: rotate(22deg);  }
 }
 
 /* Applied to <g> elements wrapping each leg rect */
 .sheep-leg-a {
   transform-box: fill-box;
   transform-origin: 50% 0%;
-  animation: sheep-leg-a 0.38s ease-in-out infinite;
+  animation: sheep-leg-a 0.42s ease-in-out infinite;
 }
 
 .sheep-leg-b {
   transform-box: fill-box;
   transform-origin: 50% 0%;
-  animation: sheep-leg-b 0.38s ease-in-out infinite;
+  animation: sheep-leg-b 0.42s ease-in-out infinite;
 }
 
-/* Subtle vertical bounce while trotting */
+/* Bounce while trotting */
 @keyframes sheep-bounce {
   0%, 100% { transform: translateY(0px);  }
-  50%       { transform: translateY(-5px); }
+  50%       { transform: translateY(-4px); }
 }
 
 .sheep-running-bounce {
-  animation: sheep-bounce 0.38s ease-in-out infinite;
+  animation: sheep-bounce 0.42s ease-in-out infinite;
 }
 
-/* ── Sheep walking animation ────────────────────────────────────────────── */
+/* ── Sheep walking animation (used by SheepWalker.tsx) ──────────────────── */
 
-/* Leg swing — phase A (forward) and phase B (backward) */
+/*
+ * Natural quadruped walk: asymmetric timing — the leg spends more time on the
+ * ground (stance phase) than in the air (swing phase).  The forward reach peak
+ * at ~30 % of the cycle and the backward push trails until ~75 %.
+ */
 @keyframes sheep-walk-a {
-  0%, 100% { transform: rotate(20deg); }
-  50%       { transform: rotate(-20deg); }
+  0%   { transform: rotate(24deg); }
+  30%  { transform: rotate(-19deg); }
+  75%  { transform: rotate(-10deg); }
+  100% { transform: rotate(24deg); }
 }
 
 @keyframes sheep-walk-b {
-  0%, 100% { transform: rotate(-20deg); }
-  50%       { transform: rotate(20deg); }
+  0%   { transform: rotate(-19deg); }
+  30%  { transform: rotate(24deg);  }
+  75%  { transform: rotate(10deg);  }
+  100% { transform: rotate(-19deg); }
 }
 
-/* Gentle body bounce — two bobs per full step cycle */
+/*
+ * Body bounce: two gentle lifts per stride — once when each diagonal pair
+ * lifts off.  A tiny roll is folded in so the body rocks side-to-side.
+ */
 @keyframes sheep-body-bounce {
-  0%, 100% { transform: translateY(0); }
-  25%, 75% { transform: translateY(-3px); }
-  50%      { transform: translateY(0); }
+  0%   { transform: translateY(0px)   rotate(0.4deg);  }
+  22%  { transform: translateY(-3px)  rotate(-0.6deg); }
+  50%  { transform: translateY(0px)   rotate(0.4deg);  }
+  72%  { transform: translateY(-3px)  rotate(0.6deg);  }
+  100% { transform: translateY(0px)   rotate(0.4deg);  }
+}
+
+/*
+ * Head nod — slow independent motion that is slightly out of phase with the
+ * body so it looks like the sheep is actively looking around.
+ */
+@keyframes sheep-head-nod {
+  0%   { transform: rotate(0deg)  translateY(0);    }
+  18%  { transform: rotate(-6deg) translateY(-2px); }
+  42%  { transform: rotate(1deg)  translateY(0);    }
+  62%  { transform: rotate(-4deg) translateY(-1px); }
+  80%  { transform: rotate(2deg)  translateY(0.5px);}
+  100% { transform: rotate(0deg)  translateY(0);    }
+}
+
+/* Head lowered while grazing */
+@keyframes sheep-head-graze {
+  0%,  100% { transform: rotate(-28deg) translateY(4px);  }
+  35%        { transform: rotate(-33deg) translateY(6px);  }
+  65%        { transform: rotate(-24deg) translateY(3px);  }
+}
+
+/* Tail wag */
+@keyframes sheep-tail-wag {
+  0%,  100% { transform: rotate(-15deg); }
+  50%        { transform: rotate(20deg);  }
+}
+
+/* Idle sway — gentle breathing motion when stopped */
+@keyframes sheep-idle-sway {
+  0%,  100% { transform: translateY(0)   rotate(0deg);    }
+  30%        { transform: translateY(-1px) rotate(-0.4deg); }
+  70%        { transform: translateY(-1px) rotate(0.4deg);  }
 }
 
 /* Common leg setup — pivot from top-center of the leg's own bounding box */
@@ -373,18 +421,49 @@ body {
   transform-origin: 50% 0%;
 }
 
-/* Back legs: b1=A, b2=B (opposite phase) */
-.sheep-leg-b1 { animation: sheep-walk-a 0.55s ease-in-out infinite; }
-.sheep-leg-b2 { animation: sheep-walk-b 0.55s ease-in-out infinite; }
+/*
+ * Diagonal gait pairing:
+ *   back-left  (b1) + front-right (f2) → phase A
+ *   back-right (b2) + front-left  (f1) → phase B  (180° offset)
+ * Cycle duration: 0.90 s — slow, peaceful walk.
+ */
+.sheep-leg-b1 { animation: sheep-walk-a 0.90s ease-in-out infinite; }
+.sheep-leg-b2 { animation: sheep-walk-b 0.90s ease-in-out infinite; }
+.sheep-leg-f1 { animation: sheep-walk-b 0.90s ease-in-out infinite; }
+.sheep-leg-f2 { animation: sheep-walk-a 0.90s ease-in-out infinite; }
 
-/* Front legs: f1=B, f2=A (diagonally paired with back legs) */
-.sheep-leg-f1 { animation: sheep-walk-b 0.55s ease-in-out infinite; }
-.sheep-leg-f2 { animation: sheep-walk-a 0.55s ease-in-out infinite; }
-
-/* Body bob applied to the wrapper div around the SVG */
+/* Body bob wrapper */
 .sheep-body-bob {
   display: inline-block;
-  animation: sheep-body-bounce 0.275s ease-in-out infinite;
+  animation: sheep-body-bounce 0.90s ease-in-out infinite;
+}
+
+/* Head animation group inside the SVG */
+.sheep-head-anim {
+  transform-box: fill-box;
+  transform-origin: 50% 85%; /* rotate from neck base */
+  animation: sheep-head-nod 2.1s ease-in-out infinite;
+  animation-delay: -0.6s; /* out of phase with body */
+}
+
+.sheep-head-graze {
+  transform-box: fill-box;
+  transform-origin: 50% 85%;
+  animation: sheep-head-graze 2.4s ease-in-out infinite;
+}
+
+/* Tail */
+.sheep-tail-wag {
+  transform-box: fill-box;
+  transform-origin: 100% 55%; /* pivot from rump side */
+  animation: sheep-tail-wag 0.75s ease-in-out infinite;
+  animation-delay: -0.25s;
+}
+
+/* Idle / stopped state */
+.sheep-body-idle {
+  display: inline-block;
+  animation: sheep-idle-sway 3.2s ease-in-out infinite;
 }
 
 /* Noise overlay */
