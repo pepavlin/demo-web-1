@@ -868,7 +868,7 @@ export default function Game3D() {
       const { group, legPivots, headGroup, bodyGroup, tailGroup } = parts;
       group.position.set(p.x, p.y, p.z);
       const initialAngle = Math.random() * Math.PI * 2;
-      group.rotation.y = -initialAngle + Math.PI / 2;
+      group.rotation.y = -initialAngle;
       scene.add(group);
 
       // Spread out phase offsets so sheep don't all graze/move in lockstep
@@ -1445,7 +1445,7 @@ export default function Game3D() {
           if (len > FOX_ATTACK_RANGE) {
             fm.position.x += (dx / len) * FOX_SPEED * 1.1 * dt;
             fm.position.z += (dz / len) * FOX_SPEED * 1.1 * dt;
-            fm.rotation.y = Math.atan2(dx, dz);
+            fm.rotation.y = Math.atan2(-dz, dx);
           } else {
             // Attack player
             fox.attackCooldown -= dt;
@@ -1483,7 +1483,7 @@ export default function Game3D() {
             if (len > 0.1) {
               fm.position.x += (dx / len) * FOX_SPEED * dt;
               fm.position.z += (dz / len) * FOX_SPEED * dt;
-              fm.rotation.y = Math.atan2(dx, dz);
+              fm.rotation.y = Math.atan2(-dz, dx);
             }
             if (closestDist < 8) {
               (closestSheep as SheepData).isFleeing = true;
@@ -1502,7 +1502,7 @@ export default function Game3D() {
             }
             fm.position.x += Math.cos(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
             fm.position.z += Math.sin(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
-            fm.rotation.y = fox.wanderAngle + Math.PI / 2;
+            fm.rotation.y = -fox.wanderAngle;
 
             const half = WORLD_SIZE / 2 - 20;
             if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
@@ -1639,7 +1639,7 @@ export default function Game3D() {
 
         s.position.y = getTerrainHeight(s.position.x, s.position.z);
         // Sheep rotation always matches currentAngle (it already turns smoothly)
-        s.rotation.y = -sheep.currentAngle + Math.PI / 2;
+        s.rotation.y = -sheep.currentAngle;
 
         // ── Walk phase ───────────────────────────────────────────────────────
         // Phase advances proportionally to actual speed
