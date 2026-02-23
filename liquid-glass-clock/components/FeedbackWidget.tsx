@@ -1,19 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useTasks, parseTasks as parseTasksImpl } from "@/hooks/useTasks";
+import type { Task } from "@/hooks/useTasks";
+
+// Re-export parseTasks so existing imports continue to work
+export { parseTasksImpl as parseTasks };
 
 const WEBHOOK_URL = "https://n8n.pavlin.dev/webhook/demo-web-1-create-issue";
-const POLL_INTERVAL_MS = 30_000;
 
 type Status = "idle" | "sending" | "sent" | "error";
-
-interface Task {
-  id?: string | number;
-  status?: string;
-  message?: string;
-  title?: string;
-  name?: string;
-}
 
 interface TaskCounts {
   running: number;
@@ -22,44 +18,6 @@ interface TaskCounts {
 
 function getTaskLabel(task: Task): string {
   return (task.message || task.title || task.name || "").trim();
-}
-
-export function parseTasks(data: unknown): Task[] {
-  let items: unknown[] = [];
-
-  if (Array.isArray(data)) {
-    items = data;
-  } else if (data && typeof data === "object") {
-    const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj.tasks)) items = obj.tasks;
-    else if (Array.isArray(obj.data)) items = obj.data;
-    else if (Array.isArray(obj.items)) items = obj.items;
-  }
-
-  return items.filter((t): t is Task => t !== null && typeof t === "object");
-}
-
-function useTasks(): Task[] {
-  const [tasks, setTasks] = useState<Task[]>([]);
-
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch(WEBHOOK_URL, { method: "GET" });
-      if (!res.ok) return;
-      const data: unknown = await res.json();
-      setTasks(parseTasks(data));
-    } catch {
-      // silently ignore — list stays empty
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTasks();
-    const id = setInterval(fetchTasks, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [fetchTasks]);
-
-  return tasks;
 }
 
 export default function FeedbackWidget() {
@@ -457,77 +415,75 @@ export default function FeedbackWidget() {
         className="fixed bottom-5 right-5 z-[100] flex items-center gap-2"
         style={{ alignItems: "center" }}
       >
-        {/* Task counts pill — shown only when there are active tasks */}
-        {hasActiveTasks && (
-          <div
-            aria-label={`${taskCounts.running} běžících, ${taskCounts.queued} čekajících`}
-            data-testid="task-counts"
+        {/* Task counts pill — always visible */}
+        <div
+          aria-label={`${taskCounts.running} běžících, ${taskCounts.queued} čekajících`}
+          data-testid="task-counts"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            background: "rgba(10, 8, 28, 0.88)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: "999px",
+            padding: "5px 10px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          }}
+        >
+          <span
+            data-testid="running-count"
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "6px",
-              background: "rgba(10, 8, 28, 0.88)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: "999px",
-              padding: "5px 10px",
-              boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+              gap: "4px",
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              color: taskCounts.running > 0 ? "rgba(80,220,160,0.95)" : "rgba(255,255,255,0.25)",
+              lineHeight: 1,
             }}
           >
-            {taskCounts.running > 0 && (
-              <span
-                data-testid="running-count"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "0.72rem",
-                  fontWeight: 600,
-                  color: "rgba(80,220,160,0.95)",
-                  lineHeight: 1,
-                }}
-              >
-                {/* Running indicator dot */}
-                <span
-                  style={{
-                    width: "6px",
-                    height: "6px",
-                    borderRadius: "50%",
-                    background: "rgba(80,220,160,1)",
-                    boxShadow: "0 0 6px rgba(80,220,160,0.8)",
-                    flexShrink: 0,
-                    animation: "pulse 1.4s ease-in-out infinite",
-                  }}
-                />
-                {taskCounts.running}
-              </span>
-            )}
-            {taskCounts.running > 0 && taskCounts.queued > 0 && (
-              <span style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.65rem" }}>|</span>
-            )}
-            {taskCounts.queued > 0 && (
-              <span
-                data-testid="queued-count"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "0.72rem",
-                  fontWeight: 600,
-                  color: "rgba(180,150,255,0.9)",
-                  lineHeight: 1,
-                }}
-              >
-                {/* Queued indicator */}
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0 }}>
-                  <circle cx="4" cy="4" r="3" stroke="rgba(180,150,255,0.9)" strokeWidth="1.5" />
-                </svg>
-                {taskCounts.queued}
-              </span>
-            )}
-          </div>
-        )}
+            {/* Running indicator dot */}
+            <span
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: taskCounts.running > 0 ? "rgba(80,220,160,1)" : "rgba(255,255,255,0.2)",
+                boxShadow: taskCounts.running > 0 ? "0 0 6px rgba(80,220,160,0.8)" : "none",
+                flexShrink: 0,
+                animation: taskCounts.running > 0 ? "pulse 1.4s ease-in-out infinite" : "none",
+              }}
+            />
+            {taskCounts.running}
+          </span>
+          <span style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.65rem" }}>|</span>
+          <span
+            data-testid="queued-count"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              color: taskCounts.queued > 0 ? "rgba(180,150,255,0.9)" : "rgba(255,255,255,0.25)",
+              lineHeight: 1,
+            }}
+          >
+            {/* Queued indicator */}
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0 }}>
+              <circle
+                cx="4"
+                cy="4"
+                r="3"
+                stroke={taskCounts.queued > 0 ? "rgba(180,150,255,0.9)" : "rgba(255,255,255,0.2)"}
+                strokeWidth="1.5"
+              />
+            </svg>
+            {taskCounts.queued}
+          </span>
+        </div>
 
         {/* Floating toggle button */}
         <button

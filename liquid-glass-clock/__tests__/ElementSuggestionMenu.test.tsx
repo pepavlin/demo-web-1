@@ -18,11 +18,18 @@ describe("ElementSuggestionMenu", () => {
   beforeEach(() => {
     fetchMock = jest.fn();
     global.fetch = fetchMock;
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
+
+  // Helper: default GET response (no tasks)
+  const mockGetEmpty = () =>
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => [] });
 
   // ─── Utility helpers ─────────────────────────────────────────────────────────
 
@@ -89,11 +96,13 @@ describe("ElementSuggestionMenu", () => {
   // ─── Component rendering ─────────────────────────────────────────────────────
 
   it("renders nothing initially (no context menu visible)", () => {
+    mockGetEmpty();
     render(<ElementSuggestionMenu />);
     expect(screen.queryByTestId("element-suggestion-menu")).not.toBeInTheDocument();
   });
 
   it("shows context menu on right-click anywhere in document", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -109,6 +118,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("highlights the right-clicked element with an outline", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -123,6 +133,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("clicking 'Napsat návrh' reveals the suggestion input form", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -140,6 +151,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("submit button is disabled when textarea is empty", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -154,6 +166,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("submit button becomes enabled when text is entered", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -171,7 +184,10 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("sends POST to webhook with message, type and element info on submit", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+    // First call is GET (task polling), second call is POST (submission)
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
 
     render(
       <div>
@@ -190,15 +206,17 @@ describe("ElementSuggestionMenu", () => {
       fireEvent.click(screen.getByRole("button", { name: /odeslat návrh/i }));
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      WEBHOOK_URL,
-      expect.objectContaining({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
+    const postCall = fetchMock.mock.calls.find(
+      ([, opts]: [string, RequestInit]) => opts?.method === "POST"
     );
+    expect(postCall).toBeDefined();
+    expect(postCall[0]).toBe(WEBHOOK_URL);
+    expect(postCall[1]).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
 
-    const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const callBody = JSON.parse(postCall[1].body);
     expect(callBody.message).toMatch(/^\[Element: <p#hero-text>/);
     expect(callBody.message).toContain("Větší font");
     expect(callBody.type).toBe("element_suggestion");
@@ -207,7 +225,9 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("shows success state after successful submission", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
 
     render(
       <div>
@@ -231,7 +251,9 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("shows error message when fetch fails", async () => {
-    fetchMock.mockRejectedValueOnce(new Error("Network error"));
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] })
+      .mockRejectedValueOnce(new Error("Network error"));
 
     render(
       <div>
@@ -255,7 +277,9 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("shows error message when server returns non-ok response", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] })
+      .mockResolvedValueOnce({ ok: false, status: 500 });
 
     render(
       <div>
@@ -279,7 +303,9 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("submits on Enter key in textarea", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
 
     render(
       <div>
@@ -297,10 +323,14 @@ describe("ElementSuggestionMenu", () => {
       fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const postCalls = fetchMock.mock.calls.filter(
+      ([, opts]: [string, RequestInit]) => opts?.method === "POST"
+    );
+    expect(postCalls).toHaveLength(1);
   });
 
   it("does NOT submit on Shift+Enter", async () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -314,10 +344,14 @@ describe("ElementSuggestionMenu", () => {
     fireEvent.change(textarea, { target: { value: "Návrh" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    const postCalls = fetchMock.mock.calls.filter(
+      ([, opts]: [string, RequestInit]) => opts?.method === "POST"
+    );
+    expect(postCalls).toHaveLength(0);
   });
 
   it("closes menu via close button (×) and removes element highlight", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -336,6 +370,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("closes menu on Escape key press", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -352,6 +387,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("closes menu when clicking outside", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -369,6 +405,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("does not show the menu when right-clicking inside the menu itself", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -389,6 +426,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("re-opens on a different element and removes previous highlight", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -409,6 +447,7 @@ describe("ElementSuggestionMenu", () => {
   });
 
   it("does not submit whitespace-only messages", () => {
+    mockGetEmpty();
     render(
       <div>
         <ElementSuggestionMenu />
@@ -424,5 +463,152 @@ describe("ElementSuggestionMenu", () => {
     );
 
     expect(screen.getByRole("button", { name: /odeslat návrh/i })).toBeDisabled();
+  });
+
+  // ─── Task count badges next to "Napsat návrh" button ─────────────────────────
+
+  it("shows task count badges with zero values when no active tasks", async () => {
+    mockGetEmpty();
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    expect(screen.getByTestId("menu-task-counts")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-running-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("menu-queued-count")).toHaveTextContent("0");
+  });
+
+  it("shows running count badge next to button when running tasks exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "1", status: "running" },
+        { id: "2", status: "running" },
+      ],
+    });
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("menu-task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("menu-running-count")).toHaveTextContent("2");
+    });
+  });
+
+  it("shows queued count badge next to button when queued tasks exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "1", status: "queued" },
+        { id: "2", status: "queued" },
+        { id: "3", status: "queued" },
+      ],
+    });
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("menu-task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("menu-queued-count")).toHaveTextContent("3");
+    });
+  });
+
+  it("shows both running and queued count badges when mixed tasks exist", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        { id: "1", status: "running" },
+        { id: "2", status: "queued" },
+        { id: "3", status: "queued" },
+        { id: "4", status: "done" },
+      ],
+    });
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("menu-running-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("menu-queued-count")).toHaveTextContent("2");
+    });
+  });
+
+  it("shows task badges with zero counts when GET fails", async () => {
+    fetchMock.mockRejectedValue(new Error("Network error"));
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("menu-task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("menu-running-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("menu-queued-count")).toHaveTextContent("0");
+    });
+  });
+
+  it("shows task badges with zero counts when GET returns non-ok response", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+
+    await act(async () => {
+      render(
+        <div>
+          <ElementSuggestionMenu />
+          <p data-testid="target">Hello</p>
+        </div>
+      );
+    });
+
+    fireEvent.contextMenu(screen.getByTestId("target"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("menu-task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("menu-running-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("menu-queued-count")).toHaveTextContent("0");
+    });
   });
 });

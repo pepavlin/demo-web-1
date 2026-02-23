@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useTasks } from "@/hooks/useTasks";
 
 const WEBHOOK_URL = "https://n8n.pavlin.dev/webhook/demo-web-1-create-issue";
 
@@ -60,6 +61,11 @@ export default function ElementSuggestionMenu() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const highlightedElRef = useRef<HTMLElement | null>(null);
+
+  const tasks = useTasks();
+  const runningCount = tasks.filter((t) => t?.status === "running").length;
+  const queuedCount = tasks.filter((t) => t?.status === "queued").length;
+  const hasActiveTasks = runningCount > 0 || queuedCount > 0;
 
   const removeHighlight = useCallback(() => {
     if (highlightedElRef.current) {
@@ -250,8 +256,73 @@ export default function ElementSuggestionMenu() {
                 strokeLinejoin="round"
               />
             </svg>
-            Napsat návrh
+            <span style={{ flex: 1 }}>Napsat návrh</span>
+            <span
+              data-testid="menu-task-counts"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                marginLeft: "auto",
+              }}
+            >
+              <span
+                data-testid="menu-running-count"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  fontSize: "0.65rem",
+                  fontWeight: 600,
+                  color: runningCount > 0 ? "rgba(80,220,160,0.95)" : "rgba(255,255,255,0.22)",
+                  lineHeight: 1,
+                }}
+              >
+                <span
+                  style={{
+                    width: "5px",
+                    height: "5px",
+                    borderRadius: "50%",
+                    background: runningCount > 0 ? "rgba(80,220,160,1)" : "rgba(255,255,255,0.2)",
+                    boxShadow: runningCount > 0 ? "0 0 4px rgba(80,220,160,0.8)" : "none",
+                    flexShrink: 0,
+                    animation: runningCount > 0 ? "pulse 1.4s ease-in-out infinite" : "none",
+                  }}
+                />
+                {runningCount}
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.18)", fontSize: "0.6rem" }}>|</span>
+              <span
+                data-testid="menu-queued-count"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "2px",
+                  fontSize: "0.65rem",
+                  fontWeight: 600,
+                  color: queuedCount > 0 ? "rgba(180,150,255,0.9)" : "rgba(255,255,255,0.22)",
+                  lineHeight: 1,
+                }}
+              >
+                <svg width="6" height="6" viewBox="0 0 6 6" fill="none" style={{ flexShrink: 0 }}>
+                  <circle
+                    cx="3"
+                    cy="3"
+                    r="2.25"
+                    stroke={queuedCount > 0 ? "rgba(180,150,255,0.9)" : "rgba(255,255,255,0.2)"}
+                    strokeWidth="1.5"
+                  />
+                </svg>
+                {queuedCount}
+              </span>
+            </span>
           </button>
+          <style>{`
+            @keyframes pulse {
+              0%, 100% { opacity: 1; transform: scale(1); }
+              50% { opacity: 0.5; transform: scale(0.75); }
+            }
+          `}</style>
         </div>
       ) : (
         /* Suggestion input panel */
