@@ -27,6 +27,12 @@ export interface CoinData {
   collected: boolean;
 }
 
+export interface BulletData {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  lifetime: number; // seconds remaining before despawn
+}
+
 export interface GameState {
   sheepCollected: number;
   coinsCollected: number;
