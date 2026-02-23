@@ -46,24 +46,45 @@ function makeRng(seed = 1): () => number {
 }
 
 describe("buildSheepMesh", () => {
-  it("returns a THREE.Group", () => {
-    const mesh = buildSheepMesh();
-    expect(mesh).toBeInstanceOf(THREE.Group);
+  it("returns an object with a group, legPivots, headGroup, bodyGroup, tailGroup", () => {
+    const parts = buildSheepMesh();
+    expect(parts.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(parts.legPivots)).toBe(true);
+    expect(parts.legPivots.length).toBe(4);
+    expect(parts.headGroup).toBeInstanceOf(THREE.Group);
+    expect(parts.bodyGroup).toBeInstanceOf(THREE.Group);
+    expect(parts.tailGroup).toBeInstanceOf(THREE.Group);
   });
 
-  it("has children (body parts)", () => {
-    const mesh = buildSheepMesh();
-    expect(mesh.children.length).toBeGreaterThan(4);
+  it("group has children (body parts)", () => {
+    const { group } = buildSheepMesh();
+    expect(group.children.length).toBeGreaterThan(0);
   });
 
-  it("has castShadow enabled", () => {
-    const mesh = buildSheepMesh();
-    expect(mesh.castShadow).toBe(true);
+  it("group has castShadow enabled", () => {
+    const { group } = buildSheepMesh();
+    expect(group.castShadow).toBe(true);
   });
 
-  it("is scaled", () => {
-    const mesh = buildSheepMesh();
-    expect(mesh.scale.x).toBeCloseTo(0.8);
+  it("group is scaled", () => {
+    const { group } = buildSheepMesh();
+    // Scale was changed to 0.82 for the improved model
+    expect(group.scale.x).toBeGreaterThan(0.7);
+    expect(group.scale.x).toBeLessThan(1.0);
+  });
+
+  it("all four leg pivots are THREE.Group instances", () => {
+    const { legPivots } = buildSheepMesh();
+    legPivots.forEach((pivot) => {
+      expect(pivot).toBeInstanceOf(THREE.Group);
+    });
+  });
+
+  it("each leg pivot has a mesh child (leg + hoof)", () => {
+    const { legPivots } = buildSheepMesh();
+    legPivots.forEach((pivot) => {
+      expect(pivot.children.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });
 

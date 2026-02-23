@@ -1,45 +1,153 @@
 import * as THREE from "three";
 
 // ─── Sheep ────────────────────────────────────────────────────────────────────
-export function buildSheepMesh(): THREE.Group {
+
+export interface SheepMeshParts {
+  group: THREE.Group;
+  /** Four leg pivot groups. Each pivots around its top (hip joint).
+   *  Index: 0=front-right, 1=front-left, 2=back-right, 3=back-left
+   *  Diagonal pairs for natural walk: (0,3) and (1,2)
+   */
+  legPivots: THREE.Group[];
+  /** Head group — pivot origin is at the neck so rotation.z nods the head. */
+  headGroup: THREE.Group;
+  /** Wrapper around body sphere so it can bounce vertically. */
+  bodyGroup: THREE.Group;
+  /** Tail group — pivot origin is at the rump so rotation.y wags the tail. */
+  tailGroup: THREE.Group;
+}
+
+export function buildSheepMesh(): SheepMeshParts {
   const group = new THREE.Group();
-  const woolColor = new THREE.Color(0xeeeeee);
-  const darkColor = new THREE.Color(0x222222);
-  const wool = new THREE.MeshLambertMaterial({ color: woolColor });
-  const dark = new THREE.MeshLambertMaterial({ color: darkColor });
 
-  const bodyGeo = new THREE.SphereGeometry(0.5, 8, 6);
-  bodyGeo.scale(1.4, 1, 1);
-  const body = new THREE.Mesh(bodyGeo, wool);
-  body.position.y = 0.7;
-  group.add(body);
+  const woolMat  = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
+  const faceMat  = new THREE.MeshLambertMaterial({ color: 0xd4b896 }); // warm tan face
+  const darkMat  = new THREE.MeshLambertMaterial({ color: 0x1a1008 }); // legs/hooves
+  const eyeMat   = new THREE.MeshLambertMaterial({ color: 0x0a0808 });
+  const noseMat  = new THREE.MeshLambertMaterial({ color: 0xc08060 });
 
-  const headGeo = new THREE.SphereGeometry(0.28, 7, 6);
-  const head = new THREE.Mesh(headGeo, wool);
-  head.position.set(0.65, 1.0, 0);
-  group.add(head);
+  // ── Body group (so it can bounce) ─────────────────────────────────────────
+  const bodyGroup = new THREE.Group();
+  bodyGroup.position.y = 0;
+  group.add(bodyGroup);
 
-  const eyeGeo = new THREE.SphereGeometry(0.05, 5, 5);
-  const leftEye = new THREE.Mesh(eyeGeo, dark);
-  leftEye.position.set(0.88, 1.08, 0.16);
-  const rightEye = new THREE.Mesh(eyeGeo, dark);
-  rightEye.position.set(0.88, 1.08, -0.16);
-  group.add(leftEye, rightEye);
+  // Main wool body — fluffy ovoid
+  const bodyGeo = new THREE.SphereGeometry(0.52, 10, 8);
+  bodyGeo.scale(1.35, 1.0, 1.0);
+  const bodyMesh = new THREE.Mesh(bodyGeo, woolMat);
+  bodyMesh.position.y = 0.72;
+  bodyMesh.castShadow = true;
+  bodyGroup.add(bodyMesh);
 
-  const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.45, 6);
-  const positions: [number, number, number][] = [
-    [0.3, 0.25, 0.3], [0.3, 0.25, -0.3],
-    [-0.3, 0.25, 0.3], [-0.3, 0.25, -0.3],
+  // Rump wool bump (makes the back look fluffier)
+  const rumpGeo = new THREE.SphereGeometry(0.36, 8, 6);
+  rumpGeo.scale(1.0, 0.85, 1.0);
+  const rump = new THREE.Mesh(rumpGeo, woolMat);
+  rump.position.set(-0.45, 0.82, 0);
+  bodyGroup.add(rump);
+
+  // ── Tail group ─────────────────────────────────────────────────────────────
+  // Pivot at the rump attachment point
+  const tailGroup = new THREE.Group();
+  tailGroup.position.set(-0.78, 0.82, 0);
+  bodyGroup.add(tailGroup);
+
+  const tailGeo = new THREE.SphereGeometry(0.14, 6, 5);
+  tailGeo.scale(0.8, 0.8, 1.0);
+  const tailMesh = new THREE.Mesh(tailGeo, woolMat);
+  tailMesh.position.set(-0.1, 0.06, 0);  // hangs slightly behind/up
+  tailGroup.add(tailMesh);
+
+  // ── Head group ─────────────────────────────────────────────────────────────
+  // Pivot at neck so rotation.z rocks head forward/back naturally
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0.55, 0.88, 0); // neck attachment point
+  bodyGroup.add(headGroup);
+
+  // Wool cap on head
+  const woolCapGeo = new THREE.SphereGeometry(0.24, 8, 6);
+  const woolCap = new THREE.Mesh(woolCapGeo, woolMat);
+  woolCap.position.set(0.08, 0.2, 0);
+  woolCap.castShadow = true;
+  headGroup.add(woolCap);
+
+  // Face
+  const faceGeo = new THREE.SphereGeometry(0.2, 8, 6);
+  faceGeo.scale(1.2, 0.9, 1.0);
+  const face = new THREE.Mesh(faceGeo, faceMat);
+  face.position.set(0.18, 0.06, 0);
+  headGroup.add(face);
+
+  // Ears (one each side)
+  const earGeo = new THREE.SphereGeometry(0.09, 6, 5);
+  earGeo.scale(0.6, 1.0, 1.6);
+  [-1, 1].forEach((side) => {
+    const ear = new THREE.Mesh(earGeo, faceMat);
+    ear.position.set(0.05, 0.14, side * 0.22);
+    ear.rotation.x = side * 0.35;
+    headGroup.add(ear);
+  });
+
+  // Eyes
+  const eyeGeo = new THREE.SphereGeometry(0.045, 6, 5);
+  [-1, 1].forEach((side) => {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(0.33, 0.1, side * 0.13);
+    headGroup.add(eye);
+    // Eye shine
+    const shineGeo = new THREE.SphereGeometry(0.015, 4, 4);
+    const shineMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
+    const shine = new THREE.Mesh(shineGeo, shineMat);
+    shine.position.set(0.355, 0.115, side * 0.125);
+    headGroup.add(shine);
+  });
+
+  // Nostrils
+  const nostrilGeo = new THREE.SphereGeometry(0.025, 4, 4);
+  [-1, 1].forEach((side) => {
+    const nostril = new THREE.Mesh(nostrilGeo, noseMat);
+    nostril.position.set(0.37, -0.02, side * 0.06);
+    headGroup.add(nostril);
+  });
+
+  // ── Legs (4 pivot groups) ──────────────────────────────────────────────────
+  const HIP_Y   = 0.56; // y-level of hip joint in group space
+  const LEG_H   = 0.52; // leg height
+  const HOOF_R  = 0.085;
+  // positions: [x, z] for each leg (x=forward/back, z=left/right)
+  // 0=front-right, 1=front-left, 2=back-right, 3=back-left
+  const legXZ: [number, number][] = [
+    [ 0.28, -0.28], // front-right
+    [ 0.28,  0.28], // front-left
+    [-0.28, -0.28], // back-right
+    [-0.28,  0.28], // back-left
   ];
-  positions.forEach(([x, y, z]) => {
-    const leg = new THREE.Mesh(legGeo, dark);
-    leg.position.set(x, y, z);
-    group.add(leg);
+
+  const legGeo   = new THREE.CylinderGeometry(0.065, 0.055, LEG_H, 6);
+  const hoofGeo  = new THREE.SphereGeometry(HOOF_R, 6, 5);
+  hoofGeo.scale(1.1, 0.6, 1.1);
+
+  const legPivots: THREE.Group[] = [];
+  legXZ.forEach(([lx, lz]) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(lx, HIP_Y, lz);
+    bodyGroup.add(pivot);
+
+    const leg = new THREE.Mesh(legGeo, darkMat);
+    leg.position.y = -LEG_H / 2;  // hangs down from pivot
+    leg.castShadow = true;
+    pivot.add(leg);
+
+    const hoof = new THREE.Mesh(hoofGeo, darkMat);
+    hoof.position.y = -LEG_H - 0.04;
+    pivot.add(hoof);
+
+    legPivots.push(pivot);
   });
 
   group.castShadow = true;
-  group.scale.setScalar(0.8);
-  return group;
+  group.scale.setScalar(0.82);
+  return { group, legPivots, headGroup, bodyGroup, tailGroup };
 }
 
 // ─── Fox ──────────────────────────────────────────────────────────────────────
