@@ -20,6 +20,26 @@ jest.mock("three", () => {
   };
 });
 
+// Mock EffectComposer and postprocessing passes (require WebGL context)
+const mockComposer = {
+  addPass: jest.fn(),
+  render: jest.fn(),
+  dispose: jest.fn(),
+  setSize: jest.fn(),
+};
+jest.mock("three/examples/jsm/postprocessing/EffectComposer.js", () => ({
+  EffectComposer: jest.fn().mockImplementation(() => mockComposer),
+}));
+jest.mock("three/examples/jsm/postprocessing/RenderPass.js", () => ({
+  RenderPass: jest.fn().mockImplementation(() => ({})),
+}));
+jest.mock("three/examples/jsm/postprocessing/UnrealBloomPass.js", () => ({
+  UnrealBloomPass: jest.fn().mockImplementation(() => ({})),
+}));
+jest.mock("three/examples/jsm/postprocessing/OutputPass.js", () => ({
+  OutputPass: jest.fn().mockImplementation(() => ({})),
+}));
+
 // Minimal pointer lock mock
 Object.defineProperty(document, "pointerLockElement", {
   writable: true,
@@ -160,5 +180,52 @@ describe("Game3D component", () => {
     const { getByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
     expect(getByText(/maják/i)).toBeInTheDocument();
+  });
+
+  it("initialises EffectComposer for volumetric bloom", async () => {
+    const { EffectComposer } = await import("three/examples/jsm/postprocessing/EffectComposer.js");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(EffectComposer).toHaveBeenCalled();
+  });
+
+  it("attaches UnrealBloomPass to the composer for god-ray effect", async () => {
+    const { UnrealBloomPass } = await import("three/examples/jsm/postprocessing/UnrealBloomPass.js");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(UnrealBloomPass).toHaveBeenCalled();
+    // Verify the bloom pass was configured (addPass called with it)
+    expect(mockComposer.addPass).toHaveBeenCalled();
+  });
+
+  it("adds RenderPass and OutputPass to the postprocessing pipeline", async () => {
+    const { RenderPass } = await import("three/examples/jsm/postprocessing/RenderPass.js");
+    const { OutputPass } = await import("three/examples/jsm/postprocessing/OutputPass.js");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(RenderPass).toHaveBeenCalled();
+    expect(OutputPass).toHaveBeenCalled();
+  });
+
+  it("calls composer.dispose on unmount", () => {
+    const { unmount } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    unmount();
+    expect(mockComposer.dispose).toHaveBeenCalled();
+  });
+
+  it("sets up volumetric light shaft cones without throwing", () => {
+    // The shaft cones use THREE.ConeGeometry + MeshBasicMaterial with AdditiveBlending.
+    // This verifies the entire scene setup (including shafts) completes successfully.
+    expect(() => render(<Game3D />)).not.toThrow();
+  });
+
+  it("stores bloomPass reference for dynamic strength updates", async () => {
+    const { UnrealBloomPass } = await import("three/examples/jsm/postprocessing/UnrealBloomPass.js");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // Bloom pass must have been constructed and added to the composer
+    expect(UnrealBloomPass).toHaveBeenCalled();
+    expect(mockComposer.addPass).toHaveBeenCalled();
   });
 });

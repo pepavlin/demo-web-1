@@ -47,4 +47,58 @@ describe("LiquidBackground component", () => {
     const noiseOverlay = container.querySelector(".noise-overlay");
     expect(noiseOverlay).toBeInTheDocument();
   });
+
+  it("renders the volumetric rays container", () => {
+    const { container } = render(<LiquidBackground />);
+    const raysContainer = container.querySelector(".vol-rays-container");
+    expect(raysContainer).toBeInTheDocument();
+  });
+
+  it("renders the volumetric rays hub inside the container", () => {
+    const { container } = render(<LiquidBackground />);
+    const hub = container.querySelector(".vol-rays-hub");
+    expect(hub).toBeInTheDocument();
+  });
+
+  it("renders 10 individual ray beams", () => {
+    const { container } = render(<LiquidBackground />);
+    const rays = container.querySelectorAll(".vol-ray");
+    expect(rays).toHaveLength(10);
+  });
+
+  it("renders volumetric rays before the noise overlay (lower z-index layer)", () => {
+    const { container } = render(<LiquidBackground />);
+    const raysContainer = container.querySelector(".vol-rays-container");
+    const noiseOverlay = container.querySelector(".noise-overlay");
+    // Both should be present; rays container should appear before noise in DOM
+    expect(raysContainer).toBeInTheDocument();
+    expect(noiseOverlay).toBeInTheDocument();
+    const all = Array.from(container.querySelectorAll("*"));
+    expect(all.indexOf(raysContainer!)).toBeLessThan(all.indexOf(noiseOverlay!));
+  });
+
+  it("renders the warm golden ray hub", () => {
+    const { container } = render(<LiquidBackground />);
+    const warmHub = container.querySelector(".vol-rays-hub-warm");
+    expect(warmHub).toBeInTheDocument();
+  });
+
+  it("renders 5 warm golden ray beams", () => {
+    const { container } = render(<LiquidBackground />);
+    const warmRays = container.querySelectorAll(".vol-ray-warm");
+    expect(warmRays).toHaveLength(5);
+  });
+
+  it("renders the central volumetric light-source glow", () => {
+    const { container } = render(<LiquidBackground />);
+    const lightSource = container.querySelector(".vol-light-source");
+    expect(lightSource).toBeInTheDocument();
+  });
+
+  it("renders the light source inside the rays container", () => {
+    const { container } = render(<LiquidBackground />);
+    const raysContainer = container.querySelector(".vol-rays-container");
+    const lightSource = container.querySelector(".vol-light-source");
+    expect(raysContainer).toContainElement(lightSource!);
+  });
 });

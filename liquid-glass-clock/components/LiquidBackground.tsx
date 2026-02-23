@@ -66,6 +66,35 @@ export default function LiquidBackground() {
         }}
       />
 
+      {/* ── Volumetric light rays ─────────────────────────────────────── */}
+      <div className="vol-rays-container">
+        {/* Central light-source glow at the rays' origin point */}
+        <div className="vol-light-source" />
+
+        {/* Primary purple/violet ray fan */}
+        <div className="vol-rays-hub">
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+          <div className="vol-ray" />
+        </div>
+
+        {/* Secondary warm golden ray fan — counter-rotates for layered depth */}
+        <div className="vol-rays-hub-warm">
+          <div className="vol-ray-warm" />
+          <div className="vol-ray-warm" />
+          <div className="vol-ray-warm" />
+          <div className="vol-ray-warm" />
+          <div className="vol-ray-warm" />
+        </div>
+      </div>
+
       {/* Geometric particle network */}
       <GeometricParticles />
 
