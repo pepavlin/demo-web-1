@@ -83,6 +83,16 @@ export default function FeedbackWidget() {
     }
   }, [open, status]);
 
+  // Open panel when IMPLEMENT word is typed in-game
+  useEffect(() => {
+    const handler = () => {
+      setOpen(true);
+      if (status !== "idle") setStatus("idle");
+    };
+    window.addEventListener("openFeedback", handler);
+    return () => window.removeEventListener("openFeedback", handler);
+  }, [status]);
+
   const handleToggle = () => {
     setOpen((v) => !v);
   };
