@@ -235,12 +235,14 @@ describe("FeedbackWidget", () => {
 
   // ─── Task counts badge ──────────────────────────────────────────────────────
 
-  it("does not show task-counts badge when GET returns empty array", async () => {
+  it("shows task-counts badge with zero values when GET returns empty array", async () => {
     mockGetEmpty();
     await act(async () => {
       render(<FeedbackWidget />);
     });
-    expect(screen.queryByTestId("task-counts")).not.toBeInTheDocument();
+    expect(screen.getByTestId("task-counts")).toBeInTheDocument();
+    expect(screen.getByTestId("running-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("queued-count")).toHaveTextContent("0");
   });
 
   it("shows running count when GET returns running tasks", async () => {
@@ -328,7 +330,7 @@ describe("FeedbackWidget", () => {
     });
   });
 
-  it("does not show badge when GET fails", async () => {
+  it("shows badge with zero counts when GET fails", async () => {
     fetchMock.mockRejectedValue(new Error("Network error"));
 
     await act(async () => {
@@ -336,11 +338,13 @@ describe("FeedbackWidget", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId("task-counts")).not.toBeInTheDocument();
+      expect(screen.getByTestId("task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("running-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("queued-count")).toHaveTextContent("0");
     });
   });
 
-  it("does not show badge when GET returns non-ok response", async () => {
+  it("shows badge with zero counts when GET returns non-ok response", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
 
     await act(async () => {
@@ -348,7 +352,9 @@ describe("FeedbackWidget", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId("task-counts")).not.toBeInTheDocument();
+      expect(screen.getByTestId("task-counts")).toBeInTheDocument();
+      expect(screen.getByTestId("running-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("queued-count")).toHaveTextContent("0");
     });
   });
 
