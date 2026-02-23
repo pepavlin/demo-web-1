@@ -466,6 +466,150 @@ body {
   animation: sheep-idle-sway 3.2s ease-in-out infinite;
 }
 
+/* ── Volumetric light rays (CSS crepuscular rays) ──────────────────────── */
+
+/* Slow rotation of the whole ray fan */
+@keyframes vol-rays-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Individual ray pulse — breathe in opacity */
+@keyframes vol-ray-pulse-a {
+  0%, 100% { opacity: 0.055; }
+  50%       { opacity: 0.095; }
+}
+@keyframes vol-ray-pulse-b {
+  0%, 100% { opacity: 0.035; }
+  50%       { opacity: 0.07; }
+}
+@keyframes vol-ray-pulse-c {
+  0%, 100% { opacity: 0.02; }
+  50%       { opacity: 0.06; }
+}
+
+/* Container: centred at top, all rays fan out from origin */
+.vol-rays-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+
+/* Inner hub — positioned at top-center, acts as rotation pivot */
+.vol-rays-hub {
+  position: absolute;
+  top: -5%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  animation: vol-rays-spin 90s linear infinite;
+}
+
+/* Each ray: a tall thin gradient beam originating from the hub */
+.vol-ray {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 140px;
+  height: 160vh;
+  transform-origin: top center;
+  background: linear-gradient(
+    to bottom,
+    rgba(180, 120, 255, 0.12) 0%,
+    rgba(120, 80, 220, 0.06) 30%,
+    transparent 100%
+  );
+  filter: blur(18px);
+}
+
+.vol-ray:nth-child(1)  { transform: rotate(-80deg);  animation: vol-ray-pulse-a 7s ease-in-out infinite 0s;   width: 180px; }
+.vol-ray:nth-child(2)  { transform: rotate(-55deg);  animation: vol-ray-pulse-b 9s ease-in-out infinite 1.2s; width: 120px; }
+.vol-ray:nth-child(3)  { transform: rotate(-32deg);  animation: vol-ray-pulse-a 8s ease-in-out infinite 2.4s; width: 200px; }
+.vol-ray:nth-child(4)  { transform: rotate(-10deg);  animation: vol-ray-pulse-c 11s ease-in-out infinite 0.6s;}
+.vol-ray:nth-child(5)  { transform: rotate(14deg);   animation: vol-ray-pulse-b 8.5s ease-in-out infinite 3s; width: 160px; }
+.vol-ray:nth-child(6)  { transform: rotate(38deg);   animation: vol-ray-pulse-a 10s ease-in-out infinite 1.8s;}
+.vol-ray:nth-child(7)  { transform: rotate(60deg);   animation: vol-ray-pulse-c 7.5s ease-in-out infinite 0.4s; width: 220px; }
+.vol-ray:nth-child(8)  { transform: rotate(82deg);   animation: vol-ray-pulse-b 9.5s ease-in-out infinite 2s;  width: 100px; }
+.vol-ray:nth-child(9)  { transform: rotate(-100deg); animation: vol-ray-pulse-a 12s ease-in-out infinite 3.5s; width: 90px; }
+.vol-ray:nth-child(10) { transform: rotate(106deg);  animation: vol-ray-pulse-c 8s ease-in-out infinite 1.5s;  width: 150px; }
+
+/* ── Warm golden/orange volumetric rays ────────────────────────────────── */
+
+@keyframes vol-ray-warm-pulse-a {
+  0%, 100% { opacity: 0.08; }
+  50%       { opacity: 0.16; }
+}
+@keyframes vol-ray-warm-pulse-b {
+  0%, 100% { opacity: 0.05; }
+  50%       { opacity: 0.11; }
+}
+@keyframes vol-ray-warm-pulse-c {
+  0%, 100% { opacity: 0.03; }
+  50%       { opacity: 0.09; }
+}
+
+/* Counter-rotating warm hub — different speed for layered depth feel */
+.vol-rays-hub-warm {
+  position: absolute;
+  top: -6%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  animation: vol-rays-spin 120s linear infinite reverse;
+}
+
+/* Warm ray base style — golden/amber gradient instead of purple */
+.vol-ray-warm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 160px;
+  height: 160vh;
+  transform-origin: top center;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 185, 60, 0.16) 0%,
+    rgba(220, 125, 30, 0.08) 35%,
+    transparent 100%
+  );
+  filter: blur(20px);
+}
+
+.vol-ray-warm:nth-child(1) { transform: rotate(-65deg);  animation: vol-ray-warm-pulse-a  9s ease-in-out infinite 0.5s;  width: 210px; }
+.vol-ray-warm:nth-child(2) { transform: rotate(-22deg);  animation: vol-ray-warm-pulse-b 11s ease-in-out infinite 2.1s; width: 145px; }
+.vol-ray-warm:nth-child(3) { transform: rotate( 18deg);  animation: vol-ray-warm-pulse-a  8s ease-in-out infinite 1.3s; width: 185px; }
+.vol-ray-warm:nth-child(4) { transform: rotate( 52deg);  animation: vol-ray-warm-pulse-c 12s ease-in-out infinite 0.8s; width: 125px; }
+.vol-ray-warm:nth-child(5) { transform: rotate(-92deg);  animation: vol-ray-warm-pulse-b 10s ease-in-out infinite 3.2s; width: 165px; }
+
+/* ── Central volumetric light source glow ──────────────────────────────── */
+
+@keyframes vol-source-pulse {
+  0%, 100% { opacity: 0.45; transform: translate(-50%, -50%) scale(1.0); }
+  50%       { opacity: 0.70; transform: translate(-50%, -50%) scale(1.35); }
+}
+
+.vol-light-source {
+  position: absolute;
+  top: -1%;
+  left: 50%;
+  width: 150px;
+  height: 150px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle,
+    rgba(235, 175, 255, 0.55) 0%,
+    rgba(165, 90, 255, 0.30) 35%,
+    rgba(255, 155, 55, 0.12) 60%,
+    transparent 75%
+  );
+  filter: blur(14px);
+  animation: vol-source-pulse 5.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+
 /* Noise overlay */
 .noise-overlay {
   position: fixed;

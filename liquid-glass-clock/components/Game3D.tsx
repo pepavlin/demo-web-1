@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   getTerrainHeight,
   generateSpawnPoints,
@@ -159,6 +163,13 @@ export default function Game3D() {
   const starsRef = useRef<THREE.Points | null>(null);
   const galaxyRef = useRef<THREE.Points | null>(null);
   const skyMeshRef = useRef<THREE.Mesh | null>(null);
+  // Volumetric lighting
+  const composerRef = useRef<EffectComposer | null>(null);
+  const sunDiscRef = useRef<THREE.Mesh | null>(null);
+  const sunCoronaRef = useRef<THREE.Mesh | null>(null);
+  const volShaftsRef = useRef<THREE.Group | null>(null);
+  const volShaftBaseOpsRef = useRef<number[]>([]);
+  const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
 
@@ -305,6 +316,9 @@ export default function Game3D() {
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // ── EffectComposer for volumetric bloom / god-ray effect ────────────────
+    const composer = new EffectComposer(renderer);
+
     // Scene
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x87ceeb, FOG_NEAR, FOG_FAR);
@@ -371,6 +385,79 @@ export default function Game3D() {
     const skyMesh = new THREE.Mesh(skyGeo, skyMat);
     scene.add(skyMesh);
     skyMeshRef.current = skyMesh;
+
+    // ── Visible sun disc (emissive sphere on sky for volumetric bloom) ───────
+    const sunDiscGeo = new THREE.SphereGeometry(9, 24, 24);
+    const sunDiscMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(3.5, 2.8, 1.6), // HDR value > 1 triggers bloom threshold
+      toneMapped: false,
+    });
+    const sunDisc = new THREE.Mesh(sunDiscGeo, sunDiscMat);
+    scene.add(sunDisc);
+    sunDiscRef.current = sunDisc;
+
+    // Corona halo — slightly larger, softer glow ring around sun disc
+    const coronaGeo = new THREE.SphereGeometry(20, 24, 24);
+    const coronaMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(1.4, 1.0, 0.5),
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+    });
+    const sunCorona = new THREE.Mesh(coronaGeo, coronaMat);
+    scene.add(sunCorona);
+    sunCoronaRef.current = sunCorona;
+
+    // Finish composing render pipeline — needs scene + camera ready
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      /* strength */ 1.1,
+      /* radius   */ 0.75,
+      /* threshold*/ 0.85   // only objects with luminance > 0.85 get bloomed
+    );
+    composer.addPass(bloomPass);
+    bloomPassRef.current = bloomPass;
+    composer.addPass(new OutputPass());
+    composerRef.current = composer;
+
+    // ── Volumetric light shafts (3-D god rays) ──────────────────────────────
+    // Cone meshes with additive blending: tips point toward sun, bases spread
+    // toward terrain — creating the classic crepuscular-ray / god-ray look.
+    const volShaftsGroup = new THREE.Group();
+    const shaftBaseOps: number[] = [];
+    const shaftDefs: Array<{ spreadX: number; spreadZ: number; radius: number; op: number }> = [
+      { spreadX:  0.00, spreadZ:  0.00, radius: 18, op: 0.068 }, // centre beam
+      { spreadX:  0.13, spreadZ:  0.05, radius: 11, op: 0.046 },
+      { spreadX: -0.11, spreadZ:  0.09, radius: 13, op: 0.052 },
+      { spreadX:  0.24, spreadZ: -0.04, radius:  8, op: 0.030 },
+      { spreadX: -0.20, spreadZ: -0.07, radius: 10, op: 0.036 },
+      { spreadX:  0.07, spreadZ:  0.19, radius: 14, op: 0.058 },
+      { spreadX: -0.06, spreadZ: -0.14, radius:  7, op: 0.026 },
+    ];
+    shaftDefs.forEach(({ spreadX, spreadZ, radius, op }) => {
+      const coneLength = 300;
+      const geo = new THREE.ConeGeometry(radius, coneLength, 8, 1, true);
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(1.2, 0.95, 0.55),
+        transparent: true,
+        opacity: op,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      // Slightly spread each shaft around the primary beam direction
+      mesh.rotation.x = spreadX;
+      mesh.rotation.z = spreadZ;
+      volShaftsGroup.add(mesh);
+      shaftBaseOps.push(op);
+    });
+    volShaftsGroup.visible = false; // shown only when sun is above horizon
+    scene.add(volShaftsGroup);
+    volShaftsRef.current = volShaftsGroup;
+    volShaftBaseOpsRef.current = shaftBaseOps;
 
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
@@ -598,14 +685,14 @@ export default function Game3D() {
       grassGeo.setAttribute("position", new THREE.Float32BufferAttribute(gPos, 3));
       grassGeo.setAttribute("heightFactor", new THREE.Float32BufferAttribute(gHeightFactor, 1));
       grassGeo.setAttribute("windPhase", new THREE.Float32BufferAttribute(gWindPhase, 1));
-      grassGeo.setAttribute("color", new THREE.Float32BufferAttribute(gColor, 3));
+      grassGeo.setAttribute("grassColor", new THREE.Float32BufferAttribute(gColor, 3));
 
       const grassMat = new THREE.ShaderMaterial({
         uniforms: { time: { value: 0.0 } },
         vertexShader: `
           attribute float heightFactor;
           attribute float windPhase;
-          attribute vec3 color;
+          attribute vec3 grassColor;
           uniform float time;
           varying vec3 vColor;
           void main() {
@@ -617,7 +704,7 @@ export default function Game3D() {
             pos.x += (wind + gust) * curve * 0.18;
             pos.z += wind * curve * 0.09;
             // Darken grass base (ambient occlusion hint)
-            vColor = color * (0.60 + heightFactor * 0.40);
+            vColor = grassColor * (0.60 + heightFactor * 0.40);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
           }
         `,
@@ -628,7 +715,6 @@ export default function Game3D() {
           }
         `,
         side: THREE.DoubleSide,
-        // vertexColors handled manually via 'color' attribute in the shader
       });
 
       const grassMesh = new THREE.Mesh(grassGeo, grassMat);
@@ -1006,6 +1092,101 @@ export default function Game3D() {
           80
         );
         sunRef.current.intensity = getSunIntensity(dayFraction);
+
+        // ── Volumetric sun disc + corona ────────────────────────────────────
+        const sunIntensity = getSunIntensity(dayFraction);
+        const isDaytime = sunIntensity > 0;
+        if (sunDiscRef.current) {
+          // Place sun disc on the sky sphere surface along same direction as light
+          const sunDir = sunRef.current.position.clone().normalize();
+          sunDiscRef.current.position.copy(sunDir.multiplyScalar(450));
+          sunDiscRef.current.visible = isDaytime;
+          // Shift colour toward orange at dawn/dusk, white-yellow at noon
+          const mat = sunDiscRef.current.material as THREE.MeshBasicMaterial;
+          if (isDaytime) {
+            const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
+            if (isGoldenHour) {
+              mat.color.set(new THREE.Color(3.5, 1.4, 0.4)); // deep orange HDR
+            } else {
+              mat.color.set(new THREE.Color(3.5, 2.8, 1.6)); // warm white HDR
+            }
+          }
+        }
+        if (sunCoronaRef.current) {
+          const sunDir2 = sunRef.current.position.clone().normalize();
+          sunCoronaRef.current.position.copy(sunDir2.multiplyScalar(448));
+          sunCoronaRef.current.visible = isDaytime;
+          const coronaMat = sunCoronaRef.current.material as THREE.MeshBasicMaterial;
+          if (isDaytime) {
+            const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
+            coronaMat.color.set(
+              isGoldenHour ? new THREE.Color(1.6, 0.6, 0.1) : new THREE.Color(1.4, 1.0, 0.5)
+            );
+            // Pulse corona opacity subtly over time
+            coronaMat.opacity = 0.15 + Math.sin(elapsed * 0.4) * 0.05;
+          }
+        }
+      }
+
+      // ── 3-D volumetric light shafts ────────────────────────────────────────
+      if (volShaftsRef.current && sunRef.current && cameraRef.current) {
+        const cam = cameraRef.current;
+        const sunDir3D = sunRef.current.position.clone().normalize();
+        const sunInt3D = getSunIntensity(dayFraction);
+        // Only show when sun is above the geometric horizon (y > 0)
+        if (sunInt3D > 0 && sunDir3D.y > 0) {
+          // Place shaft pivot above terrain near camera, offset toward sun
+          const th = getTerrainHeight(cam.position.x, cam.position.z);
+          volShaftsRef.current.position.set(
+            cam.position.x + sunDir3D.x * 20,
+            th + 25,
+            cam.position.z + sunDir3D.z * 20
+          );
+          // Rotate group so cone tip (+Y local) aligns with sun direction
+          const quatShaft = new THREE.Quaternion().setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            sunDir3D.clone().normalize()
+          );
+          volShaftsRef.current.quaternion.copy(quatShaft);
+          volShaftsRef.current.visible = true;
+
+          const isGoldenHour3D = dayFraction < 0.32 || dayFraction > 0.68;
+          // Golden hour: more intense shafts; midday: subtler
+          const intensityMult = isGoldenHour3D ? sunInt3D * 1.5 : sunInt3D * 0.65;
+          const shaftPulse = 1.0 + Math.sin(elapsed * 0.22) * 0.14;
+
+          volShaftsRef.current.children.forEach((child, idx) => {
+            const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+            const base = volShaftBaseOpsRef.current[idx] ?? 0.04;
+            mat.opacity = base * intensityMult * shaftPulse;
+            // Warm orange at golden hour, soft white-yellow at noon
+            if (isGoldenHour3D) {
+              mat.color.setRGB(1.6, 0.65, 0.15);
+            } else {
+              mat.color.setRGB(1.2, 0.95, 0.55);
+            }
+          });
+        } else {
+          volShaftsRef.current.visible = false;
+        }
+      }
+
+      // ── Dynamic bloom strength (stronger at golden hour) ──────────────────
+      if (bloomPassRef.current) {
+        const bp = bloomPassRef.current as UnrealBloomPass;
+        const sunIntBloom = getSunIntensity(dayFraction);
+        const isGoldenHourBloom = dayFraction < 0.32 || dayFraction > 0.68;
+        if (isGoldenHourBloom && sunIntBloom > 0) {
+          bp.strength = 1.5;
+          bp.radius = 0.9;
+        } else if (sunIntBloom > 0) {
+          bp.strength = 1.1;
+          bp.radius = 0.75;
+        } else {
+          // Night: dim star glow only
+          bp.strength = 0.6;
+          bp.radius = 0.5;
+        }
       }
 
       if (moonRef.current) {
@@ -1610,7 +1791,11 @@ export default function Game3D() {
       );
       setBleatingLabel(bleatingNear ? "🐑 Bééé!" : null);
 
-      renderer.render(scene, cameraRef.current!);
+      if (composerRef.current) {
+        composerRef.current.render();
+      } else {
+        renderer.render(scene, cameraRef.current!);
+      }
     };
     animate();
 
@@ -1620,6 +1805,7 @@ export default function Game3D() {
       cameraRef.current.aspect = window.innerWidth / window.innerHeight;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(window.innerWidth, window.innerHeight);
+      composerRef.current?.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -1634,6 +1820,8 @@ export default function Game3D() {
       // Clean up any live bullets from the scene
       bulletsRef.current.forEach((b) => scene.remove(b.mesh));
       bulletsRef.current = [];
+      composerRef.current?.dispose();
+      composerRef.current = null;
       renderer.dispose();
       if (mountRef.current) {
         mountRef.current.removeChild(renderer.domElement);
