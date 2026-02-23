@@ -162,4 +162,54 @@ describe("GeometricParticles component", () => {
     });
     expect(mockContext.clearRect).toHaveBeenCalledTimes(20);
   });
+
+  it("attracts particles toward cursor on mousemove (no button held)", () => {
+    render(<GeometricParticles />);
+    // Move mouse to centre of the mocked 0×0 canvas – particles in screen-radius will be pulled
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
+      if (rafCallback) rafCallback(performance.now());
+    });
+    // Rendering must complete without errors
+    expect(mockContext.clearRect).toHaveBeenCalled();
+    expect(mockContext.arc).toHaveBeenCalled();
+  });
+
+  it("repels particles when mouse button is held (mousedown)", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mousedown"));
+      // Run several frames while button is held
+      for (let i = 0; i < 3; i++) {
+        if (rafCallback) rafCallback(performance.now());
+      }
+      window.dispatchEvent(new MouseEvent("mouseup"));
+    });
+    expect(mockContext.clearRect).toHaveBeenCalledTimes(3);
+    expect(mockContext.arc).toHaveBeenCalled();
+  });
+
+  it("resets mouse position on mouseleave so no influence is applied", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mouseleave"));
+      if (rafCallback) rafCallback(performance.now());
+    });
+    // After leave the influence is inactive – rendering still works
+    expect(mockContext.clearRect).toHaveBeenCalled();
+  });
+
+  it("switches from repulsion back to attraction after mouseup", () => {
+    render(<GeometricParticles />);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mousemove", { clientX: 200, clientY: 200 }));
+      window.dispatchEvent(new MouseEvent("mousedown"));
+      if (rafCallback) rafCallback(performance.now());
+      window.dispatchEvent(new MouseEvent("mouseup"));
+      if (rafCallback) rafCallback(performance.now());
+    });
+    expect(mockContext.clearRect).toHaveBeenCalledTimes(2);
+  });
 });

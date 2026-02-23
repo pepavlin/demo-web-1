@@ -42,6 +42,13 @@ const BREATHE_AMPLITUDE  = 280;    // Camera moves ±280 world units along Z
 const BREATHE_SPEED      = 0.00045; // Slow oscillation (~14 s per cycle at 60 fps)
 const CAM_Z_LERP         = 0.018;   // Camera Z smoothing
 
+// ─── Mouse attraction / repulsion constants ───────────────────────────────────
+const MOUSE_INFLUENCE_R  = 200;   // Screen-space radius of mouse influence (px)
+const ATTRACT_STRENGTH   = 0.022; // Acceleration per frame at max influence (attraction)
+const REPULSE_STRENGTH   = 0.040; // Acceleration per frame at max influence (repulsion)
+const MOUSE_DAMP         = 0.97;  // Velocity damping applied inside influence radius
+const MAX_SPEED_BOOST    = 2.2;   // Speed cap (units/frame) during mouse interaction
+
 function createParticle(): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
   const theta = Math.random() * Math.PI * 2;
@@ -81,6 +88,11 @@ export default function GeometricParticles() {
   const targetFovRef = useRef(FOV_DEFAULT);
   const fovRef       = useRef(FOV_DEFAULT);
 
+  /** Mouse position in screen-space (−9999 = not on screen) */
+  const mousePosRef    = useRef({ x: -9999, y: -9999 });
+  /** True while primary mouse button is held (repulsion mode) */
+  const isMouseDownRef = useRef(false);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -96,6 +108,17 @@ export default function GeometricParticles() {
 
     particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => createParticle());
 
+    // ── Mouse: position tracking for attraction / repulsion ─────────────
+    const onMouseMove = (e: MouseEvent) => {
+      mousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseLeave = () => {
+      mousePosRef.current = { x: -9999, y: -9999 };
+    };
+    const onMouseDown = () => { isMouseDownRef.current = true; };
+    const onMouseUp   = () => { isMouseDownRef.current = false; };
+
+
     // ── Scroll wheel: zoom (adjusts FOV / focal length) ──────────────────────
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -105,7 +128,11 @@ export default function GeometricParticles() {
       );
     };
 
-    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("mousemove",  onMouseMove);
+    window.addEventListener("mouseleave", onMouseLeave);
+    window.addEventListener("mousedown",  onMouseDown);
+    window.addEventListener("mouseup",    onMouseUp);
+    window.addEventListener("wheel",      onWheel, { passive: false });
 
     // ─── Perspective projection ───────────────────────────────────────────────
     // Camera at (0, 0, camZ) looking along +Z (no rotation).
@@ -160,7 +187,57 @@ export default function GeometricParticles() {
       // ── Project all particles ─────────────────────────────────────────────
       const projected = particles.map((p) => ({ p, proj: project(p.wx, p.wy, p.wz) }));
 
-      const maxDepth = WORLD_SIZE * 2;
+      // ── Mouse attraction / repulsion ──────────────────────────────────────
+      // Uses screen-space proximity to decide which particles are affected, then
+      // converts the 2-D screen direction back into world-space.
+      // With no camera rotation: screen-right = (1, 0, 0), screen-down = (0, -1, 0).
+      const mx = mousePosRef.current.x;
+      const my = mousePosRef.current.y;
+      if (mx > -9000) {
+        const isRepulsing = isMouseDownRef.current;
+        const forceMag    = isRepulsing ? -REPULSE_STRENGTH : ATTRACT_STRENGTH;
+        const r2          = MOUSE_INFLUENCE_R * MOUSE_INFLUENCE_R;
+
+        for (let i = 0; i < projected.length; i++) {
+          const { p, proj } = projected[i];
+          if (!proj) continue;
+
+          const sdx = mx - proj.sx;
+          const sdy = my - proj.sy;
+          const sd2 = sdx * sdx + sdy * sdy;
+          if (sd2 > r2) continue;
+
+          const sd        = Math.sqrt(sd2) + 0.001;
+          const influence = 1 - sd / MOUSE_INFLUENCE_R; // 0..1, peaks at cursor
+          const nsx       = sdx / sd; // normalised screen-right component
+          const nsy       = sdy / sd; // normalised screen-down  component
+
+          // Project screen direction into world space (no rotation: right=(1,0,0), down=(0,-1,0))
+          const fsx = forceMag * nsx * influence;
+          const fsy = forceMag * nsy * influence;
+
+          p.vx += fsx;
+          p.vy -= fsy;
+          // No Z component without camera rotation
+
+          // Dampen to prevent runaway acceleration
+          p.vx *= MOUSE_DAMP;
+          p.vy *= MOUSE_DAMP;
+          p.vz *= MOUSE_DAMP;
+
+          // Hard speed cap during mouse interaction
+          const spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
+          if (spd > MAX_SPEED_BOOST) {
+            const sc = MAX_SPEED_BOOST / spd;
+            p.vx *= sc;
+            p.vy *= sc;
+            p.vz *= sc;
+          }
+        }
+      }
+
+      // Depth fade: visible range NEAR_CLIP … WORLD_SIZE
+      const maxDepth = WORLD_SIZE;
 
       // ── Draw connecting lines (3-D distance check) ────────────────────────
       for (let i = 0; i < projected.length; i++) {
@@ -243,8 +320,12 @@ export default function GeometricParticles() {
 
     return () => {
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("wheel",  onWheel);
+      window.removeEventListener("resize",    resize);
+      window.removeEventListener("mousemove",  onMouseMove);
+      window.removeEventListener("mouseleave", onMouseLeave);
+      window.removeEventListener("mousedown",  onMouseDown);
+      window.removeEventListener("mouseup",    onMouseUp);
+      window.removeEventListener("wheel",      onWheel);
     };
   }, []);
 
