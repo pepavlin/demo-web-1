@@ -29,6 +29,7 @@ import {
   type SheepMeshParts,
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, GameState } from "@/lib/gameTypes";
+import { soundManager } from "@/lib/soundManager";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
@@ -184,6 +185,12 @@ export default function Game3D() {
   const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
   const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
 
+  // ─── Sound Refs ─────────────────────────────────────────────────────────────
+  const footstepTimerRef = useRef(0);
+  const foxGrowlCooldownRef = useRef(0);
+
+  const [isMuted, setIsMuted] = useState(false);
+
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
     coinsCollected: 0,
@@ -234,6 +241,7 @@ export default function Game3D() {
     if (!cameraRef.current || !sceneRef.current) return;
 
     playerAttackCooldownRef.current = ATTACK_COOLDOWN;
+    soundManager.playAttack();
 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
@@ -288,6 +296,7 @@ export default function Game3D() {
       fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
       fox.hitFlashTimer = 0.25;
       flashFoxMesh(fox.mesh);
+      soundManager.playFoxHit();
 
       setAttackEffect(`-${ATTACK_DAMAGE}`);
       setTimeout(() => setAttackEffect(null), 700);
@@ -295,6 +304,7 @@ export default function Game3D() {
       if (fox.hp <= 0) {
         fox.isAlive = false;
         foxesDefeatedRef.current++;
+        soundManager.playFoxDeath();
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1059,6 +1069,7 @@ export default function Game3D() {
       if (locked) {
         setShowIntro(false);
         setGameStarted(true);
+        soundManager.init(); // Bootstrap audio on first user gesture
       }
     };
     document.addEventListener("pointerlockchange", onLockChange);
@@ -1076,6 +1087,7 @@ export default function Game3D() {
       dayTimeRef.current = (dayTimeRef.current + dt) % DAY_DURATION;
       const dayFraction = dayTimeRef.current / DAY_DURATION;
       const isNight = dayFraction < 0.18 || dayFraction > 0.82;
+      soundManager.updateDaytime(dayFraction);
 
       const skyColor = getSkyColor(dayFraction);
       scene.background = skyColor;
@@ -1295,6 +1307,7 @@ export default function Game3D() {
         if (keys["Space"] && player.onGround) {
           player.velY = JUMP_FORCE;
           player.onGround = false;
+          soundManager.playJump();
         }
         player.velY += GRAVITY * dt;
         cam.position.y += player.velY * dt;
@@ -1309,6 +1322,20 @@ export default function Game3D() {
         cam.rotation.order = "YXZ";
         cam.rotation.y = yawRef.current;
         cam.rotation.x = pitchRef.current;
+
+        // ── Footstep sounds ─────────────────────────────────────────────────
+        const isMovingHoriz =
+          keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"] ||
+          keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];
+        if (isMovingHoriz && playerRef.current.onGround) {
+          footstepTimerRef.current -= dt;
+          if (footstepTimerRef.current <= 0) {
+            soundManager.playFootstep(sprinting);
+            footstepTimerRef.current = sprinting ? 0.27 : 0.42;
+          }
+        } else {
+          footstepTimerRef.current = 0;
+        }
       }
 
       // ── Coin collection & rotation ─────────────────────────────────────────
@@ -1329,6 +1356,7 @@ export default function Game3D() {
           coin.mesh.visible = false;
           coinsCollectedRef.current++;
           collected = coinsCollectedRef.current;
+          soundManager.playCoinCollect();
         }
       });
 
@@ -1379,11 +1407,13 @@ export default function Game3D() {
             fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
             fox.hitFlashTimer = 0.25;
             flashFoxMesh(fox.mesh);
+            soundManager.playFoxHit();
             setAttackEffect(`-${ATTACK_DAMAGE}`);
             setTimeout(() => setAttackEffect(null), 700);
             if (fox.hp <= 0) {
               fox.isAlive = false;
               foxesDefeatedRef.current++;
+              soundManager.playFoxDeath();
             }
             toRemove.push(bullet);
             break;
@@ -1455,6 +1485,7 @@ export default function Game3D() {
                 playerHpRef.current = Math.max(0, playerHpRef.current - FOX_ATTACK_DAMAGE);
                 setHitFlash(true);
                 setTimeout(() => setHitFlash(false), 300);
+                soundManager.playPlayerHit();
                 if (playerHpRef.current <= 0) {
                   setGameOver(true);
                   if (document.pointerLockElement) document.exitPointerLock();
@@ -1526,6 +1557,15 @@ export default function Game3D() {
 
       setFoxWarning(foxNear);
 
+      // ── Fox growl (periodic when fox is chasing player) ─────────────────
+      if (foxNear) {
+        foxGrowlCooldownRef.current -= dt;
+        if (foxGrowlCooldownRef.current <= 0) {
+          soundManager.playFoxGrowl();
+          foxGrowlCooldownRef.current = 3 + Math.random() * 3;
+        }
+      }
+
       // Update nearest fox HP display
       if (closestAliveFox && closestAliveFoxDist < 18) {
         const f = closestAliveFox as (typeof foxListRef.current)[0];
@@ -1547,6 +1587,10 @@ export default function Game3D() {
           sheep.bleating = true;
           sheep.bleatTimer = 10 + Math.random() * 20;
           setTimeout(() => { sheep.bleating = false; }, 1500);
+          // Play bleat sound when sheep is close enough to hear
+          if (dist < 28) {
+            soundManager.playSheepBleat();
+          }
         }
 
         if (Math.abs(s.position.x) < 14 && Math.abs(s.position.z) < 14) {
@@ -1822,6 +1866,7 @@ export default function Game3D() {
       bulletsRef.current = [];
       composerRef.current?.dispose();
       composerRef.current = null;
+      soundManager.destroy();
       renderer.dispose();
       if (mountRef.current) {
         mountRef.current.removeChild(renderer.domElement);
@@ -2261,6 +2306,40 @@ export default function Game3D() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ─── Sound mute button ─────────────────────────────────────────────── */}
+      {gameStarted && (
+        <button
+          onClick={() => {
+            const next = !isMuted;
+            soundManager.setMuted(next);
+            setIsMuted(next);
+          }}
+          title={isMuted ? "Zapnout zvuk" : "Vypnout zvuk"}
+          style={{
+            position: "fixed",
+            bottom: 20,
+            right: 20,
+            zIndex: 60,
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.15)",
+            background: "rgba(5,8,20,0.72)",
+            backdropFilter: "blur(12px)",
+            color: "white",
+            fontSize: 20,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
+            transition: "background 0.15s",
+          }}
+        >
+          {isMuted ? "🔇" : "🔊"}
+        </button>
       )}
 
       {/* Intro overlay */}
