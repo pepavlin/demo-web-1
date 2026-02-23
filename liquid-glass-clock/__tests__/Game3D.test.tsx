@@ -118,9 +118,11 @@ describe("Game3D component", () => {
   });
 
   it("shows attack on fox hint in intro overlay", () => {
-    const { getByText } = render(<Game3D />);
+    const { getAllByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    expect(getByText(/útok na lišku/)).toBeInTheDocument();
+    // [F]/Klik attack hint appears in the controls section of the intro
+    const attackHints = getAllByText(/\[F\]\/Klik/);
+    expect(attackHints.length).toBeGreaterThan(0);
   });
 
   it("does not show game over overlay initially", () => {

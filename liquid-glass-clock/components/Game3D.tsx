@@ -1151,151 +1151,277 @@ export default function Game3D() {
         </div>
       )}
 
-      {/* Minimap (top-right) */}
+      {/* ═══════════════ LEFT SIDE PANEL ═══════════════ */}
       {gameState.isLocked && (
-        <canvas
-          ref={minimapRef}
-          width={160}
-          height={160}
-          className="fixed top-4 right-4 pointer-events-none"
-          style={{
-            border: "2px solid rgba(255,255,255,0.25)",
-            borderRadius: 8,
-            background: "rgba(0,0,0,0.5)",
-          }}
-        />
-      )}
-
-      {/* HUD (top-left) */}
-      {gameState.isLocked && (
-        <div className="fixed top-4 left-4 pointer-events-none select-none space-y-2">
+        <div
+          className="fixed left-4 top-4 pointer-events-none select-none flex flex-col gap-2"
+          style={{ width: 220 }}
+        >
+          {/* Player stats card */}
           <div
-            className="rounded-xl px-4 py-3 text-white text-sm"
-            style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)" }}
+            className="rounded-2xl p-4 text-white"
+            style={{
+              background: "rgba(5,8,20,0.72)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
           >
-            <div className="font-bold text-base mb-2 flex items-center gap-2">
-              <span>Open World</span>
-              <span className="text-xs font-normal opacity-60">
-                🕐 {gameState.timeLabel} &nbsp; 🧭 {gameState.direction}
-              </span>
-            </div>
-            <div>
-              🐑 Ohrady:{" "}
-              <span className="font-bold text-green-300">
-                {gameState.sheepCollected}
-              </span>{" "}
-              / {SHEEP_COUNT}
-            </div>
-            <div>
-              🌟 Mince:{" "}
-              <span className="font-bold text-yellow-300">
-                {gameState.coinsCollected}
-              </span>{" "}
-              / {COIN_COUNT}
-            </div>
-            <div>
-              ⏱ Čas: {minutes}:{String(seconds).padStart(2, "0")}
-            </div>
-            {gameState.sheepCollected === SHEEP_COUNT && (
-              <div className="mt-2 text-yellow-300 font-bold animate-pulse">
-                🎉 Všechny ovce jsou v ohradě!
-              </div>
-            )}
-            {gameState.coinsCollected === COIN_COUNT && (
-              <div className="mt-1 text-yellow-200 font-bold animate-pulse">
-                💰 Všechny mince sesbírány!
-              </div>
-            )}
-          </div>
-
-          {/* Stamina bar */}
-          <div
-            className="rounded-lg px-3 py-2 text-white text-xs"
-            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
-          >
-            <div className="mb-1 opacity-70">
-              ⚡ Výdrž {Math.round(staminaPct)}%
-            </div>
-            <div className="h-2 rounded-full bg-gray-700 w-32">
-              <div
-                className="h-2 rounded-full transition-all duration-100"
-                style={{ width: `${staminaPct}%`, background: staminaColor }}
-              />
-            </div>
-          </div>
-
-          {/* HP bar */}
-          <div
-            className="rounded-lg px-3 py-2 text-white text-xs"
-            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
-          >
-            <div className="mb-1 opacity-70">
-              ❤️ Zdraví {Math.round(hpPct)}%
-            </div>
-            <div className="h-2 rounded-full bg-gray-700 w-32">
-              <div
-                className="h-2 rounded-full transition-all duration-100"
-                style={{ width: `${hpPct}%`, background: hpColor }}
-              />
-            </div>
-          </div>
-
-          {/* Foxes defeated */}
-          {gameState.foxesDefeated > 0 && (
+            {/* Section label */}
             <div
-              className="rounded-lg px-3 py-2 text-white text-xs"
-              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+              className="text-xs font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em" }}
             >
-              🦊 Poraženo: <span className="font-bold text-orange-300">{gameState.foxesDefeated}</span>
+              Hráč
+            </div>
+
+            {/* HP bar */}
+            <div className="mb-3">
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>❤️ Zdraví</span>
+                <span className="text-xs font-bold tabular-nums" style={{ color: hpColor }}>
+                  {Math.round(gameState.playerHp)}/{PLAYER_MAX_HP}
+                </span>
+              </div>
+              <div
+                className="h-3 rounded-full overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.07)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{
+                    width: `${hpPct}%`,
+                    background: `linear-gradient(90deg, ${hpColor}dd, ${hpColor})`,
+                    boxShadow: `0 0 10px ${hpColor}66`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Stamina bar */}
+            <div className="mb-4">
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>⚡ Výdrž</span>
+                <span className="text-xs font-bold tabular-nums" style={{ color: staminaColor }}>
+                  {Math.round(staminaPct)}%
+                </span>
+              </div>
+              <div
+                className="h-3 rounded-full overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.07)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{
+                    width: `${staminaPct}%`,
+                    background: `linear-gradient(90deg, ${staminaColor}dd, ${staminaColor})`,
+                    boxShadow: `0 0 8px ${staminaColor}55`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", marginBottom: 12 }} />
+
+            {/* Section label */}
+            <div
+              className="text-xs font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em" }}
+            >
+              Úkoly
+            </div>
+
+            {/* Stats */}
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🐑 Ohrady</span>
+                <span className="text-xs font-bold text-green-300 tabular-nums">
+                  {gameState.sheepCollected}
+                  <span style={{ color: "rgba(255,255,255,0.30)" }}> / {SHEEP_COUNT}</span>
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🌟 Mince</span>
+                <span className="text-xs font-bold text-yellow-300 tabular-nums">
+                  {gameState.coinsCollected}
+                  <span style={{ color: "rgba(255,255,255,0.30)" }}> / {COIN_COUNT}</span>
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>⏱ Čas hry</span>
+                <span className="text-xs font-bold tabular-nums">
+                  {minutes}:{String(seconds).padStart(2, "0")}
+                </span>
+              </div>
+            </div>
+
+            {/* Foxes defeated (conditional) */}
+            {gameState.foxesDefeated > 0 && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "12px 0" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🦊 Poraženo</span>
+                  <span className="text-xs font-bold text-orange-300 tabular-nums">
+                    {gameState.foxesDefeated}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Win notifications */}
+          {gameState.sheepCollected === SHEEP_COUNT && (
+            <div
+              className="rounded-xl px-3 py-2 text-center text-yellow-300 font-bold text-xs animate-pulse"
+              style={{
+                background: "rgba(10,8,0,0.70)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid rgba(255,210,0,0.20)",
+              }}
+            >
+              🎉 Všechny ovce v ohradě!
+            </div>
+          )}
+          {gameState.coinsCollected === COIN_COUNT && (
+            <div
+              className="rounded-xl px-3 py-2 text-center text-yellow-200 font-bold text-xs animate-pulse"
+              style={{
+                background: "rgba(10,8,0,0.70)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid rgba(255,200,0,0.20)",
+              }}
+            >
+              💰 Všechny mince sesbírány!
             </div>
           )}
         </div>
       )}
 
-      {/* Fox warning */}
+      {/* ═══════════════ RIGHT SIDE PANEL ═══════════════ */}
+      {gameState.isLocked && (
+        <div className="fixed right-4 top-4 pointer-events-none select-none flex flex-col items-end gap-2">
+          {/* Minimap with glass frame */}
+          <div
+            style={{
+              borderRadius: 14,
+              overflow: "hidden",
+              border: "1px solid rgba(255,255,255,0.14)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+            }}
+          >
+            <canvas ref={minimapRef} width={160} height={160} />
+          </div>
+
+          {/* Time + compass */}
+          <div
+            className="rounded-xl px-3 py-2 text-white text-xs font-medium flex items-center gap-2"
+            style={{
+              background: "rgba(5,8,20,0.72)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
+            }}
+          >
+            <span>🕐 {gameState.timeLabel}</span>
+            <span style={{ color: "rgba(255,255,255,0.25)" }}>|</span>
+            <span>🧭 {gameState.direction}</span>
+          </div>
+
+          {/* Attack button */}
+          <div
+            className="rounded-xl px-4 py-2.5 text-xs font-bold text-center transition-all duration-150"
+            style={{
+              width: 160,
+              background: gameState.attackReady
+                ? "rgba(210,70,10,0.82)"
+                : "rgba(40,40,50,0.70)",
+              color: gameState.attackReady ? "#fff" : "rgba(255,255,255,0.35)",
+              backdropFilter: "blur(12px)",
+              border: gameState.attackReady
+                ? "1px solid rgba(255,120,40,0.30)"
+                : "1px solid rgba(255,255,255,0.07)",
+              boxShadow: gameState.attackReady
+                ? "0 0 16px rgba(210,70,10,0.45)"
+                : "none",
+            }}
+          >
+            {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — Fox warning ═══════════════ */}
       {foxWarning && gameState.isLocked && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl px-5 py-2 text-white font-bold text-sm animate-pulse"
-            style={{ background: "rgba(180,40,0,0.7)" }}
+            style={{
+              background: "rgba(160,30,0,0.80)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,80,30,0.25)",
+              boxShadow: "0 0 20px rgba(200,40,0,0.40)",
+            }}
           >
             🦊 Liška v blízkosti!
           </div>
         </div>
       )}
 
-      {/* Nearest fox HP bar */}
+      {/* ═══════════════ CENTER — Nearest fox HP ═══════════════ */}
       {nearFoxHp && gameState.isLocked && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
-            className="rounded-xl px-4 py-2 text-white text-xs text-center"
-            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", minWidth: 160 }}
+            className="rounded-2xl px-5 py-3 text-white text-xs text-center"
+            style={{
+              background: "rgba(5,8,20,0.72)",
+              backdropFilter: "blur(14px)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              minWidth: 190,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            }}
           >
-            <div className="mb-1 font-bold text-orange-300">{nearFoxHp.name}</div>
-            <div className="h-2.5 rounded-full bg-gray-700 w-36">
+            <div
+              className="mb-2 font-bold text-sm"
+              style={{ color: "#fb923c" }}
+            >
+              {nearFoxHp.name}
+            </div>
+            <div
+              className="h-3 rounded-full overflow-hidden mb-1.5"
+              style={{ background: "rgba(255,255,255,0.08)" }}
+            >
               <div
-                className="h-2.5 rounded-full transition-all duration-100"
+                className="h-full rounded-full transition-all duration-100"
                 style={{
                   width: `${(nearFoxHp.hp / nearFoxHp.maxHp) * 100}%`,
-                  background: nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "#f97316" : "#ef4444",
+                  background:
+                    nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "#f97316" : "#ef4444",
+                  boxShadow:
+                    nearFoxHp.hp > nearFoxHp.maxHp * 0.5
+                      ? "0 0 8px #f9731666"
+                      : "0 0 8px #ef444466",
                 }}
               />
             </div>
-            <div className="mt-0.5 opacity-60">{nearFoxHp.hp} / {nearFoxHp.maxHp}</div>
+            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
+              {nearFoxHp.hp} / {nearFoxHp.maxHp}
+            </div>
           </div>
         </div>
       )}
 
       {/* Attack effect popup */}
       {attackEffect && gameState.isLocked && (
-        <div className="fixed top-1/2 left-1/2 pointer-events-none select-none"
+        <div
+          className="fixed top-1/2 left-1/2 pointer-events-none select-none"
           style={{ transform: "translate(-50%, -120px)", zIndex: 60 }}
         >
           <div
             className="font-bold text-2xl animate-bounce"
             style={{
               color: attackEffect === "Miss" ? "#9ca3af" : "#fbbf24",
-              textShadow: "0 0 8px rgba(0,0,0,0.8)",
+              textShadow: "0 0 10px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.6)",
             }}
           >
             {attackEffect === "Miss" ? "Miss!" : attackEffect}
@@ -1303,43 +1429,36 @@ export default function Game3D() {
         </div>
       )}
 
-      {/* Attack button indicator (bottom center) */}
-      {gameState.isLocked && (
-        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-lg px-3 py-1.5 text-xs font-bold transition-all duration-100"
-            style={{
-              background: gameState.attackReady ? "rgba(220,80,20,0.75)" : "rgba(80,80,80,0.6)",
-              color: gameState.attackReady ? "#fff" : "#888",
-              backdropFilter: "blur(4px)",
-            }}
-          >
-            {gameState.attackReady ? "⚔️ [F] Útok" : "⚔️ Nabíjení…"}
-          </div>
-        </div>
-      )}
-
-      {/* Controls hint */}
+      {/* ═══════════════ BOTTOM CENTER — Controls hint ═══════════════ */}
       {gameState.isLocked && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
-            className="rounded-lg px-3 py-2 text-white text-xs opacity-60"
-            style={{ background: "rgba(0,0,0,0.4)" }}
+            className="rounded-xl px-4 py-2 text-white text-xs"
+            style={{
+              background: "rgba(5,8,20,0.60)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              color: "rgba(255,255,255,0.45)",
+            }}
           >
-            WASD – pohyb &nbsp;|&nbsp; Myš – pohled &nbsp;|&nbsp; Mezerník –
-            skok &nbsp;|&nbsp; Shift – sprint &nbsp;|&nbsp; Esc – pauza &nbsp;|&nbsp;
-            <span className="text-red-300">[F]/Klik</span> – útok &nbsp;|&nbsp;
-            <span className="text-purple-300">IMPLEMENT</span> – návrh
+            WASD – pohyb &nbsp;·&nbsp; Myš – pohled &nbsp;·&nbsp; Mezerník – skok &nbsp;·&nbsp;
+            Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#f87171", opacity: 1 }}>[F]/Klik</span> – útok &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
           </div>
         </div>
       )}
 
       {/* Bleat popup */}
       {bleatingLabel && gameState.isLocked && (
-        <div className="fixed bottom-20 right-48 pointer-events-none select-none animate-bounce">
+        <div className="fixed bottom-24 right-52 pointer-events-none select-none animate-bounce">
           <div
             className="rounded-xl px-4 py-2 text-white font-bold text-lg"
-            style={{ background: "rgba(0,0,0,0.5)" }}
+            style={{
+              background: "rgba(5,8,20,0.65)",
+              backdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.10)",
+            }}
           >
             {bleatingLabel}
           </div>
@@ -1361,6 +1480,7 @@ export default function Game3D() {
             style={{
               background: "rgba(8,16,36,0.92)",
               border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
             }}
           >
             <div className="text-5xl mb-3">⏸</div>
@@ -1392,6 +1512,7 @@ export default function Game3D() {
             style={{
               background: "rgba(60,10,10,0.95)",
               border: "1px solid rgba(255,80,80,0.3)",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.7)",
             }}
           >
             <div className="text-5xl mb-3">💀</div>
@@ -1415,41 +1536,64 @@ export default function Game3D() {
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{
-            background: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(5px)",
+            background: "rgba(0,0,0,0.72)",
+            backdropFilter: "blur(6px)",
           }}
           onClick={lockPointer}
         >
           <div
             className="rounded-2xl p-10 text-center text-white max-w-lg"
             style={{
-              background: "rgba(8,16,36,0.9)",
+              background: "rgba(8,16,36,0.93)",
               border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 8px 48px rgba(0,0,0,0.65)",
             }}
           >
             <div className="text-5xl mb-3">🌍</div>
             <h1 className="text-3xl font-bold mb-1">Open World</h1>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-gray-400 text-sm mb-5">
               Prozkoumej otevřený 3D svět s cyklem dne a noci
             </p>
-            <div className="grid grid-cols-2 gap-3 text-sm text-gray-300 mb-6 text-left">
-              <div className="space-y-1">
+
+            {/* Objectives grid */}
+            <div
+              className="rounded-xl p-4 mb-5 text-left"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.07)",
+              }}
+            >
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-gray-300">
                 <div>🐑 Zažeň <strong className="text-white">{SHEEP_COUNT} ovcí</strong> do ohrady</div>
-                <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
-                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> pomocí [F] nebo kliknutím!</div>
-              </div>
-              <div className="space-y-1">
                 <div>🌅 Dynaminký <strong className="text-white">den/noc</strong></div>
+                <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
                 <div>🏚 Prozkoumej <strong className="text-white">ruiny</strong> a vesnici</div>
+                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo kliknutím</div>
                 <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
               </div>
             </div>
-            <div className="text-xs text-gray-500 mb-5 space-y-0.5">
-              <div>🕹 <strong className="text-gray-300">WASD</strong> – pohyb &nbsp; 🖱 <strong className="text-gray-300">Myš</strong> – pohled</div>
-              <div>⬆ <strong className="text-gray-300">Mezerník</strong> – skok &nbsp; 💨 <strong className="text-gray-300">Shift</strong> – sprint</div>
-              <div>⚔️ <strong className="text-gray-300">[F]</strong> nebo <strong className="text-gray-300">Klik</strong> – útok na lišku</div>
-              <div>⏸ <strong className="text-gray-300">Esc</strong> – pauza &nbsp; 💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</div>
+
+            {/* Controls */}
+            <div
+              className="rounded-xl p-4 mb-6 text-xs text-gray-500 space-y-1.5"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div className="flex gap-6 justify-center flex-wrap">
+                <span>🕹 <strong className="text-gray-300">WASD</strong> – pohyb</span>
+                <span>🖱 <strong className="text-gray-300">Myš</strong> – pohled</span>
+                <span>⬆ <strong className="text-gray-300">Mezerník</strong> – skok</span>
+                <span>💨 <strong className="text-gray-300">Shift</strong> – sprint</span>
+              </div>
+              <div className="flex gap-6 justify-center flex-wrap">
+                <span>⚔️ <strong className="text-gray-300">[F]/Klik</strong> – útok</span>
+                <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
+                <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
+              </div>
             </div>
+
             <button
               className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
               onClick={(e) => { e.stopPropagation(); lockPointer(); }}
