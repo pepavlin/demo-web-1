@@ -577,6 +577,22 @@ describe("FeedbackWidget", () => {
     });
   });
 
+  // ─── openFeedback custom event ─────────────────────────────────────────────
+
+  it("opens panel when openFeedback custom event is dispatched", async () => {
+    mockGetEmpty();
+    render(<FeedbackWidget />);
+
+    // Panel is closed initially
+    expect(screen.queryByPlaceholderText(/co by se tu mělo/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("openFeedback"));
+    });
+
+    expect(screen.getByPlaceholderText(/co by se tu mělo/i)).toBeInTheDocument();
+  });
+
   // ─── parseTasks unit tests ──────────────────────────────────────────────────
 
   describe("parseTasks", () => {

@@ -145,8 +145,10 @@ export default function Game3D() {
     direction: "N",
   });
   const [showIntro, setShowIntro] = useState(true);
+  const [gameStarted, setGameStarted] = useState(false);
   const [bleatingLabel, setBleatingLabel] = useState<string | null>(null);
   const [foxWarning, setFoxWarning] = useState(false);
+  const implementBufferRef = useRef<string>("");
 
   const lockPointer = useCallback(() => {
     if (mountRef.current) {
@@ -470,8 +472,25 @@ export default function Game3D() {
     scene.add(lighthouse);
 
     // ── Input ─────────────────────────────────────────────────────────────────
+    const IMPLEMENT_WORD = "IMPLEMENT";
     const onKey = (e: KeyboardEvent) => {
       keysRef.current[e.code] = e.type === "keydown";
+
+      // IMPLEMENT word detection — any single printable character
+      if (e.type === "keydown" && e.key.length === 1) {
+        implementBufferRef.current += e.key.toUpperCase();
+        if (implementBufferRef.current.length > IMPLEMENT_WORD.length) {
+          implementBufferRef.current = implementBufferRef.current.slice(
+            -IMPLEMENT_WORD.length
+          );
+        }
+        if (implementBufferRef.current === IMPLEMENT_WORD) {
+          implementBufferRef.current = "";
+          // Release pointer lock first so user can interact with the panel
+          if (document.pointerLockElement) document.exitPointerLock();
+          window.dispatchEvent(new CustomEvent("openFeedback"));
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
@@ -492,7 +511,10 @@ export default function Game3D() {
       const locked = document.pointerLockElement === mountRef.current;
       isLockedRef.current = locked;
       setGameState((s) => ({ ...s, isLocked: locked }));
-      if (locked) setShowIntro(false);
+      if (locked) {
+        setShowIntro(false);
+        setGameStarted(true);
+      }
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
@@ -1019,7 +1041,8 @@ export default function Game3D() {
             style={{ background: "rgba(0,0,0,0.4)" }}
           >
             WASD – pohyb &nbsp;|&nbsp; Myš – pohled &nbsp;|&nbsp; Mezerník –
-            skok &nbsp;|&nbsp; Shift – sprint &nbsp;|&nbsp; Esc – odemknout
+            skok &nbsp;|&nbsp; Shift – sprint &nbsp;|&nbsp; Esc – pauza &nbsp;|&nbsp;
+            <span className="text-purple-300">IMPLEMENT</span> – návrh
           </div>
         </div>
       )}
@@ -1032,6 +1055,41 @@ export default function Game3D() {
             style={{ background: "rgba(0,0,0,0.5)" }}
           >
             {bleatingLabel}
+          </div>
+        </div>
+      )}
+
+      {/* Pause overlay — shown when game started but pointer is unlocked */}
+      {gameStarted && !gameState.isLocked && !showIntro && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(8px)",
+          }}
+          onClick={lockPointer}
+        >
+          <div
+            className="rounded-2xl p-10 text-center text-white max-w-sm"
+            style={{
+              background: "rgba(8,16,36,0.92)",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            <div className="text-5xl mb-3">⏸</div>
+            <h2 className="text-3xl font-bold mb-2">Hra pozastavena</h2>
+            <p className="text-gray-400 text-sm mb-2">
+              Klikni kamkoliv nebo stiskni tlačítko pro pokračování
+            </p>
+            <p className="text-gray-600 text-xs mb-6">
+              Tip: napiš <span className="font-bold text-purple-400">IMPLEMENT</span> pro návrh nápadu
+            </p>
+            <button
+              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
+              onClick={(e) => { e.stopPropagation(); lockPointer(); }}
+            >
+              Pokračovat
+            </button>
           </div>
         </div>
       )}
@@ -1073,6 +1131,7 @@ export default function Game3D() {
             <div className="text-xs text-gray-500 mb-5 space-y-0.5">
               <div>🕹 <strong className="text-gray-300">WASD</strong> – pohyb &nbsp; 🖱 <strong className="text-gray-300">Myš</strong> – pohled</div>
               <div>⬆ <strong className="text-gray-300">Mezerník</strong> – skok &nbsp; 💨 <strong className="text-gray-300">Shift</strong> – sprint</div>
+              <div>⏸ <strong className="text-gray-300">Esc</strong> – pauza &nbsp; 💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</div>
             </div>
             <button
               className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
