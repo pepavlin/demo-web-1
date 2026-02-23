@@ -413,7 +413,7 @@ export default function Game3D() {
     // ── Visible sun disc (emissive sphere on sky for volumetric bloom) ───────
     const sunDiscGeo = new THREE.SphereGeometry(9, 24, 24);
     const sunDiscMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(3.5, 2.8, 1.6), // HDR value > 1 triggers bloom threshold
+      color: new THREE.Color(2.0, 1.6, 1.0), // HDR value > 1 triggers bloom threshold
       toneMapped: false,
     });
     const sunDisc = new THREE.Mesh(sunDiscGeo, sunDiscMat);
@@ -423,10 +423,10 @@ export default function Game3D() {
     // Corona halo — slightly larger, softer glow ring around sun disc
     const coronaGeo = new THREE.SphereGeometry(20, 24, 24);
     const coronaMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(1.4, 1.0, 0.5),
+      color: new THREE.Color(1.0, 0.75, 0.35),
       toneMapped: false,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.10,
       depthWrite: false,
     });
     const sunCorona = new THREE.Mesh(coronaGeo, coronaMat);
@@ -437,9 +437,9 @@ export default function Game3D() {
     composer.addPass(new RenderPass(scene, camera));
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      /* strength */ 1.1,
-      /* radius   */ 0.75,
-      /* threshold*/ 0.85   // only objects with luminance > 0.85 get bloomed
+      /* strength */ 0.55,
+      /* radius   */ 0.5,
+      /* threshold*/ 0.92   // only objects with luminance > 0.92 get bloomed
     );
     composer.addPass(bloomPass);
     bloomPassRef.current = bloomPass;
@@ -452,13 +452,13 @@ export default function Game3D() {
     const volShaftsGroup = new THREE.Group();
     const shaftBaseOps: number[] = [];
     const shaftDefs: Array<{ spreadX: number; spreadZ: number; radius: number; op: number }> = [
-      { spreadX:  0.00, spreadZ:  0.00, radius: 18, op: 0.068 }, // centre beam
-      { spreadX:  0.13, spreadZ:  0.05, radius: 11, op: 0.046 },
-      { spreadX: -0.11, spreadZ:  0.09, radius: 13, op: 0.052 },
-      { spreadX:  0.24, spreadZ: -0.04, radius:  8, op: 0.030 },
-      { spreadX: -0.20, spreadZ: -0.07, radius: 10, op: 0.036 },
-      { spreadX:  0.07, spreadZ:  0.19, radius: 14, op: 0.058 },
-      { spreadX: -0.06, spreadZ: -0.14, radius:  7, op: 0.026 },
+      { spreadX:  0.00, spreadZ:  0.00, radius: 18, op: 0.038 }, // centre beam
+      { spreadX:  0.13, spreadZ:  0.05, radius: 11, op: 0.026 },
+      { spreadX: -0.11, spreadZ:  0.09, radius: 13, op: 0.030 },
+      { spreadX:  0.24, spreadZ: -0.04, radius:  8, op: 0.016 },
+      { spreadX: -0.20, spreadZ: -0.07, radius: 10, op: 0.020 },
+      { spreadX:  0.07, spreadZ:  0.19, radius: 14, op: 0.032 },
+      { spreadX: -0.06, spreadZ: -0.14, radius:  7, op: 0.014 },
     ];
     shaftDefs.forEach(({ spreadX, spreadZ, radius, op }) => {
       const coneLength = 300;
@@ -1175,9 +1175,9 @@ export default function Game3D() {
           if (isDaytime) {
             const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
             if (isGoldenHour) {
-              mat.color.set(new THREE.Color(3.5, 1.4, 0.4)); // deep orange HDR
+              mat.color.set(new THREE.Color(2.2, 0.9, 0.25)); // deep orange HDR
             } else {
-              mat.color.set(new THREE.Color(3.5, 2.8, 1.6)); // warm white HDR
+              mat.color.set(new THREE.Color(2.0, 1.6, 1.0)); // warm white HDR
             }
           }
         }
@@ -1189,10 +1189,10 @@ export default function Game3D() {
           if (isDaytime) {
             const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
             coronaMat.color.set(
-              isGoldenHour ? new THREE.Color(1.6, 0.6, 0.1) : new THREE.Color(1.4, 1.0, 0.5)
+              isGoldenHour ? new THREE.Color(1.1, 0.42, 0.07) : new THREE.Color(1.0, 0.75, 0.35)
             );
             // Pulse corona opacity subtly over time
-            coronaMat.opacity = 0.15 + Math.sin(elapsed * 0.4) * 0.05;
+            coronaMat.opacity = 0.07 + Math.sin(elapsed * 0.4) * 0.025;
           }
         }
       }
@@ -1221,18 +1221,18 @@ export default function Game3D() {
 
           const isGoldenHour3D = dayFraction < 0.32 || dayFraction > 0.68;
           // Golden hour: more intense shafts; midday: subtler
-          const intensityMult = isGoldenHour3D ? sunInt3D * 1.5 : sunInt3D * 0.65;
-          const shaftPulse = 1.0 + Math.sin(elapsed * 0.22) * 0.14;
+          const intensityMult = isGoldenHour3D ? sunInt3D * 0.9 : sunInt3D * 0.45;
+          const shaftPulse = 1.0 + Math.sin(elapsed * 0.22) * 0.08;
 
           volShaftsRef.current.children.forEach((child, idx) => {
             const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
-            const base = volShaftBaseOpsRef.current[idx] ?? 0.04;
+            const base = volShaftBaseOpsRef.current[idx] ?? 0.02;
             mat.opacity = base * intensityMult * shaftPulse;
             // Warm orange at golden hour, soft white-yellow at noon
             if (isGoldenHour3D) {
-              mat.color.setRGB(1.6, 0.65, 0.15);
+              mat.color.setRGB(1.1, 0.45, 0.1);
             } else {
-              mat.color.setRGB(1.2, 0.95, 0.55);
+              mat.color.setRGB(0.95, 0.78, 0.45);
             }
           });
         } else {
@@ -1246,15 +1246,15 @@ export default function Game3D() {
         const sunIntBloom = getSunIntensity(dayFraction);
         const isGoldenHourBloom = dayFraction < 0.32 || dayFraction > 0.68;
         if (isGoldenHourBloom && sunIntBloom > 0) {
-          bp.strength = 1.5;
-          bp.radius = 0.9;
+          bp.strength = 0.65;
+          bp.radius = 0.55;
         } else if (sunIntBloom > 0) {
-          bp.strength = 1.1;
-          bp.radius = 0.75;
+          bp.strength = 0.45;
+          bp.radius = 0.4;
         } else {
           // Night: dim star glow only
-          bp.strength = 0.6;
-          bp.radius = 0.5;
+          bp.strength = 0.28;
+          bp.radius = 0.35;
         }
       }
 
