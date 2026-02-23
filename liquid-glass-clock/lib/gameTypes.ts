@@ -4,6 +4,7 @@ export interface SheepData {
   mesh: THREE.Group;
   velocity: THREE.Vector2;
   targetAngle: number;
+  currentAngle: number; // smoothed angle used for movement & rotation
   wanderTimer: number;
   isFleeing: boolean;
   bleating: boolean;
