@@ -81,7 +81,7 @@ describe("Game3D component", () => {
     const { getByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
     // The intro mentions the sheep count
-    expect(getByText(/20 ovcí/)).toBeInTheDocument();
+    expect(getByText(/200 ovcí/)).toBeInTheDocument();
   });
 
   it("shows coin count in the intro overlay", () => {
