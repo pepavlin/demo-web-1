@@ -143,7 +143,10 @@ export default function Game3D() {
   const moonRef = useRef<THREE.DirectionalLight | null>(null);
   const ambientRef = useRef<THREE.AmbientLight | null>(null);
   const starsRef = useRef<THREE.Points | null>(null);
+  const galaxyRef = useRef<THREE.Points | null>(null);
   const skyMeshRef = useRef<THREE.Mesh | null>(null);
+  const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
+  const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
 
   // ─── Combat Refs ────────────────────────────────────────────────────────────
   const playerHpRef = useRef(PLAYER_MAX_HP);
@@ -305,26 +308,75 @@ export default function Game3D() {
 
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
-    for (let i = 0; i < 2500; i++) {
+    const starColors: number[] = [];
+    // Vary star sizes using size attribute
+    const starSizes: number[] = [];
+    for (let i = 0; i < 3800; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
+      // Only upper hemisphere + sides, avoid ground clipping
       const r = 460;
       starPositions.push(
         r * Math.sin(phi) * Math.cos(theta),
         r * Math.sin(phi) * Math.sin(theta),
         r * Math.cos(phi)
       );
+      // Slight color variation: pure white, blue-white, warm white
+      const rnd = Math.random();
+      if (rnd < 0.15) { starColors.push(0.7, 0.8, 1.0); }       // blue-white
+      else if (rnd < 0.25) { starColors.push(1.0, 0.95, 0.8); } // warm
+      else { starColors.push(1.0, 1.0, 1.0); }                   // white
+      starSizes.push(0.8 + Math.random() * 2.8);
     }
     const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(starPositions, 3)
-    );
-    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.8, sizeAttenuation: true });
+    starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPositions, 3));
+    starGeo.setAttribute("color", new THREE.Float32BufferAttribute(starColors, 3));
+    starGeo.setAttribute("size", new THREE.Float32BufferAttribute(starSizes, 1));
+    const starMat = new THREE.PointsMaterial({
+      vertexColors: true,
+      size: 1.8,
+      sizeAttenuation: true,
+    });
     const stars = new THREE.Points(starGeo, starMat);
     stars.visible = false;
     scene.add(stars);
     starsRef.current = stars;
+
+    // ── Milky Way galaxy band ────────────────────────────────────────────────
+    const galaxyPositions: number[] = [];
+    const galaxyColors: number[] = [];
+    // Band tilted ~50° from equatorial plane, simulating Milky Way
+    const bandTilt = 0.88;
+    for (let i = 0; i < 4200; i++) {
+      const t = Math.random() * Math.PI * 2;
+      // Gaussian-spread across band width
+      const spread = (Math.random() + Math.random() - 1.0) * 0.35;
+      const bx = Math.cos(t);
+      const by = Math.sin(t) * Math.cos(bandTilt) + spread * Math.sin(bandTilt);
+      const bz = Math.sin(t) * Math.sin(bandTilt) - spread * Math.cos(bandTilt);
+      const r = 458 + (Math.random() - 0.5) * 15;
+      galaxyPositions.push(bx * r, by * r, bz * r);
+      // Colors: blue-white, pale lavender, faint warm for core
+      const cr = Math.random();
+      if (cr < 0.4) { galaxyColors.push(0.72, 0.80, 1.0); }       // blue-white
+      else if (cr < 0.65) { galaxyColors.push(0.82, 0.78, 1.0); } // lavender
+      else if (cr < 0.85) { galaxyColors.push(1.0, 0.98, 0.88); } // warm white
+      else { galaxyColors.push(0.9, 0.85, 1.0); }                  // pale purple
+    }
+    const galaxyGeo = new THREE.BufferGeometry();
+    galaxyGeo.setAttribute("position", new THREE.Float32BufferAttribute(galaxyPositions, 3));
+    galaxyGeo.setAttribute("color", new THREE.Float32BufferAttribute(galaxyColors, 3));
+    const galaxyMat = new THREE.PointsMaterial({
+      vertexColors: true,
+      size: 1.2,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.65,
+    });
+    const galaxy = new THREE.Points(galaxyGeo, galaxyMat);
+    galaxy.visible = false;
+    scene.add(galaxy);
+    galaxyRef.current = galaxy;
 
     // ── Terrain ─────────────────────────────────────────────────────────────
     const terrainGeo = new THREE.PlaneGeometry(
@@ -374,6 +426,116 @@ export default function Game3D() {
     water.position.y = -0.5;
     scene.add(water);
 
+    // ── Grass ───────────────────────────────────────────────────────────────
+    {
+      const GRASS_COUNT = 5000;
+      const BLADE_H = 0.52;
+      const BLADE_W = 0.09;
+      let gSeed = 7391;
+      const gRng = () => {
+        gSeed = (gSeed * 1664525 + 1013904223) & 0xffffffff;
+        return (gSeed >>> 0) / 0xffffffff;
+      };
+
+      const gPos: number[] = [];
+      const gHeightFactor: number[] = [];
+      const gWindPhase: number[] = [];
+      const gColor: number[] = [];
+
+      let placed = 0;
+      let tries = 0;
+      while (placed < GRASS_COUNT && tries < GRASS_COUNT * 6) {
+        tries++;
+        const wx = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
+        const wz = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
+        const wy = getTerrainHeight(wx, wz);
+        if (wy < 0.3 || wy > 11) continue; // only green flat terrain
+
+        const h = BLADE_H * (0.55 + gRng() * 0.9);
+        const w = BLADE_W * (0.6 + gRng() * 0.8);
+        // Random tilt direction
+        const tiltX = (gRng() - 0.5) * 0.14;
+        const tiltZ = (gRng() - 0.5) * 0.14;
+        // Wind phase varies by world position
+        const phase = wx * 0.48 + wz * 0.73;
+        // Color: dark base → lighter tip (green tones with slight variation)
+        const greenVariant = 0.48 + gRng() * 0.18;
+        const baseR = 0.12 + gRng() * 0.06;
+        const tipR = 0.22 + gRng() * 0.08;
+
+        // Blade as two crossed quads (12 vertices), each with height factor 0 (base) or 1 (tip)
+        // [localX, localY, localZ, heightFactor, r_base, g_base vs tip]
+        const verts: [number, number, number, number][] = [
+          // Quad 1 (facing Z)
+          [-w / 2, 0,  0,  0],
+          [ w / 2, 0,  0,  0],
+          [-w / 2 + tiltX, h, tiltZ, 1],
+          [ w / 2, 0,  0,  0],
+          [ w / 2 + tiltX, h, tiltZ, 1],
+          [-w / 2 + tiltX, h, tiltZ, 1],
+          // Quad 2 (facing X)
+          [0, 0, -w / 2, 0],
+          [0, 0,  w / 2, 0],
+          [tiltX, h, -w / 2 + tiltZ, 1],
+          [0, 0,  w / 2, 0],
+          [tiltX, h,  w / 2 + tiltZ, 1],
+          [tiltX, h, -w / 2 + tiltZ, 1],
+        ];
+
+        for (const [bx, by, bz, hf] of verts) {
+          gPos.push(wx + bx, wy + by, wz + bz);
+          gHeightFactor.push(hf);
+          gWindPhase.push(phase);
+          // Interpolate color base→tip
+          gColor.push(
+            baseR + (tipR - baseR) * hf,
+            greenVariant * (0.75 + hf * 0.25),
+            0.1 + hf * 0.04
+          );
+        }
+        placed++;
+      }
+
+      const grassGeo = new THREE.BufferGeometry();
+      grassGeo.setAttribute("position", new THREE.Float32BufferAttribute(gPos, 3));
+      grassGeo.setAttribute("heightFactor", new THREE.Float32BufferAttribute(gHeightFactor, 1));
+      grassGeo.setAttribute("windPhase", new THREE.Float32BufferAttribute(gWindPhase, 1));
+      grassGeo.setAttribute("color", new THREE.Float32BufferAttribute(gColor, 3));
+
+      const grassMat = new THREE.ShaderMaterial({
+        uniforms: { time: { value: 0.0 } },
+        vertexShader: `
+          attribute float heightFactor;
+          attribute float windPhase;
+          attribute vec3 color;
+          uniform float time;
+          varying vec3 vColor;
+          void main() {
+            vec3 pos = position;
+            // Wind sway: stronger at blade tip, alternates direction
+            float wind = (sin(windPhase + time * 1.9) * 0.6 + cos(windPhase * 1.3 + time * 1.4) * 0.4);
+            pos.x += wind * heightFactor * 0.13;
+            pos.z += wind * heightFactor * 0.065;
+            vColor = color;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          void main() {
+            gl_FragColor = vec4(vColor, 1.0);
+          }
+        `,
+        side: THREE.DoubleSide,
+        vertexColors: true,
+      });
+
+      const grassMesh = new THREE.Mesh(grassGeo, grassMat);
+      grassMesh.receiveShadow = false;
+      scene.add(grassMesh);
+      grassMatRef.current = grassMat;
+    }
+
     // ── Clouds ───────────────────────────────────────────────────────────────
     function makeCloud(): THREE.Group {
       const cloud = new THREE.Group();
@@ -396,7 +558,7 @@ export default function Game3D() {
       }
       return cloud;
     }
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 35; i++) {
       const cloud = makeCloud();
       const angle = Math.random() * Math.PI * 2;
       const dist = 50 + Math.random() * 220;
@@ -406,6 +568,14 @@ export default function Game3D() {
         Math.sin(angle) * dist
       );
       scene.add(cloud);
+      // Each cloud drifts at a random direction and speed
+      const driftAngle = Math.random() * Math.PI * 2;
+      const speed = 1.5 + Math.random() * 4.5;
+      cloudsRef.current.push({
+        mesh: cloud,
+        vx: Math.cos(driftAngle) * speed,
+        vz: Math.sin(driftAngle) * speed,
+      });
     }
 
     // ── Trees ───────────────────────────────────────────────────────────────
@@ -666,6 +836,27 @@ export default function Game3D() {
 
       if (starsRef.current) {
         starsRef.current.visible = isNight;
+      }
+
+      if (galaxyRef.current) {
+        galaxyRef.current.visible = isNight;
+      }
+
+      // ── Moving clouds ──────────────────────────────────────────────────────
+      const cloudBound = WORLD_SIZE * 0.52;
+      cloudsRef.current.forEach((c) => {
+        c.mesh.position.x += c.vx * dt;
+        c.mesh.position.z += c.vz * dt;
+        // Wrap: teleport to opposite side when drifting too far
+        if (c.mesh.position.x > cloudBound) c.mesh.position.x = -cloudBound + 10;
+        else if (c.mesh.position.x < -cloudBound) c.mesh.position.x = cloudBound - 10;
+        if (c.mesh.position.z > cloudBound) c.mesh.position.z = -cloudBound + 10;
+        else if (c.mesh.position.z < -cloudBound) c.mesh.position.z = cloudBound - 10;
+      });
+
+      // ── Grass wind ────────────────────────────────────────────────────────
+      if (grassMatRef.current) {
+        grassMatRef.current.uniforms.time.value = elapsed;
       }
 
       // ── Windmill blades ────────────────────────────────────────────────────

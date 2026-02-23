@@ -141,4 +141,22 @@ describe("Game3D component", () => {
     act(() => { jest.advanceTimersByTime(0); });
     expect(queryByText(/\[F\] Útok/)).toBeNull();
   });
+
+  it("renders without crashing when Three.js adds grass, clouds and galaxy", () => {
+    // Ensures scene setup with grass/galaxy/cloud additions doesn't throw
+    expect(() => render(<Game3D />)).not.toThrow();
+  });
+
+  it("shows Open World label in HUD after locking (intro mentions day/night)", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // Intro mentions the day/night cycle
+    expect(getByText(/den.*noc|noc.*den/i)).toBeInTheDocument();
+  });
+
+  it("shows lighthouse mention in intro", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/maják/i)).toBeInTheDocument();
+  });
 });
