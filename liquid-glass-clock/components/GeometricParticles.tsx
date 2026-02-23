@@ -26,14 +26,14 @@ const DOT_COLORS = [
 ];
 
 // ─── Scene constants ─────────────────────────────────────────────────────────
-const PARTICLE_COUNT     = 600;
+const PARTICLE_COUNT     = 6000;
 const WORLD_SIZE         = 2200;  // Half-size of the world cube
 const FOV_DEFAULT        = 650;   // Default focal length
 const FOV_MIN            = 350;
 const FOV_MAX            = 1400;
 const NEAR_CLIP          = 18;    // Discard particles this close to camera
-const CONNECTION_DIST_3D = 420;
-const MAX_LINE_OPACITY   = 0.35;
+const CONNECTION_DIST_3D = 260;   // Reduced (was 420) – with 10× more particles, shorter distance still yields rich connections
+const MAX_LINE_OPACITY   = 0.28;
 const PARTICLE_SPEED     = 0.28;
 const PARTICLE_WORLD_R   = 4.5;
 const FOV_LERP           = 0.06;
@@ -41,6 +41,8 @@ const SCROLL_ZOOM_SPEED  = 80;
 const BREATHE_AMPLITUDE  = 280;    // Camera moves ±280 world units along Z
 const BREATHE_SPEED      = 0.00045; // Slow oscillation (~14 s per cycle at 60 fps)
 const CAM_Z_LERP         = 0.018;   // Camera Z smoothing
+/** Max particles sampled for the O(n²) connection pass – keeps it O(CONN_SAMPLE²) not O(n²) */
+const CONN_SAMPLE        = 500;
 
 // ─── Mouse attraction / repulsion constants ───────────────────────────────────
 const MOUSE_INFLUENCE_R  = 200;   // Screen-space radius of mouse influence (px)
@@ -240,11 +242,14 @@ export default function GeometricParticles() {
       const maxDepth = WORLD_SIZE;
 
       // ── Draw connecting lines (3-D distance check) ────────────────────────
-      for (let i = 0; i < projected.length; i++) {
-        const a = projected[i];
+      // Sample only CONN_SAMPLE visible particles for the O(n²) pass so that
+      // frame time stays bounded even with 6 000 total particles.
+      const connCandidates = projected.filter((x) => x.proj !== null).slice(0, CONN_SAMPLE);
+      for (let i = 0; i < connCandidates.length; i++) {
+        const a = connCandidates[i];
         if (!a.proj) continue;
-        for (let j = i + 1; j < projected.length; j++) {
-          const b = projected[j];
+        for (let j = i + 1; j < connCandidates.length; j++) {
+          const b = connCandidates[j];
           if (!b.proj) continue;
           const dx = a.p.wx - b.p.wx;
           const dy = a.p.wy - b.p.wy;
