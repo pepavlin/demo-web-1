@@ -65,7 +65,6 @@ export default function ElementSuggestionMenu() {
   const tasks = useTasks();
   const runningCount = tasks.filter((t) => t?.status === "running").length;
   const queuedCount = tasks.filter((t) => t?.status === "queued").length;
-  const hasActiveTasks = runningCount > 0 || queuedCount > 0;
 
   const removeHighlight = useCallback(() => {
     if (highlightedElRef.current) {

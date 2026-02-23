@@ -161,7 +161,6 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 
 export default function Clock() {
   const [time, setTime] = useState<TimeState | null>(null);
-  const [shakeSignal, setShakeSignal] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const shakeCtrl = useAnimationControls();
 
@@ -190,7 +189,6 @@ export default function Clock() {
   }, []);
 
   const handleClockClick = useCallback(async () => {
-    setShakeSignal((s) => s + 1);
     await shakeCtrl.start({
       x: [0, -12, 12, -9, 9, -6, 6, -3, 3, 0],
       transition: { duration: 0.55, ease: "easeOut" },

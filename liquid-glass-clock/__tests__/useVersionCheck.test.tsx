@@ -1,7 +1,6 @@
 /**
  * @jest-environment jsdom
  */
-import React from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 

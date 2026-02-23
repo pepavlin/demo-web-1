@@ -321,12 +321,12 @@ export default function Game3D() {
         soundManager.playFoxDeath();
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Scene Setup ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mountRef.current) return;
+    const mountNode = mountRef.current;
+    if (!mountNode) return;
     initNoise(42);
 
     // Renderer
@@ -337,7 +337,7 @@ export default function Game3D() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
-    mountRef.current.appendChild(renderer.domElement);
+    mountNode.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     // ── EffectComposer for volumetric bloom / god-ray effect ────────────────
@@ -1947,8 +1947,8 @@ export default function Game3D() {
       composerRef.current = null;
       soundManager.destroy();
       renderer.dispose();
-      if (mountRef.current) {
-        mountRef.current.removeChild(renderer.domElement);
+      if (mountNode) {
+        mountNode.removeChild(renderer.domElement);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -174,6 +174,8 @@ export default function Sheep() {
   const isClickingRef = useRef(false);
   const prevProgressRef = useRef<number>(-SHEEP_W - 20);
 
+  // Sets mounted flag on client after SSR hydration to gate browser-only effects
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {

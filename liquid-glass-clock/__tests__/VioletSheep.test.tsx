@@ -15,8 +15,8 @@ describe("VioletSheep component", () => {
     jest.useFakeTimers();
 
     rafSpy = jest.spyOn(global, "requestAnimationFrame").mockImplementation(
-      (_cb: FrameRequestCallback) => {
-        // Store latest callback but don't auto-invoke to avoid infinite loops
+      () => {
+        // Don't auto-invoke to avoid infinite loops
         return 1;
       }
     );

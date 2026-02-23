@@ -7,14 +7,15 @@ import "@testing-library/jest-dom";
 
 jest.mock("framer-motion", () => ({
   motion: {
-    div: ({
-      children,
-      onAnimationComplete,
-      ...props
-    }: React.HTMLAttributes<HTMLDivElement> & {
+    div: (allProps: React.HTMLAttributes<HTMLDivElement> & {
       children?: React.ReactNode;
       onAnimationComplete?: () => void;
-    }) => React.createElement("div", props, children),
+    }) => {
+      // Destructure to strip framer-motion-specific props before spreading to native div
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { children, onAnimationComplete, ...props } = allProps;
+      return React.createElement("div", props, children);
+    },
   },
   AnimatePresence: ({ children }: { children: React.ReactNode }) =>
     React.createElement(React.Fragment, null, children),
@@ -44,7 +45,7 @@ describe("SlimeJumper component", () => {
     const div = document.createElement("div");
     Object.defineProperty(div, "offsetWidth",  { get: () => w });
     Object.defineProperty(div, "offsetHeight", { get: () => h });
-    div.parentElement; // ensure parentElement exists via DOM
+    void div.parentElement; // ensure parentElement is accessible via DOM
     const ref = { current: div } as React.RefObject<HTMLDivElement>;
     return ref;
   };

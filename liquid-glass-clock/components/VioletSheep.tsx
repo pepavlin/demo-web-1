@@ -183,6 +183,8 @@ export default function VioletSheep() {
   });
   const rafRef = useRef<number>(0);
 
+  // Sets mounted flag on client after SSR hydration to gate browser-only effects
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setMounted(true); }, []);
 
   // ── Keyboard tracking ──────────────────────────────────────────────────────
@@ -212,15 +214,11 @@ export default function VioletSheep() {
   useEffect(() => {
     if (!mounted) return;
 
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-
-    // Initialise on bottom edge
+    // Initialise refs on bottom edge — position is set by the first RAF frame
     edgeRef.current = "bottom";
     edgePosRef.current = 200;
     wallDepthRef.current = 0;
     velNormalRef.current = 0;
-    setSheepTransform(getTransform("bottom", 200, 0, W, H));
 
     let prev = performance.now();
 

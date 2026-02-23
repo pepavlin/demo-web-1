@@ -74,15 +74,62 @@ Open [http://localhost:3000](http://localhost:3000) — click **"Hrát!"** to st
 npm test
 ```
 
-Test suites:
+Test suites (282 tests total):
 - `__tests__/terrainUtils.test.ts` — terrain generation and spawn points
 - `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions
+- `__tests__/soundManager.test.ts` — audio manager initialization and playback
 - `__tests__/Game3D.test.tsx` — Game3D component render and intro screen
+- `__tests__/Clock.test.tsx` — clock display and time formatting
+- `__tests__/Sheep.test.tsx` — sheep component rendering
+- `__tests__/SheepWalker.test.tsx` — sheep walker component
+- `__tests__/VioletSheep.test.tsx` — violet sheep wall-walking component
+- `__tests__/SlimeJumper.test.tsx` — slime jumper component
+- `__tests__/GeometricParticles.test.tsx` — particle system component
+- `__tests__/LiquidBackground.test.tsx` — liquid background effect
+- `__tests__/FeedbackWidget.test.tsx` — feedback widget with task polling
+- `__tests__/ElementSuggestionMenu.test.tsx` — context-menu suggestion component
+- `__tests__/UpdateNotification.test.tsx` — version update notification
+- `__tests__/useVersionCheck.test.tsx` — version check hook
+
+## Project Structure
+
+```
+liquid-glass-clock/
+├── app/                    # Next.js App Router
+│   ├── api/version/        # Version API endpoint
+│   ├── globals.css         # Global styles
+│   ├── layout.tsx          # Root layout
+│   └── page.tsx            # Main page
+├── components/             # React components
+│   ├── Clock.tsx           # Animated clock with parallax
+│   ├── ElementSuggestionMenu.tsx  # Right-click suggestion menu
+│   ├── FeedbackWidget.tsx  # Feedback panel with task tracking
+│   ├── Game3D.tsx          # 3D open-world game (Three.js)
+│   ├── GeometricParticles.tsx     # Canvas particle system
+│   ├── LiquidBackground.tsx       # Volumetric light background
+│   ├── Sheep.tsx           # Autonomous sheep character
+│   ├── SheepWalker.tsx     # Mouse-following sheep
+│   ├── SlimeJumper.tsx     # Slime physics character
+│   ├── UpdateNotification.tsx     # App update banner
+│   └── VioletSheep.tsx    # Keyboard-controlled wall-walker
+├── hooks/                  # Custom React hooks
+│   ├── useMouseParallax.ts # Mouse-based 3D tilt
+│   ├── useTasks.ts         # Task polling hook (polls webhook)
+│   └── useVersionCheck.ts  # Build version checker
+├── lib/                    # Shared utilities
+│   ├── gameTypes.ts        # TypeScript types for the game
+│   ├── meshBuilders.ts     # Three.js mesh factory functions
+│   ├── soundManager.ts     # Web Audio API manager
+│   └── terrainUtils.ts     # Procedural terrain helpers
+└── __tests__/              # Jest test suites
+```
 
 ## Tech Stack
 
-- **Next.js 16** (App Router)
+- **Next.js 16** (App Router, standalone output)
 - **Three.js** — 3D rendering, shadows, fog
 - **simplex-noise** — procedural terrain generation
-- **Tailwind CSS** — HUD and overlay styling
-- **TypeScript**
+- **framer-motion** — UI animations and parallax
+- **Tailwind CSS v4** — HUD and overlay styling
+- **TypeScript** — fully typed throughout
+- **Jest + Testing Library** — unit and component tests
