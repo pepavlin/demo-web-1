@@ -8,6 +8,7 @@ import {
   initNoise,
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
+  WATER_LEVEL,
 } from "@/lib/terrainUtils";
 import {
   buildSheepMesh,
@@ -961,6 +962,8 @@ export default function Game3D() {
         if (keys["KeyA"] || keys["ArrowLeft"]) move.addScaledVector(right, -speed * dt);
         if (keys["KeyD"] || keys["ArrowRight"]) move.addScaledVector(right, speed * dt);
 
+        const playerPrevX = cam.position.x;
+        const playerPrevZ = cam.position.z;
         cam.position.add(move);
 
         cam.position.x = Math.max(
@@ -971,6 +974,12 @@ export default function Game3D() {
           -WORLD_SIZE / 2 + 10,
           Math.min(WORLD_SIZE / 2 - 10, cam.position.z)
         );
+
+        // Water boundary: player cannot enter water
+        if (getTerrainHeight(cam.position.x, cam.position.z) < WATER_LEVEL) {
+          cam.position.x = playerPrevX;
+          cam.position.z = playerPrevZ;
+        }
 
         const player = playerRef.current;
         if (keys["Space"] && player.onGround) {
@@ -1115,6 +1124,9 @@ export default function Game3D() {
         // Fox chases player if nearby, otherwise hunts sheep
         const playerIsClose = distToPlayer < FOX_PLAYER_CHASE_RADIUS;
 
+        const foxPrevX = fm.position.x;
+        const foxPrevZ = fm.position.z;
+
         if (playerIsClose) {
           // Chase player
           const dx = playerPos.x - fm.position.x;
@@ -1186,6 +1198,13 @@ export default function Game3D() {
             if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
             if (Math.abs(fm.position.z) > half) fox.wanderAngle = -fox.wanderAngle;
           }
+        }
+
+        // Water boundary: fox cannot enter water
+        if (getTerrainHeight(fm.position.x, fm.position.z) < WATER_LEVEL) {
+          fm.position.x = foxPrevX;
+          fm.position.z = foxPrevZ;
+          fox.wanderAngle = Math.atan2(fm.position.z, fm.position.x) + Math.PI;
         }
 
         fm.position.y = getTerrainHeight(fm.position.x, fm.position.z);
@@ -1260,8 +1279,17 @@ export default function Game3D() {
 
         // Move using smoothed currentAngle
         const spd = movingSpeed * dt;
+        const sheepPrevX = s.position.x;
+        const sheepPrevZ = s.position.z;
         s.position.x += Math.cos(sheep.currentAngle) * spd;
         s.position.z += Math.sin(sheep.currentAngle) * spd;
+
+        // Water boundary: sheep cannot enter water
+        if (getTerrainHeight(s.position.x, s.position.z) < WATER_LEVEL) {
+          s.position.x = sheepPrevX;
+          s.position.z = sheepPrevZ;
+          sheep.targetAngle = sheep.currentAngle + Math.PI * (0.75 + Math.random() * 0.5);
+        }
 
         // Boundary: reflect targetAngle off currentAngle so the turn is smooth
         const half = WORLD_SIZE / 2 - 20;

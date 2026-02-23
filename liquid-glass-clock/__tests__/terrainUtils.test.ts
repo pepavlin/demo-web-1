@@ -1,4 +1,4 @@
-import { getTerrainHeight, generateSpawnPoints, initNoise, WORLD_SIZE, TERRAIN_SEGMENTS } from "@/lib/terrainUtils";
+import { getTerrainHeight, generateSpawnPoints, initNoise, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -57,6 +57,41 @@ describe("terrainUtils", () => {
       const near = getTerrainHeight(5, 5);
       // At least one of them should differ meaningfully from zero
       expect(Math.abs(far) + Math.abs(near)).toBeGreaterThan(0.5);
+    });
+  });
+
+  describe("WATER_LEVEL", () => {
+    it("exports WATER_LEVEL as a number", () => {
+      expect(typeof WATER_LEVEL).toBe("number");
+    });
+
+    it("WATER_LEVEL is negative (water is below ground level)", () => {
+      expect(WATER_LEVEL).toBeLessThan(0);
+    });
+
+    it("terrain at center is above WATER_LEVEL (spawn zone is not water)", () => {
+      const h = getTerrainHeight(0, 0);
+      expect(h).toBeGreaterThanOrEqual(WATER_LEVEL);
+    });
+
+    it("can detect water areas using getTerrainHeight < WATER_LEVEL", () => {
+      // Scan a grid to find at least one water tile in the world
+      let foundWater = false;
+      for (let x = -350; x <= 350 && !foundWater; x += 50) {
+        for (let z = -350; z <= 350 && !foundWater; z += 50) {
+          if (getTerrainHeight(x, z) < WATER_LEVEL) {
+            foundWater = true;
+          }
+        }
+      }
+      expect(foundWater).toBe(true);
+    });
+
+    it("spawn points never land in water (terrain >= WATER_LEVEL)", () => {
+      const pts = generateSpawnPoints(20, 20, 300, 42);
+      pts.forEach((p) => {
+        expect(getTerrainHeight(p.x, p.z)).toBeGreaterThanOrEqual(WATER_LEVEL);
+      });
     });
   });
 

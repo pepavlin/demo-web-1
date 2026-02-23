@@ -2,6 +2,8 @@ import { createNoise2D } from "simplex-noise";
 
 export const WORLD_SIZE = 800;
 export const TERRAIN_SEGMENTS = 120;
+/** Terrain height below this value is considered water */
+export const WATER_LEVEL = -0.5;
 
 let noise2D: ReturnType<typeof createNoise2D>;
 
