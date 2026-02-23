@@ -19,8 +19,10 @@ import {
   buildHouse,
   buildRuins,
   buildLighthouse,
+  buildBulletMesh,
+  buildWeaponMesh,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, GameState } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, GameState } from "@/lib/gameTypes";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
@@ -56,6 +58,13 @@ const ATTACK_COOLDOWN = 0.65;
 const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
 const FOX_ATTACK_RANGE = 2.5;
 const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
+
+// ─── Bullet / Weapon Constants ────────────────────────────────────────────────
+const BULLET_SPEED = 55;        // units per second
+const BULLET_LIFETIME = 4;      // seconds before auto-despawn
+const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
+// Weapon position in camera-local space (first-person)
+const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
@@ -153,6 +162,12 @@ export default function Game3D() {
   const playerAttackCooldownRef = useRef(0);
   const foxesDefeatedRef = useRef(0);
 
+  // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
+  const bulletsRef = useRef<BulletData[]>([]);
+  const weaponMeshRef = useRef<THREE.Group | null>(null);
+  const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
+  const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
+
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
     coinsCollected: 0,
@@ -200,9 +215,46 @@ export default function Game3D() {
   const doAttack = useCallback(() => {
     if (!isLockedRef.current) return;
     if (playerAttackCooldownRef.current > 0) return;
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !sceneRef.current) return;
 
-    const playerPos = cameraRef.current.position;
+    playerAttackCooldownRef.current = ATTACK_COOLDOWN;
+
+    // ── Weapon recoil kick ──────────────────────────────────────────────────
+    weaponRecoilRef.current = 1;
+
+    // ── Muzzle flash (brief PointLight at barrel tip) ───────────────────────
+    if (muzzleFlashRef.current) {
+      muzzleFlashRef.current.intensity = 4;
+      setTimeout(() => {
+        if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
+      }, 75);
+    }
+
+    // ── Spawn bullet projectile ─────────────────────────────────────────────
+    const cam = cameraRef.current;
+    const scene = sceneRef.current;
+
+    // Camera world position and look direction
+    const startPos = new THREE.Vector3();
+    cam.getWorldPosition(startPos);
+    const forward = new THREE.Vector3(0, 0, -1);
+    forward.transformDirection(cam.matrixWorld);
+
+    // Start bullet slightly in front of camera (past the near plane)
+    startPos.addScaledVector(forward, 1.2);
+
+    const bulletMesh = buildBulletMesh();
+    bulletMesh.position.copy(startPos);
+    scene.add(bulletMesh);
+
+    bulletsRef.current.push({
+      mesh: bulletMesh,
+      velocity: forward.clone().multiplyScalar(BULLET_SPEED),
+      lifetime: BULLET_LIFETIME,
+    });
+
+    // ── Immediate melee fallback for very close foxes ───────────────────────
+    const playerPos = cam.position;
     let closest: (typeof foxListRef.current)[0] | null = null;
     let closestDist = ATTACK_RANGE;
 
@@ -215,8 +267,6 @@ export default function Game3D() {
       }
     });
 
-    playerAttackCooldownRef.current = ATTACK_COOLDOWN;
-
     if (closest) {
       const fox = closest as (typeof foxListRef.current)[0];
       fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
@@ -228,13 +278,10 @@ export default function Game3D() {
 
       if (fox.hp <= 0) {
         fox.isAlive = false;
-        // Scale-down death animation handled in loop
         foxesDefeatedRef.current++;
       }
-    } else {
-      setAttackEffect("Miss");
-      setTimeout(() => setAttackEffect(null), 400);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Scene Setup ─────────────────────────────────────────────────────────────
@@ -268,6 +315,20 @@ export default function Game3D() {
     );
     camera.position.set(0, PLAYER_HEIGHT + getTerrainHeight(0, 0), 0);
     cameraRef.current = camera;
+
+    // ── First-person weapon (attached to camera) ─────────────────────────────
+    const weaponGroup = buildWeaponMesh();
+    weaponGroup.position.copy(WEAPON_POS);
+    weaponGroup.rotation.y = -0.12; // slight inward cant
+    camera.add(weaponGroup);
+    weaponMeshRef.current = weaponGroup;
+    scene.add(camera); // camera must be in scene for its children to render
+
+    // Muzzle flash point light (parented to camera, at barrel tip)
+    const muzzleFlash = new THREE.PointLight(0xffaa22, 0, 9);
+    muzzleFlash.position.set(WEAPON_POS.x, WEAPON_POS.y + 0.01, WEAPON_POS.z - 0.25);
+    camera.add(muzzleFlash);
+    muzzleFlashRef.current = muzzleFlash;
 
     // ── Lighting ────────────────────────────────────────────────────────────
     const ambient = new THREE.AmbientLight(0xffffff, 0.45);
@@ -957,6 +1018,70 @@ export default function Game3D() {
         playerAttackCooldownRef.current = Math.max(0, playerAttackCooldownRef.current - dt);
       }
 
+      // ── Weapon sway & recoil animation ─────────────────────────────────────
+      if (weaponMeshRef.current) {
+        const wep = weaponMeshRef.current;
+        // Recoil: kick back in z then spring forward
+        weaponRecoilRef.current = Math.max(0, weaponRecoilRef.current - dt * 8);
+        const recoil = weaponRecoilRef.current;
+
+        // Idle sway: gentle bob while moving
+        const isMoving =
+          keysRef.current["KeyW"] || keysRef.current["KeyS"] ||
+          keysRef.current["KeyA"] || keysRef.current["KeyD"] ||
+          keysRef.current["ArrowUp"] || keysRef.current["ArrowDown"];
+        const swayAmt = isMoving ? 0.012 : 0.005;
+        const swaySpeed = isMoving ? 7 : 3;
+
+        wep.position.set(
+          WEAPON_POS.x + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
+          WEAPON_POS.y + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
+          WEAPON_POS.z + recoil * 0.12
+        );
+        wep.rotation.x = recoil * 0.18 + Math.sin(elapsed * swaySpeed) * swayAmt * 0.4;
+      }
+
+      // ── Bullet update ──────────────────────────────────────────────────────
+      const toRemove: BulletData[] = [];
+      bulletsRef.current.forEach((bullet) => {
+        bullet.lifetime -= dt;
+        if (bullet.lifetime <= 0) {
+          toRemove.push(bullet);
+          return;
+        }
+        // Move bullet forward
+        bullet.mesh.position.addScaledVector(bullet.velocity, dt);
+
+        // Check fox collisions
+        for (const fox of foxListRef.current) {
+          if (!fox.isAlive) continue;
+          const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
+          if (dist < BULLET_HIT_RADIUS) {
+            fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
+            fox.hitFlashTimer = 0.25;
+            flashFoxMesh(fox.mesh);
+            setAttackEffect(`-${ATTACK_DAMAGE}`);
+            setTimeout(() => setAttackEffect(null), 700);
+            if (fox.hp <= 0) {
+              fox.isAlive = false;
+              foxesDefeatedRef.current++;
+            }
+            toRemove.push(bullet);
+            break;
+          }
+        }
+      });
+
+      // Remove expired / hit bullets from scene and array
+      if (toRemove.length > 0) {
+        toRemove.forEach((b) => {
+          scene.remove(b.mesh);
+        });
+        bulletsRef.current = bulletsRef.current.filter(
+          (b) => !toRemove.includes(b)
+        );
+      }
+
       // ── Fox AI ─────────────────────────────────────────────────────────────
       let foxNear = false;
       let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
@@ -1293,6 +1418,9 @@ export default function Game3D() {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("pointerlockchange", onLockChange);
       window.removeEventListener("resize", onResize);
+      // Clean up any live bullets from the scene
+      bulletsRef.current.forEach((b) => scene.remove(b.mesh));
+      bulletsRef.current = [];
       renderer.dispose();
       if (mountRef.current) {
         mountRef.current.removeChild(renderer.domElement);

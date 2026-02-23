@@ -31,6 +31,8 @@ import {
   buildHouse,
   buildRuins,
   buildLighthouse,
+  buildBulletMesh,
+  buildWeaponMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -219,5 +221,59 @@ describe("buildLighthouse", () => {
   it("has multiple band segments and a lantern", () => {
     const lighthouse = buildLighthouse();
     expect(lighthouse.children.length).toBeGreaterThan(5);
+  });
+});
+
+describe("buildBulletMesh", () => {
+  it("returns a THREE.Mesh", () => {
+    const bullet = buildBulletMesh();
+    expect(bullet).toBeInstanceOf(THREE.Mesh);
+  });
+
+  it("uses a bright yellow MeshBasicMaterial", () => {
+    const bullet = buildBulletMesh();
+    const mat = bullet.material as THREE.MeshBasicMaterial;
+    expect(mat).toBeInstanceOf(THREE.MeshBasicMaterial);
+    // Yellow: red high, green high, blue low
+    expect(mat.color.r).toBeGreaterThan(0.8);
+    expect(mat.color.g).toBeGreaterThan(0.8);
+    expect(mat.color.b).toBeLessThan(0.3);
+  });
+
+  it("has a small sphere geometry (radius ~0.07)", () => {
+    const bullet = buildBulletMesh();
+    const geo = bullet.geometry as THREE.SphereGeometry;
+    expect(geo).toBeInstanceOf(THREE.SphereGeometry);
+    // SphereGeometry parameters property holds the initial args
+    expect(geo.parameters.radius).toBeCloseTo(0.07, 2);
+  });
+});
+
+describe("buildWeaponMesh", () => {
+  it("returns a THREE.Group", () => {
+    const weapon = buildWeaponMesh();
+    expect(weapon).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple parts (slide, barrel, grip, guard, sight)", () => {
+    const weapon = buildWeaponMesh();
+    expect(weapon.children.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("all parts are THREE.Mesh instances", () => {
+    const weapon = buildWeaponMesh();
+    weapon.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("uses dark material colors (grey/black gun finish)", () => {
+    const weapon = buildWeaponMesh();
+    // Every material color should be dark (max channel < 0.35)
+    weapon.children.forEach((child) => {
+      const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
+      const maxChannel = Math.max(mat.color.r, mat.color.g, mat.color.b);
+      expect(maxChannel).toBeLessThan(0.35);
+    });
   });
 });

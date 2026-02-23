@@ -349,6 +349,65 @@ export function buildRuins(rng: () => number): THREE.Group {
   return group;
 }
 
+// ─── Bullet ───────────────────────────────────────────────────────────────────
+/** Small glowing yellow sphere used as a visible projectile. */
+export function buildBulletMesh(): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(0.07, 6, 6);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffee44 });
+  return new THREE.Mesh(geo, mat);
+}
+
+// ─── Weapon (pistol) ──────────────────────────────────────────────────────────
+/** Simple first-person pistol shown in bottom-right of viewport. */
+export function buildWeaponMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x282828 });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+  const greyMat = new THREE.MeshLambertMaterial({ color: 0x444444 });
+
+  // Slide (main upper body)
+  const slideGeo = new THREE.BoxGeometry(0.065, 0.075, 0.33);
+  const slide = new THREE.Mesh(slideGeo, metalMat);
+  slide.position.set(0, 0.01, 0);
+  group.add(slide);
+
+  // Barrel extension in front
+  const barrelGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.14, 8);
+  const barrel = new THREE.Mesh(barrelGeo, darkMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, -0.004, -0.235);
+  group.add(barrel);
+
+  // Frame / dust cover below slide
+  const frameGeo = new THREE.BoxGeometry(0.06, 0.045, 0.28);
+  const frame = new THREE.Mesh(frameGeo, greyMat);
+  frame.position.set(0, -0.06, -0.02);
+  group.add(frame);
+
+  // Grip
+  const gripGeo = new THREE.BoxGeometry(0.055, 0.17, 0.09);
+  const grip = new THREE.Mesh(gripGeo, metalMat);
+  grip.position.set(0, -0.135, 0.1);
+  grip.rotation.x = 0.18;
+  group.add(grip);
+
+  // Trigger guard
+  const guardGeo = new THREE.TorusGeometry(0.026, 0.009, 5, 8, Math.PI);
+  const guard = new THREE.Mesh(guardGeo, greyMat);
+  guard.rotation.z = Math.PI / 2;
+  guard.rotation.y = Math.PI / 2;
+  guard.position.set(0, -0.062, 0.04);
+  group.add(guard);
+
+  // Sight (front)
+  const sightGeo = new THREE.BoxGeometry(0.01, 0.018, 0.01);
+  const sight = new THREE.Mesh(sightGeo, darkMat);
+  sight.position.set(0, 0.056, -0.155);
+  group.add(sight);
+
+  return group;
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): THREE.Group {
   const group = new THREE.Group();
