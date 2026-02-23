@@ -25,6 +25,7 @@ import {
   buildSheepMesh,
   buildFoxMesh,
   buildTreeMesh,
+  buildBushMesh,
   buildRockMesh,
   buildCoinMesh,
   buildWindmill,
@@ -106,16 +107,36 @@ describe("buildFoxMesh", () => {
 });
 
 describe("buildTreeMesh", () => {
-  it("returns a THREE.Group", () => {
+  it("returns an object with group and foliageGroup", () => {
     const rng = makeRng(42);
-    const mesh = buildTreeMesh(rng);
-    expect(mesh).toBeInstanceOf(THREE.Group);
+    const result = buildTreeMesh(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.foliageGroup).toBeInstanceOf(THREE.Group);
   });
 
-  it("has trunk and at least one leaf layer", () => {
+  it("group has trunk and foliageGroup as children", () => {
     const rng = makeRng(42);
-    const mesh = buildTreeMesh(rng);
-    expect(mesh.children.length).toBeGreaterThanOrEqual(3);
+    const result = buildTreeMesh(rng);
+    // group must contain at least a trunk mesh + foliageGroup
+    expect(result.group.children.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("exposes trunkRadius > 0 and hasCollision boolean", () => {
+    const rng = makeRng(42);
+    const result = buildTreeMesh(rng);
+    expect(typeof result.trunkRadius).toBe("number");
+    expect(result.trunkRadius).toBeGreaterThan(0);
+    expect(typeof result.hasCollision).toBe("boolean");
+  });
+
+  it("foliageGroup is a child of the main group", () => {
+    const rng = makeRng(42);
+    const result = buildTreeMesh(rng);
+    let found = false;
+    result.group.traverse((child) => {
+      if (child === result.foliageGroup) found = true;
+    });
+    expect(found).toBe(true);
   });
 
   it("produces different trees for different seeds", () => {
@@ -123,12 +144,60 @@ describe("buildTreeMesh", () => {
     const rng2 = makeRng(99);
     const tree1 = buildTreeMesh(rng1);
     const tree2 = buildTreeMesh(rng2);
-    // Different seeds → different child counts or positions
+    // Different seeds → different child counts or trunk radii
     const same =
-      tree1.children.length === tree2.children.length &&
-      (tree1.children[0] as THREE.Mesh).position.y ===
-        (tree2.children[0] as THREE.Mesh).position.y;
+      tree1.group.children.length === tree2.group.children.length &&
+      tree1.trunkRadius === tree2.trunkRadius;
     expect(same).toBe(false);
+  });
+
+  it("generates all tree types across different RNG seeds (coverage)", () => {
+    // Run many trees to ensure we exercise all branches without crashing
+    for (let seed = 0; seed < 30; seed++) {
+      const rng = makeRng(seed * 7 + 3);
+      const result = buildTreeMesh(rng);
+      expect(result.group).toBeInstanceOf(THREE.Group);
+      expect(result.foliageGroup).toBeInstanceOf(THREE.Group);
+    }
+  });
+});
+
+describe("buildBushMesh", () => {
+  it("returns an object with group and foliageGroup", () => {
+    const rng = makeRng(42);
+    const result = buildBushMesh(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.foliageGroup).toBeInstanceOf(THREE.Group);
+  });
+
+  it("foliageGroup is the same object as group (bushes sway as a whole)", () => {
+    const rng = makeRng(42);
+    const result = buildBushMesh(rng);
+    expect(result.foliageGroup).toBe(result.group);
+  });
+
+  it("has blob children", () => {
+    const rng = makeRng(42);
+    const result = buildBushMesh(rng);
+    expect(result.group.children.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("produces different bushes for different seeds", () => {
+    const rng1 = makeRng(10);
+    const rng2 = makeRng(200);
+    const b1 = buildBushMesh(rng1);
+    const b2 = buildBushMesh(rng2);
+    const same = b1.group.children.length === b2.group.children.length &&
+      b1.group.children[0].position.x === b2.group.children[0].position.x;
+    expect(same).toBe(false);
+  });
+
+  it("does not crash across many seeds (berry variant coverage)", () => {
+    for (let seed = 0; seed < 40; seed++) {
+      const rng = makeRng(seed * 13 + 5);
+      const result = buildBushMesh(rng);
+      expect(result.group).toBeInstanceOf(THREE.Group);
+    }
   });
 });
 
