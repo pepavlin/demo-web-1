@@ -18,6 +18,7 @@ import {
   buildSheepMesh,
   buildFoxMesh,
   buildTreeMesh,
+  buildBushMesh,
   buildRockMesh,
   buildCoinMesh,
   buildWindmill,
@@ -41,7 +42,9 @@ const SHEEP_COUNT = 200;
 const FOX_COUNT = 12;
 const COIN_COUNT = 35;
 const TREE_COUNT = 180;
+const BUSH_COUNT = 220;
 const ROCK_COUNT = 90;
+const PLAYER_RADIUS = 0.5; // for tree trunk collision
 const SHEEP_SPEED = 1.4;       // slow peaceful walk (was 2.5)
 const SHEEP_FLEE_RADIUS = 12;
 const SHEEP_FLEE_SPEED = 7;
@@ -173,6 +176,17 @@ export default function Game3D() {
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
+  // Flora animation & collision data
+  const floraRef = useRef<Array<{
+    foliageGroup: THREE.Group;
+    windPhase: number;     // per-plant phase offset so they sway out-of-sync
+    windSpeed: number;     // 0.6–1.4 rad/s
+    maxSway: number;       // max rotation amplitude (radians)
+  }>>([]);
+  const treeCollisionRef = useRef<Array<{
+    x: number; z: number;
+    radius: number;        // trunk radius + small buffer
+  }>>([]);
 
   // ─── Combat Refs ────────────────────────────────────────────────────────────
   const playerHpRef = useRef(PLAYER_MAX_HP);
@@ -852,9 +866,52 @@ export default function Game3D() {
     };
     const treePoints = generateSpawnPoints(TREE_COUNT, 20, 380, 123);
     treePoints.forEach((p) => {
-      const tree = buildTreeMesh(treeRng);
-      tree.position.set(p.x, p.y, p.z);
-      scene.add(tree);
+      const result = buildTreeMesh(treeRng);
+      result.group.position.set(p.x, p.y, p.z);
+      scene.add(result.group);
+
+      // Register foliage for wind animation (skip dead trees with empty foliage)
+      if (result.foliageGroup.children.length > 0) {
+        floraRef.current.push({
+          foliageGroup: result.foliageGroup,
+          windPhase: treeRng() * Math.PI * 2,
+          windSpeed: 0.65 + treeRng() * 0.7,
+          maxSway: result.hasCollision ? 0.025 : 0.045, // large trees sway less
+        });
+      }
+
+      // Register large trees for player collision
+      if (result.hasCollision) {
+        treeCollisionRef.current.push({
+          x: p.x,
+          z: p.z,
+          radius: result.trunkRadius + PLAYER_RADIUS,
+        });
+      }
+    });
+
+    // ── Bushes / Shrubs ─────────────────────────────────────────────────────
+    let bushSeed = 7391;
+    const bushRng = () => {
+      bushSeed = (bushSeed * 1664525 + 1013904223) & 0xffffffff;
+      return (bushSeed >>> 0) / 0xffffffff;
+    };
+    // Bushes spawn closer to trees (min 8, max 340) and more densely
+    const bushPoints = generateSpawnPoints(BUSH_COUNT, 8, 340, 7391);
+    bushPoints.forEach((p) => {
+      const result = buildBushMesh(bushRng);
+      result.group.position.set(p.x, p.y, p.z);
+      // Random rotation so all bushes face different ways
+      result.group.rotation.y = bushRng() * Math.PI * 2;
+      scene.add(result.group);
+
+      // Bushes sway more than trees (flexible shrubs)
+      floraRef.current.push({
+        foliageGroup: result.foliageGroup,
+        windPhase: bushRng() * Math.PI * 2,
+        windSpeed: 0.9 + bushRng() * 0.9,
+        maxSway: 0.06 + bushRng() * 0.04,
+      });
     });
 
     // ── Rocks ───────────────────────────────────────────────────────────────
@@ -1243,6 +1300,14 @@ export default function Game3D() {
         grassMatRef.current.uniforms.time.value = elapsed;
       }
 
+      // ── Flora (tree & bush foliage) wind sway ─────────────────────────────
+      floraRef.current.forEach((flora) => {
+        const t = elapsed * flora.windSpeed + flora.windPhase;
+        // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
+        flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
+        flora.foliageGroup.rotation.z = Math.cos(t * 0.71) * flora.maxSway * 0.6;
+      });
+
       // ── Windmill blades ────────────────────────────────────────────────────
       if (windmillBladesRef.current) {
         windmillBladesRef.current.rotation.x += dt * 0.8;
@@ -1301,6 +1366,20 @@ export default function Game3D() {
         if (getTerrainHeight(cam.position.x, cam.position.z) < WATER_LEVEL) {
           cam.position.x = playerPrevX;
           cam.position.z = playerPrevZ;
+        }
+
+        // Tree trunk collision: push player out of large tree trunks
+        for (const tree of treeCollisionRef.current) {
+          const tdx = cam.position.x - tree.x;
+          const tdz = cam.position.z - tree.z;
+          const tdist = Math.sqrt(tdx * tdx + tdz * tdz);
+          if (tdist < tree.radius && tdist > 0.001) {
+            // Push player to the edge of the collision cylinder
+            const nx = tdx / tdist;
+            const nz = tdz / tdist;
+            cam.position.x = tree.x + nx * tree.radius;
+            cam.position.z = tree.z + nz * tree.radius;
+          }
         }
 
         const player = playerRef.current;

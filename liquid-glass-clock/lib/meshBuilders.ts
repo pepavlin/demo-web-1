@@ -223,34 +223,272 @@ export function buildFoxMesh(): THREE.Group {
 }
 
 // ─── Tree ─────────────────────────────────────────────────────────────────────
-export function buildTreeMesh(rng: () => number): THREE.Group {
+
+export interface TreeMeshResult {
+  group: THREE.Group;
+  /** Sub-group containing only the foliage — animate this for wind sway. */
+  foliageGroup: THREE.Group;
+  /** Trunk radius at base — used for collision detection. */
+  trunkRadius: number;
+  /** True for large trees that block player movement. */
+  hasCollision: boolean;
+}
+
+export function buildTreeMesh(rng: () => number): TreeMeshResult {
   const group = new THREE.Group();
-  const trunkH = 1.5 + rng() * 2;
-  const trunkR = 0.12 + rng() * 0.08;
+  const foliageGroup = new THREE.Group();
 
-  const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.7, trunkR, trunkH, 7);
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5d3a1a });
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  trunk.position.y = trunkH / 2;
-  trunk.castShadow = true;
-  group.add(trunk);
+  // Pick tree type: 30% pine, 40% oak, 20% birch, 10% dead
+  const typeRoll = rng();
+  const treeType =
+    typeRoll < 0.30 ? "pine" :
+    typeRoll < 0.70 ? "oak" :
+    typeRoll < 0.90 ? "birch" : "dead";
 
-  const leafColors = [0x2d5a1b, 0x3a7a20, 0x1e4012, 0x4a9030];
-  const leafColor = leafColors[Math.floor(rng() * leafColors.length)];
-  const leafMat = new THREE.MeshLambertMaterial({ color: leafColor });
+  if (treeType === "pine") {
+    // ── Pine / Conifer ──────────────────────────────────────────────────────
+    const trunkH = 4.5 + rng() * 4.0;   // 4.5–8.5 — tall and narrow
+    const trunkR = 0.11 + rng() * 0.08;
+    const isLarge = trunkH > 6.0;
 
-  const tiers = 2 + Math.floor(rng() * 2);
-  for (let i = 0; i < tiers; i++) {
-    const r = (1.2 - i * 0.25) * (0.8 + rng() * 0.5);
-    const h = (0.9 - i * 0.15) * (1 + rng() * 0.4);
-    const leafGeo = new THREE.ConeGeometry(r, h, 8);
-    const leaves = new THREE.Mesh(leafGeo, leafMat);
-    leaves.position.y = trunkH + i * (h * 0.55);
-    leaves.castShadow = true;
-    group.add(leaves);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a2010 });
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.45, trunkR, trunkH, 7);
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = trunkH / 2;
+    trunk.castShadow = true;
+    group.add(trunk);
+
+    // Slight natural lean
+    group.rotation.z = (rng() - 0.5) * 0.07;
+    group.rotation.x = (rng() - 0.5) * 0.05;
+
+    const tiers = 4 + Math.floor(rng() * 4); // 4–7 cone tiers
+    const darkGreen = new THREE.Color(0x183d0a);
+    const midGreen  = new THREE.Color(0x2d6e1c);
+    const leafColor = new THREE.Color().lerpColors(darkGreen, midGreen, rng());
+    const leafMat = new THREE.MeshLambertMaterial({ color: leafColor });
+
+    // Stack cones from wide base to narrow tip
+    let coneY = trunkH * 0.28; // start above the lower trunk
+    for (let i = 0; i < tiers; i++) {
+      const frac  = i / (tiers - 1);
+      const r     = (1.5 - frac * 1.1) * (0.75 + rng() * 0.35);
+      const h     = (1.1 - frac * 0.3) * (0.85 + rng() * 0.4);
+      const leafGeo = new THREE.ConeGeometry(r, h, 8);
+      const leaves  = new THREE.Mesh(leafGeo, leafMat);
+      leaves.position.y = coneY + h * 0.5;
+      leaves.castShadow = true;
+      foliageGroup.add(leaves);
+      coneY += h * 0.58; // overlap tiers
+    }
+    group.add(foliageGroup);
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
+
+  } else if (treeType === "oak") {
+    // ── Oak / Deciduous ─────────────────────────────────────────────────────
+    const trunkH = 2.8 + rng() * 2.5;   // 2.8–5.3
+    const trunkR = 0.18 + rng() * 0.14; // 0.18–0.32
+    const isLarge = trunkH > 3.8;
+
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a2a10 });
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.65, trunkR * 1.1, trunkH, 8);
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = trunkH / 2;
+    trunk.castShadow = true;
+    group.add(trunk);
+
+    // Root flare for a grounded look
+    const rootGeo = new THREE.CylinderGeometry(trunkR * 1.35, trunkR * 1.8, 0.35, 8);
+    const root = new THREE.Mesh(rootGeo, trunkMat);
+    root.position.y = 0.17;
+    group.add(root);
+
+    group.rotation.z = (rng() - 0.5) * 0.09;
+
+    // Foliage: overlapping sphere blobs forming a broad rounded crown
+    const leafColorHex = [0x2d5a1b, 0x3a7a20, 0x1e4012, 0x4a9030, 0x3d6e1a][
+      Math.floor(rng() * 5)
+    ];
+    const leafColor  = new THREE.Color(leafColorHex);
+    const innerColor = leafColor.clone().multiplyScalar(0.68);
+    const leafMat  = new THREE.MeshLambertMaterial({ color: leafColor });
+    const innerMat = new THREE.MeshLambertMaterial({ color: innerColor });
+
+    const crownR   = 1.3 + rng() * 0.9;
+    const crownCY  = trunkH + crownR * 0.35;
+    const numBlobs = 6 + Math.floor(rng() * 5); // 6–10
+
+    for (let i = 0; i < numBlobs; i++) {
+      const theta  = (i / numBlobs) * Math.PI * 2 + rng() * 0.6;
+      const blobR  = 0.55 + rng() * 0.55;
+      const dist   = crownR * (0.25 + rng() * 0.75);
+      const x      = Math.cos(theta) * dist;
+      const z      = Math.sin(theta) * dist;
+      const y      = crownCY + (rng() - 0.38) * crownR * 0.9;
+      const blobGeo = new THREE.SphereGeometry(blobR, 7, 6);
+      const blob    = new THREE.Mesh(blobGeo, rng() > 0.45 ? leafMat : innerMat);
+      blob.position.set(x, y, z);
+      blob.castShadow = true;
+      foliageGroup.add(blob);
+    }
+    // Central top blob fills in the crown
+    const topGeo  = new THREE.SphereGeometry(crownR * 0.62, 8, 7);
+    const topBlob = new THREE.Mesh(topGeo, leafMat);
+    topBlob.position.y = crownCY + crownR * 0.08;
+    topBlob.castShadow = true;
+    foliageGroup.add(topBlob);
+
+    group.add(foliageGroup);
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
+
+  } else if (treeType === "birch") {
+    // ── Birch ───────────────────────────────────────────────────────────────
+    const trunkH = 3.2 + rng() * 2.5;   // 3.2–5.7  slender and tall
+    const trunkR = 0.07 + rng() * 0.05; // slim trunk
+
+    // White/cream bark
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0xe0d8c8 });
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.55, trunkR, trunkH, 7);
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = trunkH / 2;
+    trunk.castShadow = true;
+    group.add(trunk);
+
+    // Horizontal dark bark markings
+    const markMat = new THREE.MeshLambertMaterial({ color: 0x201818 });
+    for (let i = 0; i < 3; i++) {
+      const markGeo = new THREE.CylinderGeometry(
+        trunkR * 1.06, trunkR * 1.06, 0.055, 7
+      );
+      const mark = new THREE.Mesh(markGeo, markMat);
+      mark.position.y = 0.4 + i * trunkH * 0.24 + rng() * 0.3;
+      group.add(mark);
+    }
+
+    // Graceful lean — birches often arch slightly
+    group.rotation.z = (rng() - 0.5) * 0.18;
+    group.rotation.x = (rng() - 0.5) * 0.12;
+
+    // Light yellow-green foliage blobs
+    const birchColors = [0x8ab840, 0x9ac855, 0x78a030, 0xaac850];
+    const leafMat = new THREE.MeshLambertMaterial({
+      color: birchColors[Math.floor(rng() * birchColors.length)],
+    });
+    const crownR  = 0.85 + rng() * 0.65;
+    const crownCY = trunkH + crownR * 0.15;
+    const numBlobs = 4 + Math.floor(rng() * 3); // 4–6
+
+    for (let i = 0; i < numBlobs; i++) {
+      const theta = (i / numBlobs) * Math.PI * 2 + rng() * 0.8;
+      const blobR = 0.32 + rng() * 0.38;
+      const dist  = crownR * (0.2 + rng() * 0.65);
+      const x     = Math.cos(theta) * dist;
+      const z     = Math.sin(theta) * dist;
+      const y     = crownCY + (rng() - 0.4) * crownR * 0.55;
+      const blobGeo = new THREE.SphereGeometry(blobR, 7, 6);
+      const blob    = new THREE.Mesh(blobGeo, leafMat);
+      blob.position.set(x, y, z);
+      blob.castShadow = true;
+      foliageGroup.add(blob);
+    }
+    group.add(foliageGroup);
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: false };
+
+  } else {
+    // ── Dead / Bare tree ────────────────────────────────────────────────────
+    const trunkH = 3.0 + rng() * 3.5;
+    const trunkR = 0.10 + rng() * 0.09;
+
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x252015 });
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.4, trunkR, trunkH, 6);
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = trunkH / 2;
+    trunk.castShadow = true;
+    group.add(trunk);
+
+    // Gnarled branch arms
+    const branchCount = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < branchCount; i++) {
+      const brH   = 1.0 + rng() * 1.6;
+      const brR   = trunkR * 0.28;
+      const brGeo = new THREE.CylinderGeometry(brR * 0.38, brR, brH, 5);
+      const branch = new THREE.Mesh(brGeo, trunkMat);
+      const angle  = rng() * Math.PI * 2;
+      const tilt   = 0.85 + rng() * 0.5;
+      branch.position.set(
+        Math.cos(angle) * trunkR * 0.7,
+        trunkH * (0.5 + rng() * 0.45),
+        Math.sin(angle) * trunkR * 0.7
+      );
+      branch.rotation.z = Math.cos(angle) * tilt;
+      branch.rotation.x = Math.sin(angle) * tilt;
+      branch.castShadow = true;
+      group.add(branch);
+    }
+    // Dead trees: no foliage — foliageGroup stays empty
+    group.add(foliageGroup);
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: false };
+  }
+}
+
+// ─── Bush / Shrub ─────────────────────────────────────────────────────────────
+
+export interface BushMeshResult {
+  group: THREE.Group;
+  /** Same as group — the whole bush sways in wind. */
+  foliageGroup: THREE.Group;
+}
+
+export function buildBushMesh(rng: () => number): BushMeshResult {
+  const group = new THREE.Group();
+
+  const scale = 0.45 + rng() * 0.65; // size variation
+
+  const leafColorHex = [0x1e5e10, 0x2d7a1a, 0x1a4a0e, 0x3a6e20, 0x255e15][
+    Math.floor(rng() * 5)
+  ];
+  const leafColor  = new THREE.Color(leafColorHex);
+  const innerColor = leafColor.clone().multiplyScalar(0.62);
+  const leafMat  = new THREE.MeshLambertMaterial({ color: leafColor });
+  const innerMat = new THREE.MeshLambertMaterial({ color: innerColor });
+
+  const numBlobs = 3 + Math.floor(rng() * 3); // 3–5 blobs
+
+  for (let i = 0; i < numBlobs; i++) {
+    const theta  = (i / numBlobs) * Math.PI * 2 + rng() * 1.1;
+    const blobR  = (0.28 + rng() * 0.30) * scale;
+    const dist   = scale * (0.18 + rng() * 0.42);
+    const x      = Math.cos(theta) * dist;
+    const z      = Math.sin(theta) * dist;
+    const y      = blobR * 0.55 + rng() * 0.18 * scale;
+    const blobGeo = new THREE.SphereGeometry(blobR, 7, 6);
+    blobGeo.scale(1 + rng() * 0.3, 0.78 + rng() * 0.32, 1 + rng() * 0.3);
+    const blob = new THREE.Mesh(blobGeo, rng() > 0.35 ? leafMat : innerMat);
+    blob.position.set(x, y, z);
+    blob.castShadow = true;
+    group.add(blob);
   }
 
-  return group;
+  // ~20% chance of berry clusters (red or orange)
+  if (rng() < 0.20) {
+    const berryColors = [0xcc2222, 0xdd6600, 0x991188];
+    const berryMat = new THREE.MeshLambertMaterial({
+      color: berryColors[Math.floor(rng() * berryColors.length)],
+    });
+    const numBerries = 4 + Math.floor(rng() * 5);
+    for (let i = 0; i < numBerries; i++) {
+      const berryGeo = new THREE.SphereGeometry(0.045 * scale, 4, 4);
+      const berry = new THREE.Mesh(berryGeo, berryMat);
+      berry.position.set(
+        (rng() - 0.5) * scale * 0.9,
+        (0.18 + rng() * 0.45) * scale,
+        (rng() - 0.5) * scale * 0.9
+      );
+      group.add(berry);
+    }
+  }
+
+  return { group, foliageGroup: group };
 }
 
 // ─── Rock ─────────────────────────────────────────────────────────────────────
