@@ -102,4 +102,43 @@ describe("Game3D component", () => {
     act(() => { jest.advanceTimersByTime(0); });
     expect(() => unmount()).not.toThrow();
   });
+
+  it("shows combat instruction (fight foxes) in intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/Bojuj s liškami/)).toBeInTheDocument();
+  });
+
+  it("shows attack key hint [F] in intro overlay", () => {
+    const { getAllByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // [F] appears in strong tags in intro
+    const fElements = getAllByText(/\[F\]/);
+    expect(fElements.length).toBeGreaterThan(0);
+  });
+
+  it("shows attack on fox hint in intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/útok na lišku/)).toBeInTheDocument();
+  });
+
+  it("does not show game over overlay initially", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText("Byl jsi poražen!")).toBeNull();
+    expect(queryByText("Zkusit znovu")).toBeNull();
+  });
+
+  it("does not show fox HP bar initially (not locked)", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText("Liška")).toBeNull();
+  });
+
+  it("does not show attack button when not locked", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/\[F\] Útok/)).toBeNull();
+  });
 });

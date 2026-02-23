@@ -46,6 +46,16 @@ const STAMINA_MAX = 100;
 const STAMINA_DRAIN = 22; // per second while sprinting
 const STAMINA_REGEN = 9; // per second while walking/idle
 
+// ─── Combat Constants ─────────────────────────────────────────────────────────
+const PLAYER_MAX_HP = 100;
+const FOX_MAX_HP = 60;
+const ATTACK_RANGE = 5;
+const ATTACK_DAMAGE = 25;
+const ATTACK_COOLDOWN = 0.65;
+const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
+const FOX_ATTACK_RANGE = 2.5;
+const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
   const deg = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
@@ -134,6 +144,11 @@ export default function Game3D() {
   const starsRef = useRef<THREE.Points | null>(null);
   const skyMeshRef = useRef<THREE.Mesh | null>(null);
 
+  // ─── Combat Refs ────────────────────────────────────────────────────────────
+  const playerHpRef = useRef(PLAYER_MAX_HP);
+  const playerAttackCooldownRef = useRef(0);
+  const foxesDefeatedRef = useRef(0);
+
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
     coinsCollected: 0,
@@ -143,16 +158,78 @@ export default function Game3D() {
     stamina: STAMINA_MAX,
     timeLabel: "07:12",
     direction: "N",
+    playerHp: PLAYER_MAX_HP,
+    foxesDefeated: 0,
+    attackReady: true,
   });
   const [showIntro, setShowIntro] = useState(true);
   const [gameStarted, setGameStarted] = useState(false);
   const [bleatingLabel, setBleatingLabel] = useState<string | null>(null);
   const [foxWarning, setFoxWarning] = useState(false);
+  const [hitFlash, setHitFlash] = useState(false);
+  const [attackEffect, setAttackEffect] = useState<string | null>(null);
+  const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
+  const [gameOver, setGameOver] = useState(false);
   const implementBufferRef = useRef<string>("");
 
   const lockPointer = useCallback(() => {
     if (mountRef.current) {
       mountRef.current.requestPointerLock();
+    }
+  }, []);
+
+  // ─── Flash fox mesh red on hit ───────────────────────────────────────────────
+  function flashFoxMesh(mesh: THREE.Group) {
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.set(0xff2200);
+          setTimeout(() => mat.emissive.set(0x000000), 220);
+        }
+      }
+    });
+  }
+
+  // ─── Player attack ───────────────────────────────────────────────────────────
+  const doAttack = useCallback(() => {
+    if (!isLockedRef.current) return;
+    if (playerAttackCooldownRef.current > 0) return;
+    if (!cameraRef.current) return;
+
+    const playerPos = cameraRef.current.position;
+    let closest: (typeof foxListRef.current)[0] | null = null;
+    let closestDist = ATTACK_RANGE;
+
+    foxListRef.current.forEach((fox) => {
+      if (!fox.isAlive) return;
+      const d = fox.mesh.position.distanceTo(playerPos);
+      if (d < closestDist) {
+        closestDist = d;
+        closest = fox;
+      }
+    });
+
+    playerAttackCooldownRef.current = ATTACK_COOLDOWN;
+
+    if (closest) {
+      const fox = closest as (typeof foxListRef.current)[0];
+      fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
+      fox.hitFlashTimer = 0.25;
+      flashFoxMesh(fox.mesh);
+
+      setAttackEffect(`-${ATTACK_DAMAGE}`);
+      setTimeout(() => setAttackEffect(null), 700);
+
+      if (fox.hp <= 0) {
+        fox.isAlive = false;
+        // Scale-down death animation handled in loop
+        foxesDefeatedRef.current++;
+      }
+    } else {
+      setAttackEffect("Miss");
+      setTimeout(() => setAttackEffect(null), 400);
     }
   }, []);
 
@@ -386,6 +463,11 @@ export default function Game3D() {
         mesh,
         wanderTimer: Math.random() * 4,
         wanderAngle: Math.random() * Math.PI * 2,
+        hp: FOX_MAX_HP,
+        maxHp: FOX_MAX_HP,
+        isAlive: true,
+        attackCooldown: Math.random() * 2,
+        hitFlashTimer: 0,
       };
     });
 
@@ -472,9 +554,22 @@ export default function Game3D() {
     scene.add(lighthouse);
 
     // ── Input ─────────────────────────────────────────────────────────────────
+    // ── Mouse click attack ────────────────────────────────────────────────────
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0 && isLockedRef.current) {
+        doAttack();
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+
     const IMPLEMENT_WORD = "IMPLEMENT";
     const onKey = (e: KeyboardEvent) => {
       keysRef.current[e.code] = e.type === "keydown";
+
+      // F key attack
+      if (e.type === "keydown" && e.code === "KeyF") {
+        doAttack();
+      }
 
       // IMPLEMENT word detection — any single printable character
       if (e.type === "keydown" && e.key.length === 1) {
@@ -663,67 +758,133 @@ export default function Game3D() {
         }
       });
 
+      // ── Attack cooldown ────────────────────────────────────────────────────
+      if (playerAttackCooldownRef.current > 0) {
+        playerAttackCooldownRef.current = Math.max(0, playerAttackCooldownRef.current - dt);
+      }
+
       // ── Fox AI ─────────────────────────────────────────────────────────────
       let foxNear = false;
+      let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
+      let closestAliveFoxDist = Infinity;
+
       foxListRef.current.forEach((fox) => {
         const fm = fox.mesh;
 
-        // Find closest non-fleeing sheep
-        let closestDist = FOX_CHASE_RADIUS;
-        let closestSheep: SheepData | null = null;
-        sheepListRef.current.forEach((sheep) => {
-          const d = fm.position.distanceTo(sheep.mesh.position);
-          if (d < closestDist) {
-            closestDist = d;
-            closestSheep = sheep;
+        // Death animation: scale down then hide
+        if (!fox.isAlive) {
+          if (fm.visible) {
+            fm.scale.setScalar(Math.max(0, fm.scale.x - dt * 4));
+            if (fm.scale.x <= 0.01) fm.visible = false;
           }
-        });
+          return;
+        }
 
-        if (closestSheep !== null) {
-          // Chase!
-          const target = (closestSheep as SheepData).mesh.position;
-          const dx = target.x - fm.position.x;
-          const dz = target.z - fm.position.z;
+        // Hit flash timer
+        if (fox.hitFlashTimer > 0) {
+          fox.hitFlashTimer = Math.max(0, fox.hitFlashTimer - dt);
+        }
+
+        const distToPlayer = fm.position.distanceTo(playerPos);
+
+        // Track nearest alive fox for HP display
+        if (distToPlayer < closestAliveFoxDist) {
+          closestAliveFoxDist = distToPlayer;
+          closestAliveFox = fox;
+        }
+
+        // Fox chases player if nearby, otherwise hunts sheep
+        const playerIsClose = distToPlayer < FOX_PLAYER_CHASE_RADIUS;
+
+        if (playerIsClose) {
+          // Chase player
+          const dx = playerPos.x - fm.position.x;
+          const dz = playerPos.z - fm.position.z;
           const len = Math.sqrt(dx * dx + dz * dz);
-          if (len > 0.1) {
-            fm.position.x += (dx / len) * FOX_SPEED * dt;
-            fm.position.z += (dz / len) * FOX_SPEED * dt;
+          if (len > FOX_ATTACK_RANGE) {
+            fm.position.x += (dx / len) * FOX_SPEED * 1.1 * dt;
+            fm.position.z += (dz / len) * FOX_SPEED * 1.1 * dt;
             fm.rotation.y = Math.atan2(dx, dz);
-          }
-          // Scare nearby sheep
-          if (closestDist < 8) {
-            (closestSheep as SheepData).isFleeing = true;
-            const fleeAngle = Math.atan2(
-              (closestSheep as SheepData).mesh.position.z - fm.position.z,
-              (closestSheep as SheepData).mesh.position.x - fm.position.x
-            );
-            (closestSheep as SheepData).targetAngle = fleeAngle;
+          } else {
+            // Attack player
+            fox.attackCooldown -= dt;
+            if (fox.attackCooldown <= 0) {
+              fox.attackCooldown = 1.0;
+              if (!gameOver) {
+                playerHpRef.current = Math.max(0, playerHpRef.current - FOX_ATTACK_DAMAGE);
+                setHitFlash(true);
+                setTimeout(() => setHitFlash(false), 300);
+                if (playerHpRef.current <= 0) {
+                  setGameOver(true);
+                  if (document.pointerLockElement) document.exitPointerLock();
+                }
+              }
+            }
           }
         } else {
-          // Wander
-          fox.wanderTimer -= dt;
-          if (fox.wanderTimer <= 0) {
-            fox.wanderAngle += (Math.random() - 0.5) * Math.PI;
-            fox.wanderTimer = 2 + Math.random() * 4;
-          }
-          fm.position.x += Math.cos(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
-          fm.position.z += Math.sin(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
-          fm.rotation.y = fox.wanderAngle + Math.PI / 2;
+          // Find closest sheep to hunt
+          let closestDist = FOX_CHASE_RADIUS;
+          let closestSheep: SheepData | null = null;
+          sheepListRef.current.forEach((sheep) => {
+            const d = fm.position.distanceTo(sheep.mesh.position);
+            if (d < closestDist) {
+              closestDist = d;
+              closestSheep = sheep;
+            }
+          });
 
-          // Bounce off edges
-          const half = WORLD_SIZE / 2 - 20;
-          if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
-          if (Math.abs(fm.position.z) > half) fox.wanderAngle = -fox.wanderAngle;
+          if (closestSheep !== null) {
+            // Chase sheep
+            const target = (closestSheep as SheepData).mesh.position;
+            const dx = target.x - fm.position.x;
+            const dz = target.z - fm.position.z;
+            const len = Math.sqrt(dx * dx + dz * dz);
+            if (len > 0.1) {
+              fm.position.x += (dx / len) * FOX_SPEED * dt;
+              fm.position.z += (dz / len) * FOX_SPEED * dt;
+              fm.rotation.y = Math.atan2(dx, dz);
+            }
+            if (closestDist < 8) {
+              (closestSheep as SheepData).isFleeing = true;
+              const fleeAngle = Math.atan2(
+                (closestSheep as SheepData).mesh.position.z - fm.position.z,
+                (closestSheep as SheepData).mesh.position.x - fm.position.x
+              );
+              (closestSheep as SheepData).targetAngle = fleeAngle;
+            }
+          } else {
+            // Wander
+            fox.wanderTimer -= dt;
+            if (fox.wanderTimer <= 0) {
+              fox.wanderAngle += (Math.random() - 0.5) * Math.PI;
+              fox.wanderTimer = 2 + Math.random() * 4;
+            }
+            fm.position.x += Math.cos(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
+            fm.position.z += Math.sin(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
+            fm.rotation.y = fox.wanderAngle + Math.PI / 2;
+
+            const half = WORLD_SIZE / 2 - 20;
+            if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
+            if (Math.abs(fm.position.z) > half) fox.wanderAngle = -fox.wanderAngle;
+          }
         }
 
         fm.position.y = getTerrainHeight(fm.position.x, fm.position.z);
 
-        // Check if fox is near player
-        if (fm.position.distanceTo(playerPos) < 18) {
+        if (distToPlayer < 18) {
           foxNear = true;
         }
       });
+
       setFoxWarning(foxNear);
+
+      // Update nearest fox HP display
+      if (closestAliveFox && closestAliveFoxDist < 18) {
+        const f = closestAliveFox as (typeof foxListRef.current)[0];
+        setNearFoxHp({ hp: f.hp, maxHp: f.maxHp, name: "Liška" });
+      } else {
+        setNearFoxHp(null);
+      }
 
       // ── Sheep AI ───────────────────────────────────────────────────────────
       let closeSheepCount = 0;
@@ -885,6 +1046,9 @@ export default function Game3D() {
         stamina: staminaRef.current,
         timeLabel: getTimeLabel(dayFraction),
         direction: getDirection(yawRef.current),
+        playerHp: playerHpRef.current,
+        foxesDefeated: foxesDefeatedRef.current,
+        attackReady: playerAttackCooldownRef.current <= 0,
       }));
 
       const bleatingNear = sheepListRef.current.find(
@@ -911,6 +1075,7 @@ export default function Game3D() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("pointerlockchange", onLockChange);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
@@ -926,14 +1091,30 @@ export default function Game3D() {
   const staminaPct = (gameState.stamina / STAMINA_MAX) * 100;
   const staminaColor =
     staminaPct > 60 ? "#4ade80" : staminaPct > 25 ? "#facc15" : "#f87171";
+  const hpPct = (gameState.playerHp / PLAYER_MAX_HP) * 100;
+  const hpColor = hpPct > 60 ? "#4ade80" : hpPct > 30 ? "#facc15" : "#f87171";
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black">
+      {/* Hit flash overlay */}
+      {hitFlash && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{ background: "rgba(220,30,30,0.35)", zIndex: 50 }}
+        />
+      )}
+
       {/* Three.js canvas */}
       <div
         ref={mountRef}
         className="w-full h-full cursor-crosshair"
-        onClick={lockPointer}
+        onClick={() => {
+          if (isLockedRef.current) {
+            doAttack();
+          } else {
+            lockPointer();
+          }
+        }}
       />
 
       {/* Crosshair */}
@@ -1018,6 +1199,32 @@ export default function Game3D() {
               />
             </div>
           </div>
+
+          {/* HP bar */}
+          <div
+            className="rounded-lg px-3 py-2 text-white text-xs"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+          >
+            <div className="mb-1 opacity-70">
+              ❤️ Zdraví {Math.round(hpPct)}%
+            </div>
+            <div className="h-2 rounded-full bg-gray-700 w-32">
+              <div
+                className="h-2 rounded-full transition-all duration-100"
+                style={{ width: `${hpPct}%`, background: hpColor }}
+              />
+            </div>
+          </div>
+
+          {/* Foxes defeated */}
+          {gameState.foxesDefeated > 0 && (
+            <div
+              className="rounded-lg px-3 py-2 text-white text-xs"
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+            >
+              🦊 Poraženo: <span className="font-bold text-orange-300">{gameState.foxesDefeated}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1033,6 +1240,61 @@ export default function Game3D() {
         </div>
       )}
 
+      {/* Nearest fox HP bar */}
+      {nearFoxHp && gameState.isLocked && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl px-4 py-2 text-white text-xs text-center"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", minWidth: 160 }}
+          >
+            <div className="mb-1 font-bold text-orange-300">{nearFoxHp.name}</div>
+            <div className="h-2.5 rounded-full bg-gray-700 w-36">
+              <div
+                className="h-2.5 rounded-full transition-all duration-100"
+                style={{
+                  width: `${(nearFoxHp.hp / nearFoxHp.maxHp) * 100}%`,
+                  background: nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "#f97316" : "#ef4444",
+                }}
+              />
+            </div>
+            <div className="mt-0.5 opacity-60">{nearFoxHp.hp} / {nearFoxHp.maxHp}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Attack effect popup */}
+      {attackEffect && gameState.isLocked && (
+        <div className="fixed top-1/2 left-1/2 pointer-events-none select-none"
+          style={{ transform: "translate(-50%, -120px)", zIndex: 60 }}
+        >
+          <div
+            className="font-bold text-2xl animate-bounce"
+            style={{
+              color: attackEffect === "Miss" ? "#9ca3af" : "#fbbf24",
+              textShadow: "0 0 8px rgba(0,0,0,0.8)",
+            }}
+          >
+            {attackEffect === "Miss" ? "Miss!" : attackEffect}
+          </div>
+        </div>
+      )}
+
+      {/* Attack button indicator (bottom center) */}
+      {gameState.isLocked && (
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-lg px-3 py-1.5 text-xs font-bold transition-all duration-100"
+            style={{
+              background: gameState.attackReady ? "rgba(220,80,20,0.75)" : "rgba(80,80,80,0.6)",
+              color: gameState.attackReady ? "#fff" : "#888",
+              backdropFilter: "blur(4px)",
+            }}
+          >
+            {gameState.attackReady ? "⚔️ [F] Útok" : "⚔️ Nabíjení…"}
+          </div>
+        </div>
+      )}
+
       {/* Controls hint */}
       {gameState.isLocked && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -1042,6 +1304,7 @@ export default function Game3D() {
           >
             WASD – pohyb &nbsp;|&nbsp; Myš – pohled &nbsp;|&nbsp; Mezerník –
             skok &nbsp;|&nbsp; Shift – sprint &nbsp;|&nbsp; Esc – pauza &nbsp;|&nbsp;
+            <span className="text-red-300">[F]/Klik</span> – útok &nbsp;|&nbsp;
             <span className="text-purple-300">IMPLEMENT</span> – návrh
           </div>
         </div>
@@ -1094,6 +1357,35 @@ export default function Game3D() {
         </div>
       )}
 
+      {/* Game Over overlay */}
+      {gameOver && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", zIndex: 100 }}
+        >
+          <div
+            className="rounded-2xl p-10 text-center text-white max-w-sm"
+            style={{
+              background: "rgba(60,10,10,0.95)",
+              border: "1px solid rgba(255,80,80,0.3)",
+            }}
+          >
+            <div className="text-5xl mb-3">💀</div>
+            <h2 className="text-3xl font-bold mb-2">Byl jsi poražen!</h2>
+            <p className="text-gray-400 text-sm mb-2">Lišky tě dostaly…</p>
+            <p className="text-gray-500 text-xs mb-6">
+              Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
+            </p>
+            <button
+              className="bg-red-700 hover:bg-red-600 transition-colors text-white font-bold px-8 py-3 rounded-xl text-lg w-full"
+              onClick={() => window.location.reload()}
+            >
+              Zkusit znovu
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Intro overlay */}
       {showIntro && (
         <div
@@ -1120,7 +1412,7 @@ export default function Game3D() {
               <div className="space-y-1">
                 <div>🐑 Zažeň <strong className="text-white">{SHEEP_COUNT} ovcí</strong> do ohrady</div>
                 <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
-                <div>🦊 Dej si pozor na <strong className="text-orange-400">lišky</strong>!</div>
+                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> pomocí [F] nebo kliknutím!</div>
               </div>
               <div className="space-y-1">
                 <div>🌅 Dynaminký <strong className="text-white">den/noc</strong></div>
@@ -1131,6 +1423,7 @@ export default function Game3D() {
             <div className="text-xs text-gray-500 mb-5 space-y-0.5">
               <div>🕹 <strong className="text-gray-300">WASD</strong> – pohyb &nbsp; 🖱 <strong className="text-gray-300">Myš</strong> – pohled</div>
               <div>⬆ <strong className="text-gray-300">Mezerník</strong> – skok &nbsp; 💨 <strong className="text-gray-300">Shift</strong> – sprint</div>
+              <div>⚔️ <strong className="text-gray-300">[F]</strong> nebo <strong className="text-gray-300">Klik</strong> – útok na lišku</div>
               <div>⏸ <strong className="text-gray-300">Esc</strong> – pauza &nbsp; 💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</div>
             </div>
             <button
