@@ -198,6 +198,8 @@ export default function SheepWalker() {
   const mouseRef        = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef   = useRef(false);
 
+  // Sets mounted flag on client after SSR hydration to gate browser-only effects
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setMounted(true); }, []);
 
   // ── Mouse tracking ──────────────────────────────────────────────────────────

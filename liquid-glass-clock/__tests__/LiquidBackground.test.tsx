@@ -99,6 +99,6 @@ describe("LiquidBackground component", () => {
     const { container } = render(<LiquidBackground />);
     const raysContainer = container.querySelector(".vol-rays-container");
     const lightSource = container.querySelector(".vol-light-source");
-    expect(raysContainer).toContainElement(lightSource!);
+    expect(raysContainer).toContainElement(lightSource as HTMLElement);
   });
 });
