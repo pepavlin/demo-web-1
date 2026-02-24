@@ -1,10 +1,14 @@
 /**
- * SoundManager – procedural audio engine for the 3D game.
+ * SoundManager – audio engine for the 3D game.
  *
- * All sounds are generated via the Web Audio API (no audio files needed).
+ * Sheep bleat uses a real recorded sample (CC0 public domain from BigSoundBank).
+ * All other sounds are generated via the Web Audio API procedurally.
  * Call `soundManager.init()` on the first user interaction (pointer lock),
  * then use the individual play* methods throughout the game loop.
  */
+
+// Paths to recorded sheep bleat samples (CC0 – BigSoundBank #2343)
+const SHEEP_BLEAT_SOURCES = ["/sounds/sheep-bleat.ogg", "/sounds/sheep-bleat.mp3"];
 
 class SoundManager {
   private ctx: AudioContext | null = null;
@@ -14,6 +18,10 @@ class SoundManager {
 
   private musicTimeout: ReturnType<typeof setTimeout> | null = null;
   private windTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /** Decoded sheep bleat buffer – null until loaded or if load failed. */
+  private _sheepBuffer: AudioBuffer | null = null;
+  private _sheepBufferLoading = false;
 
   private _muted = false;
   private _masterVolume = 0.75;
@@ -47,6 +55,30 @@ class SoundManager {
 
     this._scheduleAmbientChunk(0);
     this._scheduleWindGust();
+    this._loadSheepBuffer();
+  }
+
+  /** Fetch and decode the sheep bleat sample. Tries OGG first, then MP3. */
+  private _loadSheepBuffer(): void {
+    if (this._sheepBufferLoading || this._sheepBuffer || !this.ctx) return;
+    this._sheepBufferLoading = true;
+
+    const tryNext = (sources: string[]): void => {
+      if (!sources.length || !this.ctx) return;
+      const [url, ...rest] = sources;
+      fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.arrayBuffer();
+        })
+        .then((ab) => this.ctx!.decodeAudioData(ab))
+        .then((buf) => {
+          this._sheepBuffer = buf;
+        })
+        .catch(() => tryNext(rest));
+    };
+
+    tryNext(SHEEP_BLEAT_SOURCES);
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────
@@ -276,47 +308,85 @@ class SoundManager {
     });
   }
 
-  /** FM-synthesis sheep bleat. */
+  /** Sheep bleat – plays the recorded sample when available, procedural fallback otherwise. */
   playSheepBleat(): void {
     if (!this.ctx || !this.sfxGain) return;
+
+    if (this._sheepBuffer) {
+      this._playSheepSample();
+    } else {
+      this._playSheepProceduralFallback();
+    }
+  }
+
+  /** Play the decoded sheep audio buffer at a randomised pitch. */
+  private _playSheepSample(): void {
+    if (!this.ctx || !this.sfxGain || !this._sheepBuffer) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
-    // Carrier – sawtooth with frequency dips
-    const carrier = ctx.createOscillator();
-    carrier.type = "sawtooth";
-    carrier.frequency.setValueAtTime(440, t);
-    carrier.frequency.linearRampToValueAtTime(380, t + 0.18);
-    carrier.frequency.linearRampToValueAtTime(420, t + 0.32);
-    carrier.frequency.linearRampToValueAtTime(350, t + 0.5);
-
-    // Vibrato modulator
-    const mod = ctx.createOscillator();
-    mod.frequency.value = 6 + Math.random() * 3;
-    const modEnv = ctx.createGain();
-    modEnv.gain.value = 45;
-    mod.connect(modEnv);
-    modEnv.connect(carrier.frequency);
-
-    // Gentle lowpass
-    const flt = ctx.createBiquadFilter();
-    flt.type = "lowpass";
-    flt.frequency.value = 1100;
-    flt.Q.value = 0.4;
+    const src = ctx.createBufferSource();
+    src.buffer = this._sheepBuffer;
+    // Slight random pitch variation so repeated bleats sound natural
+    src.playbackRate.value = 0.92 + Math.random() * 0.16;
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(0.18, t + 0.04);
-    env.gain.setValueAtTime(0.18, t + 0.42);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+    env.gain.linearRampToValueAtTime(0.85, t + 0.02);
+    env.gain.setValueAtTime(0.85, t + this._sheepBuffer.duration - 0.08);
+    env.gain.linearRampToValueAtTime(0, t + this._sheepBuffer.duration);
+
+    src.connect(env);
+    env.connect(this.sfxGain);
+    src.start(t);
+  }
+
+  /**
+   * Procedural sheep bleat – used before the sample has loaded.
+   * Replaced the old sawtooth version with a softer sine-based approach
+   * to avoid the "creaking door" quality.
+   */
+  private _playSheepProceduralFallback(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const duration = 0.8;
+
+    // Nasal body: sine carrier with slow vibrato, pitched like a real bleat (~300 Hz)
+    const carrier = ctx.createOscillator();
+    carrier.type = "sine";
+    carrier.frequency.setValueAtTime(310, t);
+    carrier.frequency.linearRampToValueAtTime(370, t + 0.12);
+    carrier.frequency.linearRampToValueAtTime(280, t + 0.5);
+    carrier.frequency.linearRampToValueAtTime(260, t + duration);
+
+    // Vibrato (6–9 Hz tremor)
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 6 + Math.random() * 3;
+    const vibGain = ctx.createGain();
+    vibGain.gain.value = 18;
+    vib.connect(vibGain);
+    vibGain.connect(carrier.frequency);
+
+    // Bandpass mimicking nasal cavity resonance
+    const flt = ctx.createBiquadFilter();
+    flt.type = "bandpass";
+    flt.frequency.value = 700;
+    flt.Q.value = 1.2;
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(0.22, t + 0.05);
+    env.gain.setValueAtTime(0.22, t + duration - 0.15);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
     carrier.connect(flt);
     flt.connect(env);
     env.connect(this.sfxGain);
     carrier.start(t);
-    mod.start(t);
-    carrier.stop(t + 0.72);
-    mod.stop(t + 0.72);
+    vib.start(t);
+    carrier.stop(t + duration);
+    vib.stop(t + duration);
   }
 
   /** Low growl played when a fox is chasing the player. */
@@ -530,6 +600,8 @@ class SoundManager {
     this.masterGain = null;
     this.musicGain = null;
     this.sfxGain = null;
+    this._sheepBuffer = null;
+    this._sheepBufferLoading = false;
   }
 }
 
