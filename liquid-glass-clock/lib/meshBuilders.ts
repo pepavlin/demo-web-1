@@ -755,12 +755,12 @@ export function buildWeaponMesh(): THREE.Group {
 }
 
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
-export function buildLighthouse(): THREE.Group {
+export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();
 
   const bodyMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
   const redMat = new THREE.MeshLambertMaterial({ color: 0xcc2222 });
-  const glassMat = new THREE.MeshLambertMaterial({ color: 0xffff88, emissive: 0xffff00, emissiveIntensity: 0.5 });
+  const glassMat = new THREE.MeshLambertMaterial({ color: 0xffff88, emissive: 0xffff00, emissiveIntensity: 0.8 });
 
   // Base
   const baseGeo = new THREE.CylinderGeometry(1.8, 2.2, 1.2, 12);
@@ -783,9 +783,10 @@ export function buildLighthouse(): THREE.Group {
   }
 
   // Lantern room
+  const lanternY = 1.2 + 5 * bandH + 0.9; // 17.1
   const lanternGeo = new THREE.CylinderGeometry(1.3, 1.1, 1.8, 12);
   const lantern = new THREE.Mesh(lanternGeo, glassMat);
-  lantern.position.y = 1.2 + 5 * bandH + 0.9;
+  lantern.position.y = lanternY;
   group.add(lantern);
 
   // Dome
@@ -795,5 +796,50 @@ export function buildLighthouse(): THREE.Group {
   dome.castShadow = true;
   group.add(dome);
 
-  return group;
+  // ── Rotating beam pivot ────────────────────────────────────────────────────
+  // Pivot sits at lantern height; rotation.y is animated each frame
+  const beamPivot = new THREE.Group();
+  beamPivot.position.y = lanternY;
+
+  const beamLength = 80;
+
+  // Outer glow cone
+  const outerGeo = new THREE.ConeGeometry(5, beamLength, 16, 1, true);
+  const outerMat = new THREE.MeshBasicMaterial({
+    color: 0xffffaa,
+    transparent: true,
+    opacity: 0.10,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const outerBeam = new THREE.Mesh(outerGeo, outerMat);
+  // Rotate so tip points toward +X; shift so tip is at x=0, base at x=beamLength
+  outerBeam.rotation.z = Math.PI / 2;
+  outerBeam.position.x = beamLength / 2;
+  beamPivot.add(outerBeam);
+
+  // Bright inner core cone
+  const coreGeo = new THREE.ConeGeometry(1.8, beamLength, 8, 1, true);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const coreBeam = new THREE.Mesh(coreGeo, coreMat);
+  coreBeam.rotation.z = Math.PI / 2;
+  coreBeam.position.x = beamLength / 2;
+  beamPivot.add(coreBeam);
+
+  group.add(beamPivot);
+
+  // ── Point light at lantern (actual scene illumination) ─────────────────────
+  const lighthouseLight = new THREE.PointLight(0xffeeaa, 4, 130);
+  lighthouseLight.position.y = lanternY;
+  group.add(lighthouseLight);
+
+  return { group, beamPivot, lighthouseLight };
 }

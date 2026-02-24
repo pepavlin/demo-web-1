@@ -303,14 +303,49 @@ describe("buildRuins", () => {
 });
 
 describe("buildLighthouse", () => {
-  it("returns a THREE.Group", () => {
-    const lighthouse = buildLighthouse();
-    expect(lighthouse).toBeInstanceOf(THREE.Group);
+  it("returns { group, beamPivot, lighthouseLight }", () => {
+    const result = buildLighthouse();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.beamPivot).toBeInstanceOf(THREE.Group);
+    expect(result.lighthouseLight).toBeInstanceOf(THREE.PointLight);
   });
 
-  it("has multiple band segments and a lantern", () => {
-    const lighthouse = buildLighthouse();
-    expect(lighthouse.children.length).toBeGreaterThan(5);
+  it("group has multiple band segments, a lantern, beam pivot and light", () => {
+    const { group } = buildLighthouse();
+    expect(group.children.length).toBeGreaterThan(5);
+  });
+
+  it("beamPivot is a child of group", () => {
+    const { group, beamPivot } = buildLighthouse();
+    let found = false;
+    group.traverse((child) => {
+      if (child === beamPivot) found = true;
+    });
+    expect(found).toBe(true);
+  });
+
+  it("beamPivot has two cone meshes (outer glow + inner core)", () => {
+    const { beamPivot } = buildLighthouse();
+    expect(beamPivot.children.length).toBe(2);
+    beamPivot.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("lighthouseLight is a PointLight with warm colour", () => {
+    const { lighthouseLight } = buildLighthouse();
+    expect(lighthouseLight.color.r).toBeGreaterThan(0.9);
+    expect(lighthouseLight.color.g).toBeGreaterThan(0.8);
+    expect(lighthouseLight.distance).toBeGreaterThan(50);
+  });
+
+  it("beam cones use additive blending for glow effect", () => {
+    const { beamPivot } = buildLighthouse();
+    beamPivot.children.forEach((child) => {
+      const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      expect(mat.blending).toBe(THREE.AdditiveBlending);
+      expect(mat.transparent).toBe(true);
+    });
   });
 });
 
