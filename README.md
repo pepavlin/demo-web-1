@@ -48,6 +48,10 @@ Open [http://localhost:3000](http://localhost:3000) in multiple browser tabs or 
 | Space | Jump |
 | Shift | Sprint |
 | F / Click | Attack |
+| E | Enter / exit sheep body |
+| B | Toggle build mode |
+| T | Chat (explore) / Sculpt terrain (build) |
+| V | Toggle first-person / third-person camera |
 | Esc | Pause |
 
 ### Docker Compose
