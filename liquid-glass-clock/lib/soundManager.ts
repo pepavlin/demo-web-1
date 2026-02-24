@@ -24,6 +24,7 @@ class SoundManager {
   private _sheepBufferLoading = false;
 
   private _muted = false;
+  private _paused = false;
   private _masterVolume = 0.75;
   private _musicVolume = 0.38;
   private _sfxVolume = 0.72;
@@ -695,6 +696,39 @@ class SoundManager {
     return this._masterVolume;
   }
 
+  // ── Pause / Resume ───────────────────────────────────────────────────────
+
+  /**
+   * Suspend all audio and stop scheduling new sounds.
+   * Call when the game is paused (pointer lock released).
+   */
+  pause(): void {
+    if (!this.ctx || this._paused) return;
+    this._paused = true;
+    if (this.musicTimeout !== null) clearTimeout(this.musicTimeout);
+    if (this.windTimeout !== null) clearTimeout(this.windTimeout);
+    this.musicTimeout = null;
+    this.windTimeout = null;
+    this.ctx.suspend();
+  }
+
+  /**
+   * Resume all audio and restart ambient scheduling.
+   * Call when the game is unpaused (pointer lock reacquired).
+   */
+  resume(): void {
+    if (!this.ctx || !this._paused) return;
+    this._paused = false;
+    this.ctx.resume().then(() => {
+      this._scheduleAmbientChunk(0);
+      this._scheduleWindGust();
+    });
+  }
+
+  isPaused(): boolean {
+    return this._paused;
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   destroy(): void {
@@ -709,6 +743,7 @@ class SoundManager {
     this.sfxGain = null;
     this._sheepBuffer = null;
     this._sheepBufferLoading = false;
+    this._paused = false;
   }
 }
 
