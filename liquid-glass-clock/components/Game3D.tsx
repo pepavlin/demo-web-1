@@ -8,6 +8,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   getTerrainHeight,
+  getTerrainHeightSampled,
   generateSpawnPoints,
   initNoise,
   WORLD_SIZE,
@@ -657,7 +658,9 @@ export default function Game3D() {
         tries++;
         const wx = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
         const wz = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
-        const wy = getTerrainHeight(wx, wz);
+        // Use sampled height (bilinear from mesh grid) so blades sit on the
+        // visual surface rather than the raw noise value
+        const wy = getTerrainHeightSampled(wx, wz);
         if (wy < 0.3 || wy > 14) continue; // green terrain zones
 
         const h = BLADE_H * (0.5 + gRng() * 1.1);
@@ -789,7 +792,7 @@ export default function Game3D() {
         tries++;
         const wx = (fRng() - 0.5) * (WORLD_SIZE * 0.75);
         const wz = (fRng() - 0.5) * (WORLD_SIZE * 0.75);
-        const wy = getTerrainHeight(wx, wz);
+        const wy = getTerrainHeightSampled(wx, wz);
         if (wy < 0.5 || wy > 10) continue;
 
         const ps = 0.07 + fRng() * 0.09;  // petal size
@@ -1023,7 +1026,7 @@ export default function Game3D() {
       for (let i = 0; i < 3; i++) {
         const postGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6);
         const post = new THREE.Mesh(postGeo, fenceMat);
-        const py = getTerrainHeight(
+        const py = getTerrainHeightSampled(
           x + (i - 1) * 3 * Math.cos(ry),
           z + (i - 1) * 3 * Math.sin(ry)
         );
@@ -1038,7 +1041,7 @@ export default function Game3D() {
       const rail = new THREE.Mesh(railGeo, fenceMat);
       rail.rotation.z = Math.PI / 2;
       rail.rotation.y = ry;
-      const ry2 = getTerrainHeight(x, z);
+      const ry2 = getTerrainHeightSampled(x, z);
       rail.position.set(x, ry2 + 0.9, z);
       scene.add(rail);
     });
@@ -1047,7 +1050,7 @@ export default function Game3D() {
     const { group: windmillGroup, blades } = buildWindmill();
     const windmillX = 28;
     const windmillZ = 28;
-    windmillGroup.position.set(windmillX, getTerrainHeight(windmillX, windmillZ), windmillZ);
+    windmillGroup.position.set(windmillX, getTerrainHeightSampled(windmillX, windmillZ), windmillZ);
     scene.add(windmillGroup);
     windmillBladesRef.current = blades;
 
@@ -1060,7 +1063,7 @@ export default function Game3D() {
     const house = buildHouse(houseRng);
     const houseX = -28;
     const houseZ = 22;
-    house.position.set(houseX, getTerrainHeight(houseX, houseZ), houseZ);
+    house.position.set(houseX, getTerrainHeightSampled(houseX, houseZ), houseZ);
     house.rotation.y = Math.PI * 0.15;
     scene.add(house);
 
@@ -1073,7 +1076,7 @@ export default function Game3D() {
     const ruins = buildRuins(ruinsRng);
     const ruinsX = 180;
     const ruinsZ = -120;
-    ruins.position.set(ruinsX, getTerrainHeight(ruinsX, ruinsZ), ruinsZ);
+    ruins.position.set(ruinsX, getTerrainHeightSampled(ruinsX, ruinsZ), ruinsZ);
     ruins.rotation.y = 0.4;
     scene.add(ruins);
 
@@ -1081,7 +1084,7 @@ export default function Game3D() {
     const { group: lighthouse, beamPivot, lighthouseLight } = buildLighthouse();
     const lhX = -220;
     const lhZ = 180;
-    lighthouse.position.set(lhX, getTerrainHeight(lhX, lhZ), lhZ);
+    lighthouse.position.set(lhX, getTerrainHeightSampled(lhX, lhZ), lhZ);
     scene.add(lighthouse);
     lighthouseBeamRef.current = beamPivot;
     lighthouseLightRef.current = lighthouseLight;
@@ -1406,7 +1409,7 @@ export default function Game3D() {
         );
 
         // Water boundary: player cannot enter water
-        if (getTerrainHeight(cam.position.x, cam.position.z) < WATER_LEVEL) {
+        if (getTerrainHeightSampled(cam.position.x, cam.position.z) < WATER_LEVEL) {
           cam.position.x = playerPrevX;
           cam.position.z = playerPrevZ;
         }
@@ -1434,7 +1437,7 @@ export default function Game3D() {
         player.velY += GRAVITY * dt;
         cam.position.y += player.velY * dt;
 
-        const groundY = getTerrainHeight(cam.position.x, cam.position.z) + PLAYER_HEIGHT;
+        const groundY = getTerrainHeightSampled(cam.position.x, cam.position.z) + PLAYER_HEIGHT;
         if (cam.position.y <= groundY) {
           cam.position.y = groundY;
           player.velY = 0;
@@ -1467,7 +1470,7 @@ export default function Game3D() {
         if (coin.collected) return;
         coin.mesh.rotation.y += dt * 2.2;
         coin.mesh.position.y =
-          getTerrainHeight(coin.mesh.position.x, coin.mesh.position.z) +
+          getTerrainHeightSampled(coin.mesh.position.x, coin.mesh.position.z) +
           0.8 +
           Math.sin(elapsed * 2 + coin.mesh.position.x) * 0.15;
 
@@ -1664,13 +1667,14 @@ export default function Game3D() {
         }
 
         // Water boundary: fox cannot enter water
-        if (getTerrainHeight(fm.position.x, fm.position.z) < WATER_LEVEL) {
+        if (getTerrainHeightSampled(fm.position.x, fm.position.z) < WATER_LEVEL) {
           fm.position.x = foxPrevX;
           fm.position.z = foxPrevZ;
           fox.wanderAngle = Math.atan2(fm.position.z, fm.position.x) + Math.PI;
         }
 
-        fm.position.y = getTerrainHeight(fm.position.x, fm.position.z);
+        // Snap to the visual terrain surface (bilinear interpolation matches mesh)
+        fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z);
 
         if (distToPlayer < 18) {
           foxNear = true;
@@ -1786,7 +1790,7 @@ export default function Game3D() {
         s.position.z += Math.sin(sheep.currentAngle) * spd;
 
         // Water boundary: sheep cannot enter water
-        if (getTerrainHeight(s.position.x, s.position.z) < WATER_LEVEL) {
+        if (getTerrainHeightSampled(s.position.x, s.position.z) < WATER_LEVEL) {
           s.position.x = sheepPrevX;
           s.position.z = sheepPrevZ;
           sheep.targetAngle = sheep.currentAngle + Math.PI * (0.75 + Math.random() * 0.5);
@@ -1803,7 +1807,8 @@ export default function Game3D() {
           sheep.targetAngle = -sheep.currentAngle;
         }
 
-        s.position.y = getTerrainHeight(s.position.x, s.position.z);
+        // Snap to the visual terrain surface (bilinear interpolation matches mesh)
+        s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
         // Sheep rotation always matches currentAngle (it already turns smoothly)
         s.rotation.y = -sheep.currentAngle;
 
