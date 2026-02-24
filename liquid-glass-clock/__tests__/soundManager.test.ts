@@ -45,6 +45,12 @@ const mockFilter = () => ({
 
 const mockAudioBuffer = () => ({
   getChannelData: jest.fn(() => new Float32Array(44100)),
+  duration: 1.5,
+  numberOfChannels: 1,
+  sampleRate: 44100,
+  length: 44100,
+  copyFromChannel: jest.fn(),
+  copyToChannel: jest.fn(),
 });
 
 const mockCtx = {
@@ -56,10 +62,23 @@ const mockCtx = {
   close: jest.fn().mockResolvedValue(undefined),
   createGain: jest.fn(() => mockGainNode()),
   createOscillator: jest.fn(() => mockOscillator()),
-  createBufferSource: jest.fn(() => mockBufferSource()),
+  createBufferSource: jest.fn(() => ({
+    ...mockBufferSource(),
+    playbackRate: { value: 1 },
+  })),
   createBiquadFilter: jest.fn(() => mockFilter()),
   createBuffer: jest.fn(() => mockAudioBuffer()),
+  decodeAudioData: jest.fn(() => Promise.resolve(mockAudioBuffer())),
 };
+
+// Mock fetch so _loadSheepBuffer doesn't fail in jsdom
+const mockFetch = jest.fn(() =>
+  Promise.resolve({
+    ok: true,
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+  } as Response)
+);
+(global as unknown as Record<string, unknown>).fetch = mockFetch;
 
 // Patch global AudioContext before importing the module
 (global as unknown as Record<string, unknown>).AudioContext = jest
@@ -291,5 +310,49 @@ describe("SoundManager – destroy", () => {
       soundManager.destroy();
       soundManager.destroy();
     }).not.toThrow();
+  });
+});
+
+/** Flush microtask queue by awaiting multiple Promise.resolve() ticks. */
+const flushMicrotasks = async (ticks = 8) => {
+  for (let i = 0; i < ticks; i++) await Promise.resolve();
+};
+
+describe("SoundManager – sheep bleat sample loading", () => {
+  it("fetch is called for sheep sound on init()", () => {
+    mockFetch.mockClear();
+    soundManager.init();
+    // fetch should have been called for OGG (first source)
+    expect(mockFetch).toHaveBeenCalledWith("/sounds/sheep-bleat.ogg");
+  });
+
+  it("playSheepBleat() does not throw when sample has not loaded yet", () => {
+    soundManager.init();
+    expect(() => soundManager.playSheepBleat()).not.toThrow();
+  });
+
+  it("playSheepBleat() uses BufferSource when sample is loaded", async () => {
+    soundManager.init();
+    // Flush: fetch → arrayBuffer → decodeAudioData → assign _sheepBuffer
+    await flushMicrotasks();
+
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    soundManager.playSheepBleat();
+    expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(prevCalls);
+  });
+
+  it("falls back to OGG→MP3 when OGG fetch fails", async () => {
+    // Set up mock BEFORE init so _loadSheepBuffer sees the rejection for OGG
+    mockFetch
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      } as Response);
+
+    soundManager.init();
+    await flushMicrotasks();
+
+    expect(mockFetch).toHaveBeenCalledWith("/sounds/sheep-bleat.mp3");
   });
 });
