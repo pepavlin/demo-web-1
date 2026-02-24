@@ -37,6 +37,7 @@ import {
   buildSwordMesh,
   buildSniperMesh,
   buildBoatMesh,
+  buildCatapultMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -628,5 +629,60 @@ describe("buildBoatMesh", () => {
     expect(boat.position.x).toBe(0);
     expect(boat.position.y).toBe(0);
     expect(boat.position.z).toBe(0);
+  });
+});
+
+describe("buildCatapultMesh", () => {
+  it("returns an object with a group and armGroup", () => {
+    const { group, armGroup } = buildCatapultMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+    expect(armGroup).toBeInstanceOf(THREE.Group);
+  });
+
+  it("armGroup is a child of the main group", () => {
+    const { group, armGroup } = buildCatapultMesh();
+    expect(group.children).toContain(armGroup);
+  });
+
+  it("arm starts in loaded (back) position (rotation.x ~= -1.1)", () => {
+    const { armGroup } = buildCatapultMesh();
+    expect(armGroup.rotation.x).toBeCloseTo(-1.1, 1);
+  });
+
+  it("group is positioned at origin by default", () => {
+    const { group } = buildCatapultMesh();
+    expect(group.position.x).toBe(0);
+    expect(group.position.y).toBe(0);
+    expect(group.position.z).toBe(0);
+  });
+
+  it("main group contains at least 10 child objects (frame, wheels, arm, etc.)", () => {
+    const { group } = buildCatapultMesh();
+    // Traverse all descendants and count meshes
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThanOrEqual(10);
+  });
+
+  it("arm group contains the arm beam and counterweight", () => {
+    const { armGroup } = buildCatapultMesh();
+    let meshCount = 0;
+    armGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    // long arm, short arm, counterweight block, two sling ropes, cannonball = 6+
+    expect(meshCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it("uses MeshLambertMaterial on all mesh descendants", () => {
+    const { group } = buildCatapultMesh();
+    group.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+      }
+    });
   });
 });

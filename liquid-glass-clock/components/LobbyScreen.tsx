@@ -317,6 +317,7 @@ export default function LobbyScreen({ onJoin }: Props) {
             <div>🌅 Dynamický den/noc</div>
             <div>🌟 Sesbírej mince</div>
             <div>🦊 Bojuj s liškami</div>
+            <div>💣 Znič katapulty</div>
           </div>
         </div>
       </div>

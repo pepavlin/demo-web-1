@@ -105,6 +105,39 @@ export interface BulletData {
   lifetime: number; // seconds remaining before despawn
 }
 
+export interface CatapultData {
+  mesh: THREE.Group;
+  /** The rotating arm group — pivots around the X axis on fire. */
+  armGroup: THREE.Group;
+  hp: number;
+  maxHp: number;
+  isAlive: boolean;
+  /** Countdown in seconds until the catapult can fire again. */
+  fireCooldown: number;
+  /** Flash red on hit; counts down to 0. */
+  hitFlashTimer: number;
+  /** 0 = rest position, increases to 1 on fire then resets (arm swing animation). */
+  firingAnimation: number;
+}
+
+export interface CannonballData {
+  mesh: THREE.Mesh;
+  /** Flat shadow disc projected to terrain below the ball */
+  shadowMesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  lifetime: number; // seconds remaining before despawn
+}
+
+/** A brief impact explosion ring that expands and fades on cannonball landing. */
+export interface ImpactEffect {
+  /** Flat ring mesh that scales outward */
+  ring: THREE.Mesh;
+  /** Upward-smoke group containing several small particles */
+  particles: THREE.Mesh[];
+  age: number;     // seconds elapsed
+  maxAge: number;  // total life in seconds
+}
+
 export interface GameState {
   sheepCollected: number;
   coinsCollected: number;
@@ -116,5 +149,6 @@ export interface GameState {
   direction: string;
   playerHp: number;
   foxesDefeated: number;
+  catapultsDefeated: number;
   attackReady: boolean;
 }
