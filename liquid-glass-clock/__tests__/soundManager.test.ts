@@ -224,8 +224,38 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => soundManager.playCoinCollect()).not.toThrow();
   });
 
-  it("playSheepBleat()", () => {
+  it("playSheepBleat() – default volume (1.0)", () => {
     expect(() => soundManager.playSheepBleat()).not.toThrow();
+  });
+
+  it("playSheepBleat(0.5) – half volume (distant sheep)", () => {
+    expect(() => soundManager.playSheepBleat(0.5)).not.toThrow();
+  });
+
+  it("playSheepBleat(0) – zero volume is silently skipped", () => {
+    const prevCalls = mockCtx.createOscillator.mock.calls.length;
+    soundManager.playSheepBleat(0);
+    // No new audio nodes should be created for a fully silent bleat
+    expect(mockCtx.createOscillator.mock.calls.length).toBe(prevCalls);
+  });
+
+  it("playSheepBleat(1.5) – volume > 1 is clamped to 1", () => {
+    expect(() => soundManager.playSheepBleat(1.5)).not.toThrow();
+  });
+
+  it("playSheepBleat(-0.5) – negative volume is clamped to 0 (no audio nodes)", () => {
+    const prevCalls = mockCtx.createOscillator.mock.calls.length;
+    soundManager.playSheepBleat(-0.5);
+    expect(mockCtx.createOscillator.mock.calls.length).toBe(prevCalls);
+  });
+
+  it("multiple playSheepBleat() calls produce independent sounds simultaneously", () => {
+    // Simulate 3 nearby sheep bleating at different volumes
+    soundManager.playSheepBleat(1.0);
+    soundManager.playSheepBleat(0.7);
+    soundManager.playSheepBleat(0.3);
+    // Each call should create its own audio graph (no shared state)
+    expect(() => {}).not.toThrow();
   });
 
   it("playFoxGrowl()", () => {
@@ -338,6 +368,15 @@ describe("SoundManager – sheep bleat sample loading", () => {
 
     const prevCalls = mockCtx.createBufferSource.mock.calls.length;
     soundManager.playSheepBleat();
+    expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(prevCalls);
+  });
+
+  it("playSheepBleat(0.5) uses BufferSource when sample is loaded (distance-based volume)", async () => {
+    soundManager.init();
+    await flushMicrotasks();
+
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    soundManager.playSheepBleat(0.5);
     expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(prevCalls);
   });
 

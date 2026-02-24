@@ -308,19 +308,27 @@ class SoundManager {
     });
   }
 
-  /** Sheep bleat – plays the recorded sample when available, procedural fallback otherwise. */
-  playSheepBleat(): void {
+  /**
+   * Sheep bleat – plays the recorded sample when available, procedural fallback otherwise.
+   * @param volume  Spatial volume in [0, 1] – 1 = closest (max volume), 0 = inaudible.
+   *                Use distance-based attenuation: volume = 1 - dist / maxDist.
+   *                Multiple calls are independent, so several sheep can bleat simultaneously.
+   */
+  playSheepBleat(volume: number = 1): void {
     if (!this.ctx || !this.sfxGain) return;
+    const vol = Math.max(0, Math.min(1, volume));
+    // Skip completely inaudible bleats to save resources
+    if (vol < 0.01) return;
 
     if (this._sheepBuffer) {
-      this._playSheepSample();
+      this._playSheepSample(vol);
     } else {
-      this._playSheepProceduralFallback();
+      this._playSheepProceduralFallback(vol);
     }
   }
 
-  /** Play the decoded sheep audio buffer at a randomised pitch. */
-  private _playSheepSample(): void {
+  /** Play the decoded sheep audio buffer at a randomised pitch and given volume. */
+  private _playSheepSample(volume: number): void {
     if (!this.ctx || !this.sfxGain || !this._sheepBuffer) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -330,10 +338,11 @@ class SoundManager {
     // Slight random pitch variation so repeated bleats sound natural
     src.playbackRate.value = 0.92 + Math.random() * 0.16;
 
+    const peak = 0.85 * volume;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(0.85, t + 0.02);
-    env.gain.setValueAtTime(0.85, t + this._sheepBuffer.duration - 0.08);
+    env.gain.linearRampToValueAtTime(peak, t + 0.02);
+    env.gain.setValueAtTime(peak, t + this._sheepBuffer.duration - 0.08);
     env.gain.linearRampToValueAtTime(0, t + this._sheepBuffer.duration);
 
     src.connect(env);
@@ -346,7 +355,7 @@ class SoundManager {
    * Replaced the old sawtooth version with a softer sine-based approach
    * to avoid the "creaking door" quality.
    */
-  private _playSheepProceduralFallback(): void {
+  private _playSheepProceduralFallback(volume: number): void {
     if (!this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -374,10 +383,11 @@ class SoundManager {
     flt.frequency.value = 700;
     flt.Q.value = 1.2;
 
+    const peak = 0.22 * volume;
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(0.22, t + 0.05);
-    env.gain.setValueAtTime(0.22, t + duration - 0.15);
+    env.gain.linearRampToValueAtTime(peak, t + 0.05);
+    env.gain.setValueAtTime(peak, t + duration - 0.15);
     env.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
     carrier.connect(flt);
