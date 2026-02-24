@@ -638,124 +638,409 @@ export default function Game3D() {
 
     // ── Grass ───────────────────────────────────────────────────────────────
     {
-      const GRASS_COUNT = 20000;
-      const BLADE_H = 0.65;
-      const BLADE_W = 0.10;
+      // Realistic grass: each blade uses a quadratic bezier curve baked into
+      // vertex positions, 3 planes with random Y-rotation (120° apart) for
+      // full volumetric appearance from all camera angles, true pointed tip,
+      // and 4 height bands for smooth curvature. Different cluster archetypes
+      // (short tuft / mixed meadow / tall reed) add habitat variety.
+      const GRASS_COUNT = 65000;
+      const BLADE_H_BASE = 0.72;
+      const BLADE_W_BASE = 0.092;
       let gSeed = 7391;
       const gRng = () => {
         gSeed = (gSeed * 1664525 + 1013904223) & 0xffffffff;
         return (gSeed >>> 0) / 0xffffffff;
+      };
+      // Spatially-coherent hash: nearby positions return similar values,
+      // creating smooth patches of colour variation across the terrain.
+      const posHash = (x: number, z: number): number => {
+        const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+        return s - Math.floor(s);
       };
 
       const gPos: number[] = [];
       const gHeightFactor: number[] = [];
       const gWindPhase: number[] = [];
       const gColor: number[] = [];
+      // Per-blade lean direction (normalised XZ) used in shader for directional wind
+      const gLeanDir: number[] = [];
+      const gWindStr: number[] = [];
 
+      const CLUSTER_RADIUS = 0.60;
+      const BLADES_MIN = 4;
+      const BLADES_MAX = 9;
+      // Height band t-values: 5 bands give 4 regular quads + 1 tip triangle per plane
+      // Denser at the bottom for a more natural root/base curve
+      const H_LEVELS = [0, 0.18, 0.42, 0.70, 1.0];
       let placed = 0;
       let tries = 0;
-      while (placed < GRASS_COUNT && tries < GRASS_COUNT * 6) {
+
+      while (placed < GRASS_COUNT && tries < GRASS_COUNT * 8) {
         tries++;
-        const wx = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
-        const wz = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
+        const cx = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
+        const cz = (gRng() - 0.5) * (WORLD_SIZE * 0.85);
         // Use sampled height (bilinear from mesh grid) so blades sit on the
         // visual surface rather than the raw noise value
-        const wy = getTerrainHeightSampled(wx, wz);
-        if (wy < 0.3 || wy > 14) continue; // green terrain zones
+        const cy = getTerrainHeightSampled(cx, cz);
+        if (cy < 0.3 || cy > 14) continue; // green terrain zones
 
-        const h = BLADE_H * (0.5 + gRng() * 1.1);
-        const w = BLADE_W * (0.55 + gRng() * 0.9);
-        // Slight random lean direction
-        const tiltX = (gRng() - 0.5) * 0.18;
-        const tiltZ = (gRng() - 0.5) * 0.18;
-        // Wind phase varies by world position for wave-like field motion
-        const phase = wx * 0.48 + wz * 0.73;
-        // Color variation: fresh green, dry yellowish, or dark lush
-        const colorRoll = gRng();
-        let greenVariant: number, baseR: number, tipR: number;
-        if (colorRoll < 0.2) {
-          // Dry/yellowish tufts
-          greenVariant = 0.55 + gRng() * 0.15;
-          baseR = 0.22 + gRng() * 0.08;
-          tipR  = 0.45 + gRng() * 0.12;
-        } else if (colorRoll < 0.55) {
-          // Bright fresh green
-          greenVariant = 0.60 + gRng() * 0.15;
-          baseR = 0.10 + gRng() * 0.05;
-          tipR  = 0.20 + gRng() * 0.08;
-        } else {
-          // Lush dark green
-          greenVariant = 0.45 + gRng() * 0.12;
-          baseR = 0.08 + gRng() * 0.04;
-          tipR  = 0.18 + gRng() * 0.06;
+        const clusterTypeRoll = gRng();
+        const isValley = cy < 3.5;
+        const isHigh   = cy > 8;
+        const bladesInCluster = Math.floor(
+          BLADES_MIN + gRng() * (BLADES_MAX - BLADES_MIN + 1)
+        );
+        const clusterPhase = cx * 0.48 + cz * 0.73;
+        const pH = posHash(Math.floor(cx / 6), Math.floor(cz / 6));
+
+        for (let b = 0; b < bladesInCluster && placed < GRASS_COUNT; b++) {
+          const angle = gRng() * Math.PI * 2;
+          const rr = Math.sqrt(gRng()) * CLUSTER_RADIUS;
+          const wx = cx + Math.cos(angle) * rr;
+          const wz = cz + Math.sin(angle) * rr;
+          const wy = getTerrainHeight(wx, wz);
+          if (wy < 0.2) continue;
+
+          // ── Blade size + wind stiffness ──────────────────────────────────
+          let hScale: number, wScale: number, windStr: number;
+          if (clusterTypeRoll < 0.20) {
+            hScale = 0.28 + gRng() * 0.30;
+            wScale = 0.85 + gRng() * 0.55;
+            windStr = 0.45 + gRng() * 0.30;
+          } else if (clusterTypeRoll < 0.78) {
+            const tR = gRng();
+            if (tR < 0.30) {
+              hScale = 0.42 + gRng() * 0.32;
+              wScale = 0.72 + gRng() * 0.45;
+              windStr = 0.55 + gRng() * 0.30;
+            } else if (tR < 0.82) {
+              hScale = 0.68 + gRng() * 0.78;
+              wScale = 0.50 + gRng() * 0.55;
+              windStr = 0.80 + gRng() * 0.38;
+            } else {
+              hScale = 1.35 + gRng() * 0.80;
+              wScale = 0.30 + gRng() * 0.30;
+              windStr = 1.25 + gRng() * 0.45;
+            }
+          } else {
+            hScale = 1.25 + gRng() * 0.95;
+            wScale = 0.28 + gRng() * 0.32;
+            windStr = 1.30 + gRng() * 0.45;
+          }
+          if (isHigh)   { hScale *= 0.82; windStr *= 0.65; }
+          if (isValley) { hScale *= 1.12; windStr *= 1.10; }
+
+          const h = BLADE_H_BASE * hScale;
+          const w = BLADE_W_BASE * wScale;
+
+          // Static lean (persistent wind bias) + natural random lean
+          const windLean = 0.055;
+          const tiltX = (gRng() - 0.5) * 0.28 + windLean;
+          const tiltZ = (gRng() - 0.5) * 0.28;
+          // Arc bow: mid-point control offset for the quadratic bezier
+          const bowX = (gRng() - 0.5) * 0.20;
+          const bowZ = (gRng() - 0.5) * 0.20;
+          const phase = clusterPhase + (gRng() - 0.5) * 0.45;
+
+          // Lean direction (normalised XZ) stored per-vertex for shader wind
+          const leanLen = Math.sqrt(tiltX * tiltX + tiltZ * tiltZ) + 0.001;
+          const leanNX = tiltX / leanLen;
+          const leanNZ = tiltZ / leanLen;
+
+          // ── Colour: 6 archetypes with terrain-zone + patch-hash ──────────
+          const colorRoll = gRng();
+          const lushBoost = isValley ? 0.15 : 0.0;
+          const dryBoost  = isHigh   ? 0.15 : 0.0;
+          let greenV: number, baseR: number, tipR: number, blueV: number;
+          if (colorRoll < 0.05 + dryBoost) {
+            // Straw / bleached dry
+            greenV = 0.38 + gRng() * 0.12 + pH * 0.06;
+            baseR  = 0.28 + gRng() * 0.10;
+            tipR   = 0.55 + gRng() * 0.14;
+            blueV  = 0.03;
+          } else if (colorRoll < 0.13 + dryBoost) {
+            // Autumn rust — reddish-orange tips
+            greenV = 0.32 + gRng() * 0.14 + pH * 0.04;
+            baseR  = 0.22 + gRng() * 0.08;
+            tipR   = 0.60 + gRng() * 0.16;
+            blueV  = 0.02;
+          } else if (colorRoll < 0.24 + dryBoost) {
+            // Yellowish / olive dry
+            greenV = 0.50 + gRng() * 0.13 + pH * 0.05;
+            baseR  = 0.18 + gRng() * 0.08;
+            tipR   = 0.38 + gRng() * 0.10;
+            blueV  = 0.04;
+          } else if (colorRoll < 0.55 + lushBoost) {
+            // Bright fresh green
+            greenV = 0.63 + gRng() * 0.16 + pH * 0.07;
+            baseR  = 0.06 + gRng() * 0.06;
+            tipR   = 0.15 + gRng() * 0.08;
+            blueV  = 0.04 + gRng() * 0.04;
+          } else if (colorRoll < 0.82 + lushBoost) {
+            // Lush dark green
+            greenV = 0.46 + gRng() * 0.12 + pH * 0.06;
+            baseR  = 0.05 + gRng() * 0.04;
+            tipR   = 0.13 + gRng() * 0.06;
+            blueV  = 0.05 + gRng() * 0.03;
+          } else {
+            // Blue-green — cool shaded/wet meadow
+            greenV = 0.52 + gRng() * 0.13 + pH * 0.05;
+            baseR  = 0.04 + gRng() * 0.04;
+            tipR   = 0.10 + gRng() * 0.06;
+            blueV  = 0.14 + gRng() * 0.08;
+          }
+
+          // ── Geometry: 3 planes at random Y-rotation (120° apart) ─────────
+          // Bezier curve baked into vertex positions: blade centre follows
+          // B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
+          //   P0=(0,0) (root), P1=(bowX,bowZ) (ctrl), P2=(tiltX,tiltZ) (tip)
+          const rotY = gRng() * Math.PI * 2;
+
+          const pushPlane = (planeAngle: number) => {
+            const ca = Math.cos(planeAngle);
+            const sa = Math.sin(planeAngle);
+
+            for (let seg = 0; seg < H_LEVELS.length - 1; seg++) {
+              const t0 = H_LEVELS[seg];
+              const t1 = H_LEVELS[seg + 1];
+              const isTip = seg === H_LEVELS.length - 2;
+
+              // Bezier centre at each height level
+              const cx0 = 2 * (1 - t0) * t0 * bowX + t0 * t0 * tiltX;
+              const cz0 = 2 * (1 - t0) * t0 * bowZ + t0 * t0 * tiltZ;
+              const cx1 = 2 * (1 - t1) * t1 * bowX + t1 * t1 * tiltX;
+              const cz1 = 2 * (1 - t1) * t1 * bowZ + t1 * t1 * tiltZ;
+
+              // Half-width: wide at base, tapers sharply near tip (power 0.65)
+              // Extra width at root for realistic thick-base appearance
+              const rootBoost = t0 < 0.2 ? (1.0 + (0.2 - t0) * 0.8) : 1.0;
+              const hw0 = (w / 2) * Math.pow(1 - t0, 0.65) * rootBoost;
+              const rootBoost1 = t1 < 0.2 ? (1.0 + (0.2 - t1) * 0.8) : 1.0;
+              const hw1 = (w / 2) * Math.pow(1 - t1, 0.65) * rootBoost1;
+
+              // World-space vertex positions (perpendicular to plane direction)
+              const lx0 = wx + cx0 - hw0 * ca, lz0 = wz + cz0 - hw0 * sa;
+              const rx0 = wx + cx0 + hw0 * ca, rz0 = wz + cz0 + hw0 * sa;
+              const y0  = wy + h * t0;
+              const lx1 = wx + cx1 - hw1 * ca, lz1 = wz + cz1 - hw1 * sa;
+              const rx1 = wx + cx1 + hw1 * ca, rz1 = wz + cz1 + hw1 * sa;
+              const y1  = wy + h * t1;
+
+              const pushVert = (x: number, y: number, z: number, hf: number) => {
+                gPos.push(x, y, z);
+                gHeightFactor.push(hf);
+                gWindPhase.push(phase);
+                gWindStr.push(windStr);
+                gLeanDir.push(leanNX, leanNZ);
+                // Root zone (hf < 0.18): dark soil-tinted, almost black-brown
+                // Mid blade: full green with slight AO variation
+                // Tip: lighter, slightly yellowed or bleached
+                const rootMask = Math.max(0, 1.0 - hf / 0.22); // 1 at root, 0 above
+                const tipMask  = Math.max(0, (hf - 0.65) / 0.35); // 0 below 0.65, 1 at tip
+                const midGreen = 0.25 + hf * 0.75; // ramp base→full green
+                const cr = baseR * (1.0 - rootMask * 0.7) + (tipR - baseR) * tipMask
+                          + rootMask * 0.04; // soil dark root
+                const cg = greenV * midGreen * (1.0 - rootMask * 0.85)
+                          + tipMask * greenV * 0.22; // tip brightens
+                // Base: dark/blue-shifted (cool ground shadow), tip: warmer, yellower
+                const cb = blueV * (1.0 - hf * 0.55) + hf * 0.04 + rootMask * 0.02;
+                gColor.push(cr, cg, cb);
+              };
+
+              if (!isTip) {
+                // Regular quad (two triangles)
+                pushVert(lx0, y0, lz0, t0);
+                pushVert(rx0, y0, rz0, t0);
+                pushVert(lx1, y1, lz1, t1);
+                pushVert(rx0, y0, rz0, t0);
+                pushVert(rx1, y1, rz1, t1);
+                pushVert(lx1, y1, lz1, t1);
+              } else {
+                // Tip: single triangle converging to a sharp point
+                const tipX = wx + cx1, tipZ = wz + cz1;
+                pushVert(lx0, y0, lz0, t0);
+                pushVert(rx0, y0, rz0, t0);
+                pushVert(tipX, y1, tipZ, t1);
+              }
+            }
+          };
+
+          // Three planes evenly spaced at 120° — full volumetric coverage
+          pushPlane(rotY);
+          pushPlane(rotY + Math.PI / 3 * 2);       // 120°
+          pushPlane(rotY + Math.PI / 3 * 4);        // 240°
+
+          placed++;
         }
-
-        // Two crossed quads (12 vertices), heightFactor: 0=base, 1=tip
-        const verts: [number, number, number, number][] = [
-          // Quad 1 (facing Z)
-          [-w / 2, 0,  0,  0],
-          [ w / 2, 0,  0,  0],
-          [-w / 2 + tiltX, h, tiltZ, 1],
-          [ w / 2, 0,  0,  0],
-          [ w / 2 + tiltX, h, tiltZ, 1],
-          [-w / 2 + tiltX, h, tiltZ, 1],
-          // Quad 2 (facing X)
-          [0, 0, -w / 2, 0],
-          [0, 0,  w / 2, 0],
-          [tiltX, h, -w / 2 + tiltZ, 1],
-          [0, 0,  w / 2, 0],
-          [tiltX, h,  w / 2 + tiltZ, 1],
-          [tiltX, h, -w / 2 + tiltZ, 1],
-        ];
-
-        for (const [bx, by, bz, hf] of verts) {
-          gPos.push(wx + bx, wy + by, wz + bz);
-          gHeightFactor.push(hf);
-          gWindPhase.push(phase);
-          // Base is darker/slightly bluer, tip is lighter and slightly yellow-green
-          gColor.push(
-            baseR + (tipR - baseR) * hf,
-            greenVariant * (0.68 + hf * 0.32),
-            0.08 + hf * 0.06
-          );
-        }
-        placed++;
       }
 
       const grassGeo = new THREE.BufferGeometry();
-      grassGeo.setAttribute("position", new THREE.Float32BufferAttribute(gPos, 3));
+      grassGeo.setAttribute("position",     new THREE.Float32BufferAttribute(gPos, 3));
       grassGeo.setAttribute("heightFactor", new THREE.Float32BufferAttribute(gHeightFactor, 1));
-      grassGeo.setAttribute("windPhase", new THREE.Float32BufferAttribute(gWindPhase, 1));
-      grassGeo.setAttribute("grassColor", new THREE.Float32BufferAttribute(gColor, 3));
+      grassGeo.setAttribute("windPhase",    new THREE.Float32BufferAttribute(gWindPhase, 1));
+      grassGeo.setAttribute("grassColor",   new THREE.Float32BufferAttribute(gColor, 3));
+      grassGeo.setAttribute("leanDir",      new THREE.Float32BufferAttribute(gLeanDir, 2));
+      grassGeo.setAttribute("windStr",      new THREE.Float32BufferAttribute(gWindStr, 1));
 
       const grassMat = new THREE.ShaderMaterial({
-        uniforms: { time: { value: 0.0 } },
+        uniforms: {
+          time:          { value: 0.0 },
+          sunDir:        { value: new THREE.Vector3(0.5, 0.8, 0.3) },
+          sunIntensity:  { value: 1.0 },
+          moonIntensity: { value: 0.0 },
+          dayFraction:   { value: 0.5 },
+          // Global wind direction (normalised XZ); slowly rotates over time
+          windDir:       { value: new THREE.Vector2(0.82, 0.38) },
+        },
         vertexShader: `
           attribute float heightFactor;
           attribute float windPhase;
-          attribute vec3 grassColor;
+          attribute vec3  grassColor;
+          attribute vec2  leanDir;
+          attribute float windStr;
           uniform float time;
-          varying vec3 vColor;
+          uniform vec3  sunDir;
+          uniform float sunIntensity;
+          uniform float moonIntensity;
+          uniform float dayFraction;
+          uniform vec2  windDir;
+          varying vec3  vColor;
+          varying float vHeightFactor;
+          varying float vWindBend;
+
           void main() {
             vec3 pos = position;
-            // Quadratic curve: tips sway more than base, creating natural blade bend
-            float curve = heightFactor * heightFactor;
-            float wind = (sin(windPhase + time * 1.7) * 0.55 + cos(windPhase * 1.4 + time * 1.2) * 0.45);
-            float gust  = sin(time * 0.4 + windPhase * 0.05) * 0.3; // slow gusts
-            pos.x += (wind + gust) * curve * 0.18;
-            pos.z += wind * curve * 0.09;
-            // Darken grass base (ambient occlusion hint)
-            vColor = grassColor * (0.60 + heightFactor * 0.40);
+
+            // ── Wind: multi-layer physically-inspired model ──────────────────
+            // Power-4 curve: roots fully anchored, tip moves freely, with a
+            // non-linear mid-blade flex for a more realistic draping motion
+            float hf2 = heightFactor * heightFactor;
+            float curve = hf2 * hf2;                      // power-4 for sharp root anchor
+            float curveMid = hf2 * (3.0 - 2.0 * heightFactor); // smooth-step flex
+
+            // Primary wave — gentle rhythmic sway along wind direction
+            float windPrimary = sin(windPhase + time * 1.80) * 0.55
+                              + cos(windPhase * 1.27 + time * 1.25) * 0.38;
+            // Secondary counter-sway (natural figure-8 oscillation)
+            float windSecond  = sin(windPhase * 0.73 + time * 2.45) * 0.22
+                              + cos(windPhase * 0.91 + time * 1.97) * 0.15;
+            // Slow rolling gust front (large coherent field)
+            float gustFront   = sin(time * 0.31 + windPhase * 0.035) * 0.68
+                              + cos(time * 0.14 + windPhase * 0.018) * 0.36;
+            // High-frequency tip flutter (leaf membrane vibration)
+            float windFlutter = sin(windPhase * 2.7 + time * 5.2) * 0.14
+                              + cos(windPhase * 1.9 + time * 6.8) * 0.09;
+            // Micro-turbulence (air pocket churn)
+            float turbulence  = sin(windPhase * 6.1 + time * 8.4) * 0.06
+                              + cos(windPhase * 4.3 + time * 10.7) * 0.04;
+            // Gust impulse — sharp periodic surge (non-sinusoidal via squaring)
+            float gustImpulse = max(0.0, sin(time * 0.22 + windPhase * 0.008)) * 0.45;
+            gustImpulse *= gustImpulse; // sharpen the gust peak
+
+            float totalWind = (windPrimary + windSecond * 0.6 + gustFront
+                              + windFlutter + turbulence + gustImpulse) * windStr;
+
+            // Wind displacement: main along wind dir, cross-component adds twist
+            // curveMid: slight mid-blade pre-flex before the tip swings fully
+            float windMag = totalWind * curve * 0.20;
+            float preFlex = totalWind * curveMid * 0.05; // slight mid-blade bow
+            pos.x += (windMag + preFlex) * windDir.x + windMag * leanDir.x * 0.20;
+            pos.z += (windMag + preFlex) * windDir.y + windMag * leanDir.y * 0.20;
+            // Physical droop: blade compresses downward under wind load
+            pos.y -= abs(totalWind) * curve * 0.032 + abs(preFlex) * 0.012;
+
+            // ── Lighting ────────────────────────────────────────────────────
+            // Layered AO: very dark near soil, brightens sharply through root zone
+            float ao = 0.14 + heightFactor * 0.86;
+            // Exponential contact shadow at very base (blades cluster, block light)
+            float contactShadow = smoothstep(0.0, 0.20, heightFactor);
+            ao *= 0.42 + 0.58 * contactShadow;
+            // Additional dark band right at the soil surface (root shadow)
+            ao *= 0.70 + 0.30 * smoothstep(0.0, 0.08, heightFactor);
+
+            // Green bounce-light from ground (GI approximation, stronger in valley)
+            vec3 bounce = vec3(0.025, 0.075, 0.015) * (1.0 - heightFactor * 0.7) * 0.65;
+
+            // Sun diffuse
+            float sunFace = max(0.0, sunDir.y) * 0.42 + 0.58;
+
+            // Time-of-day factors
+            float goldenHour = smoothstep(0.18, 0.28, dayFraction)
+                             * (1.0 - smoothstep(0.72, 0.82, dayFraction));
+            float goldenTint = (1.0 - goldenHour) * 0.38;
+            float nightFactor = max(0.0, 1.0 - goldenHour
+                               - smoothstep(0.25, 0.50, dayFraction)
+                               * smoothstep(0.75, 0.50, dayFraction));
+
+            vec3 baseCol = grassColor * ao * sunFace * (sunIntensity * 0.88 + 0.12);
+            baseCol += bounce;
+
+            // Tip brightening: thin edges catch glancing sunlight (specular-like)
+            float tipSpec = hf2 * heightFactor * 0.14 * sunIntensity;
+            baseCol += vec3(tipSpec * 0.30, tipSpec * 0.90, tipSpec * 0.18);
+
+            // Subsurface translucency: warm yellow-green glow at mid-blade
+            float sssVert = heightFactor * (1.0 - heightFactor) * 4.2 * 0.09 * sunIntensity;
+            baseCol += vec3(sssVert * 0.55, sssVert, sssVert * 0.08);
+
+            // Fresnel-like rim brightening on blade edges at mid-to-upper height
+            float rimEdge = smoothstep(0.3, 0.8, heightFactor) * 0.05 * sunIntensity;
+            baseCol += vec3(rimEdge * 0.4, rimEdge, rimEdge * 0.2);
+
+            // Golden-hour warm shift
+            baseCol.r += goldenTint * heightFactor * 0.32 * sunIntensity;
+            baseCol.g += goldenTint * heightFactor * 0.14 * sunIntensity;
+
+            // Night: cool, desaturated, slightly blue-purple
+            baseCol = mix(baseCol, vec3(0.06, 0.09, 0.16) * ao, nightFactor * 0.70);
+            // Moonlight silvery sheen
+            baseCol += vec3(0.04, 0.055, 0.09) * moonIntensity * (0.25 + heightFactor * 0.75);
+
+            vColor = baseCol;
+            vHeightFactor = heightFactor;
+            vWindBend = abs(totalWind) * windStr * 0.15;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
           }
         `,
         fragmentShader: `
-          varying vec3 vColor;
+          varying vec3  vColor;
+          varying float vHeightFactor;
+          varying float vWindBend;
+          uniform vec3  sunDir;
+          uniform float sunIntensity;
+
           void main() {
-            gl_FragColor = vec4(vColor, 1.0);
+            // Sharp alpha at the very tip for pointed blade silhouette
+            float tipFade = smoothstep(0.68, 1.0, vHeightFactor);
+            float alpha = 1.0 - tipFade * 0.90;
+
+            // Thin root mask: fade out the very base slightly (natural soil merge)
+            float rootFade = smoothstep(0.0, 0.04, vHeightFactor);
+            alpha *= rootFade;
+
+            // Subsurface scattering: warm translucent glow when blade is backlit
+            // Also active at mid-blade where light transmits through the thin leaf
+            float sssBacklit = max(0.0, -sunDir.y + 0.25) * vHeightFactor * 0.35;
+            float sssMid = vHeightFactor * (1.0 - vHeightFactor) * 3.5 * 0.06;
+            float sss = sssBacklit + sssMid * sunIntensity;
+            vec3 sssCol = vec3(sss * 1.15, sss * 0.90, sss * 0.08);
+
+            // Sky rim light: bright sky picks out blade edges at the tip
+            // Stronger edge glow where blades are backlit by sun
+            float rimSky = pow(max(0.0, vHeightFactor), 3.0) * 0.08 * max(0.0, sunDir.y + 0.2);
+            // Additional warm rim from wind-bent blades catching sunlight
+            float rimWind = vWindBend * pow(max(0.0, vHeightFactor), 2.0) * 0.04 * sunIntensity;
+            vec3 col = vColor + sssCol
+                     + vec3(rimSky * 0.50, rimSky * 0.95, rimSky * 0.25)
+                     + vec3(rimWind * 0.60, rimWind * 1.0, rimWind * 0.20);
+
+            gl_FragColor = vec4(col, alpha);
           }
         `,
         side: THREE.DoubleSide,
+        transparent: true,
+        alphaTest: 0.04,
+        depthWrite: true,
       });
 
       const grassMesh = new THREE.Mesh(grassGeo, grassMat);
@@ -1332,9 +1617,17 @@ export default function Game3D() {
         else if (c.mesh.position.z < -cloudBound) c.mesh.position.z = cloudBound - 10;
       });
 
-      // ── Grass wind ────────────────────────────────────────────────────────
-      if (grassMatRef.current) {
-        grassMatRef.current.uniforms.time.value = elapsed;
+      // ── Grass wind & lighting ─────────────────────────────────────────────
+      if (grassMatRef.current && sunRef.current) {
+        const gm = grassMatRef.current;
+        gm.uniforms.time.value = elapsed;
+        gm.uniforms.sunDir.value.copy(sunRef.current.position).normalize();
+        gm.uniforms.sunIntensity.value = getSunIntensity(dayFraction);
+        gm.uniforms.moonIntensity.value = moonRef.current ? moonRef.current.intensity : 0;
+        gm.uniforms.dayFraction.value = dayFraction;
+        // Slowly rotate global wind direction so grass sways from varying angles
+        const windAngle = elapsed * 0.04;
+        gm.uniforms.windDir.value.set(Math.cos(windAngle), Math.sin(windAngle));
       }
 
       // ── Flora (tree & bush foliage) wind sway ─────────────────────────────
