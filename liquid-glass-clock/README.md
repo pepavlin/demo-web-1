@@ -95,6 +95,39 @@ You are an explorer in a living open world. The day/night cycle advances in real
 - **Persistence** — blocks saved to `localStorage` and restored on reload (up to 500)
 - **Terrain sculpt mode** (`T` while in build mode) — raise/lower terrain with the scroll wheel using a smooth cosine-falloff brush; vertex colours update live
 
+## Multiplayer
+
+The game is fully multiplayer. Any number of players can join from their own browsers and see each other in real time.
+
+### Joining
+
+1. Open the game URL in your browser.
+2. Type your name (or leave it blank to use the default "Hráč").
+3. Press **Mezerník** (Spacebar) or **Enter** — or click **"Vstoupit do světa"**.
+
+### Hosting a local session
+
+```bash
+npm install
+npm run dev
+```
+
+Share your local IP address (e.g. `http://192.168.1.x:3000`) with other players on the same network. They open that URL, pick a name, and press Spacebar to join.
+
+### What you see
+
+- **Lobby** shows a live list of players already in the world.
+- **In-game** shows a small *Online* panel (bottom-left) with all connected players and their assigned colours.
+- A toast notification appears whenever someone joins or leaves.
+- Remote players are rendered as 3D coloured characters with their name floating above their head.
+
+### Server API
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/players/count` | `{ count: N }` — number of players currently online |
+| `GET /api/players/list` | `{ players: [{id, name, color}] }` — full player list |
+
 ## Getting Started
 
 ```bash
@@ -102,7 +135,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — click **"Hrát!"** to start.
+Open [http://localhost:3000](http://localhost:3000) in one or more browser tabs (or on different computers) and press **Mezerník** to enter the world.
 
 ## Running Tests
 
@@ -137,6 +170,7 @@ liquid-glass-clock/
 │   ├── globals.css         # Global styles
 │   ├── layout.tsx          # Root layout
 │   └── page.tsx            # Main page
+├── server.mjs              # Custom HTTP + Socket.io multiplayer server
 ├── components/             # React components
 │   ├── Clock.tsx           # Animated clock with parallax
 │   ├── ElementSuggestionMenu.tsx  # Right-click suggestion menu
@@ -144,6 +178,7 @@ liquid-glass-clock/
 │   ├── Game3D.tsx          # 3D open-world game (Three.js)
 │   ├── GeometricParticles.tsx     # Canvas particle system
 │   ├── LiquidBackground.tsx       # Volumetric light background
+│   ├── LobbyScreen.tsx     # Multiplayer lobby with name input
 │   ├── Sheep.tsx           # Autonomous sheep character
 │   ├── SheepWalker.tsx     # Mouse-following sheep
 │   ├── SlimeJumper.tsx     # Slime physics character
@@ -151,6 +186,7 @@ liquid-glass-clock/
 │   └── VioletSheep.tsx    # Keyboard-controlled wall-walker
 ├── hooks/                  # Custom React hooks
 │   ├── useMouseParallax.ts # Mouse-based 3D tilt
+│   ├── useMultiplayer.ts   # Socket.io multiplayer hook
 │   ├── useTasks.ts         # Task polling hook (polls webhook)
 │   └── useVersionCheck.ts  # Build version checker
 ├── lib/                    # Shared utilities
@@ -167,6 +203,7 @@ liquid-glass-clock/
 
 - **Next.js 16** (App Router, standalone output)
 - **Three.js** — 3D rendering, shadows, fog
+- **Socket.io** — real-time multiplayer (WebSocket with polling fallback)
 - **simplex-noise** — procedural terrain generation
 - **framer-motion** — UI animations and parallax
 - **Tailwind CSS v4** — HUD and overlay styling

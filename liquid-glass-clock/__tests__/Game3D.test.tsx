@@ -20,6 +20,17 @@ jest.mock("three", () => {
   };
 });
 
+// Mock socket.io-client to prevent real WebSocket connections in tests
+jest.mock("socket.io-client", () => ({
+  io: jest.fn(() => ({
+    connected: false,
+    on: jest.fn(),
+    off: jest.fn(),
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  })),
+}));
+
 // Mock EffectComposer and postprocessing passes (require WebGL context)
 const mockComposer = {
   addPass: jest.fn(),
@@ -326,5 +337,23 @@ describe("Game3D component", () => {
     // The HUD controls bar (shown when locked) has [F]/Drž klik
     const hints = getAllByText(/\[F\]\/Drž klik/);
     expect(hints.length).toBeGreaterThan(0);
+  });
+
+  // ─── Multiplayer UI ───────────────────────────────────────────────────────
+
+  it("does not show mp-notification initially", () => {
+    const { queryByTestId } = render(<Game3D playerName="Tester" />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByTestId("mp-notification")).toBeNull();
+  });
+
+  it("does not show online-players-panel when no remote players", () => {
+    const { queryByTestId } = render(<Game3D playerName="Tester" />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByTestId("online-players-panel")).toBeNull();
+  });
+
+  it("accepts a playerName prop without crashing", () => {
+    expect(() => render(<Game3D playerName="Karel" />)).not.toThrow();
   });
 });
