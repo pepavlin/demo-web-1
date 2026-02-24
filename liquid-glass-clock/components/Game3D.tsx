@@ -56,6 +56,7 @@ import {
   buildSwordMesh,
   buildSniperMesh,
   type SheepMeshParts,
+  type RuinsResult,
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, GameState, WeaponType } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
@@ -425,6 +426,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const treeCollisionRef = useRef<Array<{
     x: number; z: number;
     radius: number;        // trunk radius + small buffer
+  }>>([]);
+  /** Box colliders for landmarks (house, ruins walls).
+   *  halfW / halfD are local half-extents; rotY is the world-space rotation. */
+  const boxCollidersRef = useRef<Array<{
+    cx: number; cz: number;
+    halfW: number; halfD: number;
+    rotY: number;
   }>>([]);
 
   // ─── Combat Refs ────────────────────────────────────────────────────────────
@@ -2048,10 +2056,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     };
     const rockPoints = generateSpawnPoints(ROCK_COUNT, 15, 380, 456);
     rockPoints.forEach((p) => {
-      const rock = buildRockMesh(rockRng);
+      const { mesh: rock, collisionRadius: rockCollRadius } = buildRockMesh(rockRng);
       rock.position.set(p.x, p.y + 0.2, p.z);
       rock.rotation.y = rockRng() * Math.PI * 2;
       scene.add(rock);
+      // All rocks block the player — even small ones are solid obstacles
+      treeCollisionRef.current.push({ x: p.x, z: p.z, radius: rockCollRadius + PLAYER_RADIUS });
     });
 
     // ── Sheep ────────────────────────────────────────────────────────────────
@@ -2162,6 +2172,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     windmillGroup.position.set(windmillX, getTerrainHeightSampled(windmillX, windmillZ), windmillZ);
     scene.add(windmillGroup);
     windmillBladesRef.current = blades;
+    // Cylinder collider for the windmill tower (base radius 1.1)
+    treeCollisionRef.current.push({ x: windmillX, z: windmillZ, radius: 1.1 + PLAYER_RADIUS });
 
     // ── Farmhouse (near the pen) ──────────────────────────────────────────────
     let houseSeed = 88;
@@ -2175,6 +2187,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     house.position.set(houseX, getTerrainHeightSampled(houseX, houseZ), houseZ);
     house.rotation.y = Math.PI * 0.15;
     scene.add(house);
+    // Box collider for the house walls (7×5.5 footprint, same rotation as the mesh)
+    boxCollidersRef.current.push({ cx: houseX, cz: houseZ, halfW: 3.5, halfD: 2.75, rotY: Math.PI * 0.15 });
 
     // ── Ruins (distant location) ──────────────────────────────────────────────
     let ruinsSeed = 999;
@@ -2182,12 +2196,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       ruinsSeed = (ruinsSeed * 1664525 + 1013904223) & 0xffffffff;
       return (ruinsSeed >>> 0) / 0xffffffff;
     };
-    const ruins = buildRuins(ruinsRng);
+    const { group: ruins, boxColliders: ruinsBoxes, cylColliders: ruinsCyls }: RuinsResult = buildRuins(ruinsRng);
     const ruinsX = 180;
     const ruinsZ = -120;
+    const ruinsRotY = 0.4;
     ruins.position.set(ruinsX, getTerrainHeightSampled(ruinsX, ruinsZ), ruinsZ);
-    ruins.rotation.y = 0.4;
+    ruins.rotation.y = ruinsRotY;
     scene.add(ruins);
+    // Register ruins box colliders in world space (rotate local positions by ruinsRotY)
+    {
+      const cosR = Math.cos(ruinsRotY);
+      const sinR = Math.sin(ruinsRotY);
+      for (const bc of ruinsBoxes) {
+        boxCollidersRef.current.push({
+          cx: ruinsX + bc.lx * cosR - bc.lz * sinR,
+          cz: ruinsZ + bc.lx * sinR + bc.lz * cosR,
+          halfW: bc.halfW,
+          halfD: bc.halfD,
+          rotY: bc.rotY + ruinsRotY,
+        });
+      }
+      for (const cc of ruinsCyls) {
+        treeCollisionRef.current.push({
+          x: ruinsX + cc.lx * cosR - cc.lz * sinR,
+          z: ruinsZ + cc.lx * sinR + cc.lz * cosR,
+          radius: cc.radius + PLAYER_RADIUS,
+        });
+      }
+    }
 
     // ── Lighthouse (on a coastal rise) ───────────────────────────────────────
     const { group: lighthouse, beamPivot, lighthouseLight } = buildLighthouse();
@@ -2197,6 +2233,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(lighthouse);
     lighthouseBeamRef.current = beamPivot;
     lighthouseLightRef.current = lighthouseLight;
+    // Cylinder collider for the lighthouse base (base radius 2.2)
+    treeCollisionRef.current.push({ x: lhX, z: lhZ, radius: 2.2 + PLAYER_RADIUS });
 
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click — attack OR build depending on current mode ───────────────
@@ -2788,6 +2826,57 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
+        // Box colliders: houses, ruins walls — OBB push-out in 2D
+        for (const box of boxCollidersRef.current) {
+          const cosR = Math.cos(box.rotY);
+          const sinR = Math.sin(box.rotY);
+          const dx = cam.position.x - box.cx;
+          const dz = cam.position.z - box.cz;
+          // Transform to box-local space (rotate by -rotY)
+          const lx = dx * cosR + dz * sinR;
+          const lz = -dx * sinR + dz * cosR;
+          const inflW = box.halfW + PLAYER_RADIUS;
+          const inflD = box.halfD + PLAYER_RADIUS;
+          if (Math.abs(lx) < inflW && Math.abs(lz) < inflD) {
+            // Push out along the axis of least penetration
+            const overlapX = inflW - Math.abs(lx);
+            const overlapZ = inflD - Math.abs(lz);
+            let pushLx = 0, pushLz = 0;
+            if (overlapX < overlapZ) {
+              pushLx = overlapX * Math.sign(lx);
+            } else {
+              pushLz = overlapZ * Math.sign(lz);
+            }
+            const newLx = lx + pushLx;
+            const newLz = lz + pushLz;
+            // Rotate back to world space
+            cam.position.x = box.cx + newLx * cosR - newLz * sinR;
+            cam.position.z = box.cz + newLx * sinR + newLz * cosR;
+          }
+        }
+
+        // Building block horizontal collision — AABB per block
+        for (const block of placedBlocksDataRef.current) {
+          const bdx = cam.position.x - block.x;
+          const bdz = cam.position.z - block.z;
+          if (Math.abs(bdx) > 1.5 || Math.abs(bdz) > 1.5) continue; // quick distance cull
+          const playerFeetY = cam.position.y - PLAYER_HEIGHT;
+          const blockTop = block.y + 0.5;
+          const blockBottom = block.y - 0.5;
+          // Only apply horizontal push when player height overlaps with block
+          if (playerFeetY >= blockTop || cam.position.y <= blockBottom) continue;
+          const inflH = 0.5 + PLAYER_RADIUS;
+          if (Math.abs(bdx) < inflH && Math.abs(bdz) < inflH) {
+            const overlapX = inflH - Math.abs(bdx);
+            const overlapZ = inflH - Math.abs(bdz);
+            if (overlapX < overlapZ) {
+              cam.position.x += overlapX * Math.sign(bdx);
+            } else {
+              cam.position.z += overlapZ * Math.sign(bdz);
+            }
+          }
+        }
+
         const player = playerRef.current;
         if (keys["Space"] && player.onGround) {
           player.velY = JUMP_FORCE;
@@ -2797,7 +2886,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         player.velY += GRAVITY * dt;
         cam.position.y += player.velY * dt;
 
-        const groundY = getTerrainHeightSampled(cam.position.x, cam.position.z) + PLAYER_HEIGHT;
+        // Ground detection: terrain height or top of placed blocks
+        let groundY = getTerrainHeightSampled(cam.position.x, cam.position.z) + PLAYER_HEIGHT;
+        for (const block of placedBlocksDataRef.current) {
+          const bdx = Math.abs(cam.position.x - block.x);
+          const bdz = Math.abs(cam.position.z - block.z);
+          if (bdx <= 0.5 && bdz <= 0.5) {
+            const blockGroundY = block.y + 0.5 + PLAYER_HEIGHT;
+            if (blockGroundY > groundY) groundY = blockGroundY;
+          }
+        }
         if (cam.position.y <= groundY) {
           cam.position.y = groundY;
           player.velY = 0;
