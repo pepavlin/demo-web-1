@@ -105,6 +105,10 @@ const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
 // Weapon position in camera-local space (first-person)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
+// ─── Possession Constants ─────────────────────────────────────────────────────
+const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
+const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when possessed
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
   const deg = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
@@ -399,12 +403,19 @@ export default function Game3D() {
   const sculptIndicatorRef = useRef<THREE.Mesh | null>(null);
   const buildRaycasterRef = useRef(new THREE.Raycaster());
 
+  // ─── Possession Refs ─────────────────────────────────────────────────────────
+  const possessedSheepRef = useRef<SheepData | null>(null);
+  const nearestSheepForPossessRef = useRef<SheepData | null>(null);
+  const highlightedSheepRef = useRef<SheepData | null>(null);
+
   const [isMuted, setIsMuted] = useState(false);
   const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
     mode: "explore",
     selectedMaterial: "wood",
     blockCount: 0,
   });
+  const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
+  const [isPossessed, setIsPossessed] = useState(false);
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -445,6 +456,17 @@ export default function Game3D() {
           mat.emissive.set(0xff2200);
           setTimeout(() => mat.emissive.set(0x000000), 220);
         }
+      }
+    });
+  }
+
+  // ─── Sheep highlight helpers (possession target) ─────────────────────────────
+  function setSheepEmissive(sheep: SheepData, color: number) {
+    sheep.mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) mat.emissive.setHex(color);
       }
     });
   }
@@ -1755,6 +1777,38 @@ export default function Game3D() {
         doAttack();
       }
 
+      // E key: possess / unpossess nearby sheep
+      if (e.type === "keydown" && e.code === "KeyE") {
+        if (possessedSheepRef.current) {
+          // Exit possession — place player above the sheep's current position
+          const sheep = possessedSheepRef.current;
+          if (cameraRef.current) {
+            const groundY = getTerrainHeightSampled(
+              sheep.mesh.position.x,
+              sheep.mesh.position.z
+            );
+            cameraRef.current.position.set(
+              sheep.mesh.position.x,
+              groundY + PLAYER_HEIGHT,
+              sheep.mesh.position.z
+            );
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+          }
+          // Remove highlight before clearing ref
+          setSheepEmissive(sheep, 0x000000);
+          highlightedSheepRef.current = null;
+          possessedSheepRef.current = null;
+          setIsPossessed(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+        } else if (nearestSheepForPossessRef.current) {
+          // Enter sheep body
+          possessedSheepRef.current = nearestSheepForPossessRef.current;
+          setIsPossessed(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        }
+      }
+
       // B key — toggle build mode on/off
       if (e.type === "keydown" && e.code === "KeyB") {
         const next: BuildMode = buildModeRef.current !== "explore" ? "explore" : "build";
@@ -2071,8 +2125,8 @@ export default function Game3D() {
         lighthouseLightRef.current.intensity = isNight ? 6 : 1.5;
       }
 
-      // ── Player movement ────────────────────────────────────────────────────
-      if (isLockedRef.current) {
+      // ── Player movement (only when NOT possessing an entity) ───────────────
+      if (isLockedRef.current && !possessedSheepRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -2212,6 +2266,88 @@ export default function Game3D() {
       } else {
         if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
         if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
+      }
+
+      // ── Possessed sheep control ────────────────────────────────────────────
+      if (isLockedRef.current && possessedSheepRef.current) {
+        const sheep = possessedSheepRef.current;
+        const s = sheep.mesh;
+        const keys = keysRef.current;
+        const cam = cameraRef.current!;
+
+        // Move sheep with WASD using the camera yaw for direction
+        const sheepFwd = new THREE.Vector3(
+          -Math.sin(yawRef.current), 0, -Math.cos(yawRef.current)
+        );
+        const sheepRight = new THREE.Vector3(
+          Math.cos(yawRef.current), 0, -Math.sin(yawRef.current)
+        );
+        const sheepMove = new THREE.Vector3();
+        const sheepSpeed = SHEEP_FLEE_SPEED; // controlled sheep moves at flee speed
+
+        if (keys["KeyW"] || keys["ArrowUp"])    sheepMove.addScaledVector(sheepFwd, sheepSpeed * dt);
+        if (keys["KeyS"] || keys["ArrowDown"])  sheepMove.addScaledVector(sheepFwd, -sheepSpeed * dt);
+        if (keys["KeyA"] || keys["ArrowLeft"])  sheepMove.addScaledVector(sheepRight, -sheepSpeed * dt);
+        if (keys["KeyD"] || keys["ArrowRight"]) sheepMove.addScaledVector(sheepRight, sheepSpeed * dt);
+
+        const sheepPrevX = s.position.x;
+        const sheepPrevZ = s.position.z;
+        s.position.add(sheepMove);
+
+        // World bounds
+        const half = WORLD_SIZE / 2 - 20;
+        s.position.x = Math.max(-half, Math.min(half, s.position.x));
+        s.position.z = Math.max(-half, Math.min(half, s.position.z));
+
+        // Water boundary
+        if (getTerrainHeightSampled(s.position.x, s.position.z) < WATER_LEVEL) {
+          s.position.x = sheepPrevX;
+          s.position.z = sheepPrevZ;
+        }
+
+        // Snap to terrain
+        s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
+
+        // Sheep body faces the camera yaw direction
+        s.rotation.y = -yawRef.current;
+        sheep.currentAngle = -yawRef.current;
+
+        // Walk animation
+        const isSheepMoving =
+          keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"] ||
+          keys["ArrowUp"] || keys["ArrowDown"] || keys["ArrowLeft"] || keys["ArrowRight"];
+        const actualSheepSpeed = isSheepMoving ? sheepSpeed : 0;
+        sheep.walkPhase += actualSheepSpeed * SHEEP_STEP_FREQ * dt;
+
+        const legA =  SHEEP_LEG_SWING_FLEE * Math.sin(sheep.walkPhase);
+        const legB = -SHEEP_LEG_SWING_FLEE * Math.sin(sheep.walkPhase);
+        if (sheep.legPivots.length === 4) {
+          sheep.legPivots[0].rotation.z = legA;
+          sheep.legPivots[1].rotation.z = legB;
+          sheep.legPivots[2].rotation.z = legB;
+          sheep.legPivots[3].rotation.z = legA;
+        }
+
+        const bodyLift = isSheepMoving ? 0.07 * Math.abs(Math.sin(sheep.walkPhase)) : 0;
+        sheep.bodyGroup.position.y = bodyLift;
+        sheep.bodyGroup.rotation.x = 0;
+
+        // Head gently nods
+        const headTarget = isSheepMoving
+          ? 0.08 * Math.sin(sheep.walkPhase * 2 + sheep.phaseOffset)
+          : -0.1;
+        sheep.headPitchCurrent += (headTarget - sheep.headPitchCurrent) * Math.min(1, dt * 3);
+        sheep.headGroup.rotation.z = sheep.headPitchCurrent;
+        sheep.headGroup.rotation.y = 0;
+
+        // Tail wag
+        sheep.tailGroup.rotation.y = 0.6 * Math.sin(elapsed * 4.5 + sheep.phaseOffset);
+
+        // Position camera at sheep head level
+        cam.position.set(s.position.x, s.position.y + POSSESS_CAM_HEIGHT, s.position.z);
+        cam.rotation.order = "YXZ";
+        cam.rotation.y = yawRef.current;
+        cam.rotation.x = pitchRef.current;
       }
 
       // ── Coin collection & rotation ─────────────────────────────────────────
@@ -2451,9 +2587,45 @@ export default function Game3D() {
         setNearFoxHp(null);
       }
 
+      // ── Possession proximity — find nearest sheep, manage highlight ──────────
+      if (!possessedSheepRef.current) {
+        let nearestDist = POSSESS_RADIUS;
+        let nearestSheep: SheepData | null = null;
+        sheepListRef.current.forEach((sheep) => {
+          const d = sheep.mesh.position.distanceTo(playerPos);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestSheep = sheep;
+          }
+        });
+
+        // Update emissive highlight: clear old, apply to new
+        if (highlightedSheepRef.current && highlightedSheepRef.current !== nearestSheep) {
+          setSheepEmissive(highlightedSheepRef.current, 0x000000);
+          highlightedSheepRef.current = null;
+        }
+        if (nearestSheep && highlightedSheepRef.current !== nearestSheep) {
+          setSheepEmissive(nearestSheep as SheepData, 0x2255ff);
+          highlightedSheepRef.current = nearestSheep as SheepData;
+        }
+        nearestSheepForPossessRef.current = nearestSheep;
+        setNearSheepPrompt(nearestSheep !== null);
+      } else {
+        // While possessed, clear any leftover highlight on other sheep
+        if (highlightedSheepRef.current) {
+          setSheepEmissive(highlightedSheepRef.current, 0x000000);
+          highlightedSheepRef.current = null;
+        }
+        nearestSheepForPossessRef.current = null;
+        setNearSheepPrompt(false);
+      }
+
       // ── Sheep AI & Animation ────────────────────────────────────────────────
       let closeSheepCount = 0;
       sheepListRef.current.forEach((sheep) => {
+        // Possessed sheep is controlled in the dedicated possession block — skip its AI
+        if (sheep === possessedSheepRef.current) return;
+
         const s = sheep.mesh;
         const dx = playerPos.x - s.position.x;
         const dz = playerPos.z - s.position.z;
@@ -3021,6 +3193,42 @@ export default function Game3D() {
         </div>
       )}
 
+      {/* ═══════════════ CENTER — Possession prompt ═══════════════ */}
+      {nearSheepPrompt && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(20,40,120,0.85)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(80,130,255,0.35)",
+              boxShadow: "0 0 20px rgba(60,100,255,0.35)",
+            }}
+          >
+            🐑 [E] Vstoupit do těla ovce
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — Possession active banner ═══════════════ */}
+      {isPossessed && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(20,60,20,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(80,200,80,0.30)",
+              boxShadow: "0 0 18px rgba(60,180,60,0.30)",
+            }}
+          >
+            🐑 Hraješ za ovci &nbsp;·&nbsp; <span style={{ color: "#86efac" }}>[E] Opustit tělo</span>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER TOP — Fox warning ═══════════════ */}
       {foxWarning && gameState.isLocked && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -3174,6 +3382,7 @@ export default function Game3D() {
             Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
             <span style={{ color: "#f87171", opacity: 1 }}>[F]/Klik</span> – útok &nbsp;·&nbsp;{" "}
             <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
             <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
           </div>
         </div>
@@ -3343,6 +3552,7 @@ export default function Game3D() {
                 <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
                 <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
                 <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
+                <div>🐑 <strong className="text-blue-300">[E]</strong> vstoupit do těla ovce</div>
               </div>
             </div>
 
@@ -3367,6 +3577,7 @@ export default function Game3D() {
               </div>
               <div className="flex gap-6 justify-center flex-wrap">
                 <span>⚔️ <strong className="text-gray-300">[F]/Klik</strong> – útok</span>
+                <span>🐑 <strong className="text-blue-300">[E]</strong> – vstoupit do ovce</span>
                 <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
                 <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
               </div>
