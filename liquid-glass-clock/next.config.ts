@@ -12,7 +12,6 @@ function getBuildId(): string {
 const BUILD_ID = getBuildId();
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   generateBuildId: async () => BUILD_ID,
   env: {
     NEXT_PUBLIC_BUILD_ID: BUILD_ID,

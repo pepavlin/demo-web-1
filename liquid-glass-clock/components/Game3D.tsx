@@ -57,6 +57,7 @@ import {
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, GameState } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
+import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
@@ -327,8 +328,48 @@ const VolumetricScatteringShader = {
   `,
 };
 
+// ─── Remote player mesh builder ───────────────────────────────────────────────
+function buildRemotePlayerMesh(color: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color });
+
+  // Body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.75, 0.3), mat);
+  body.position.y = 0;
+  group.add(body);
+
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), mat);
+  head.position.y = 0.58;
+  group.add(head);
+
+  // Legs
+  const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.45, 6);
+  const legL = new THREE.Mesh(legGeo, mat);
+  legL.position.set(0.13, -0.6, 0);
+  group.add(legL);
+  const legR = new THREE.Mesh(legGeo, mat);
+  legR.position.set(-0.13, -0.6, 0);
+  group.add(legR);
+
+  // Arms
+  const armGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.42, 6);
+  const armL = new THREE.Mesh(armGeo, mat);
+  armL.position.set(0.33, 0.04, 0);
+  armL.rotation.z = 0.3;
+  group.add(armL);
+  const armR = new THREE.Mesh(armGeo, mat);
+  armR.position.set(-0.33, 0.04, 0);
+  armR.rotation.z = -0.3;
+  group.add(armR);
+
+  // Lift group so feet are at y=0
+  group.position.y = 0.83;
+  return group;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function Game3D() {
+export default function Game3D({ playerName = "Hráč" }: { playerName?: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -444,6 +485,62 @@ export default function Game3D() {
   const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
   const [gameOver, setGameOver] = useState(false);
   const implementBufferRef = useRef<string>("");
+
+  // ─── Multiplayer Refs ────────────────────────────────────────────────────────
+  const remotePlayersRef = useRef<Map<string, { mesh: THREE.Group; name: string; color: number }>>(new Map());
+  const sendUpdateRef = useRef<((update: PlayerUpdate) => void) | null>(null);
+  const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number }>>([]);
+
+  // ─── Multiplayer callbacks (use sceneRef which is set inside useEffect) ───────
+  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number }>) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    Object.values(players).forEach((p) => {
+      const mesh = buildRemotePlayerMesh(p.color);
+      mesh.position.set(p.x, p.y, p.z);
+      mesh.rotation.y = p.rotY;
+      scene.add(mesh);
+      remotePlayersRef.current.set(p.id, { mesh, name: p.name, color: p.color });
+    });
+  }, []);
+
+  const handlePlayerJoined = useCallback((p: { id: string; name: string; x: number; y: number; z: number; rotY: number; color: number }) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const mesh = buildRemotePlayerMesh(p.color);
+    mesh.position.set(p.x, p.y, p.z);
+    mesh.rotation.y = p.rotY;
+    scene.add(mesh);
+    remotePlayersRef.current.set(p.id, { mesh, name: p.name, color: p.color });
+  }, []);
+
+  const handlePlayerLeft = useCallback((id: string) => {
+    const data = remotePlayersRef.current.get(id);
+    if (data) {
+      sceneRef.current?.remove(data.mesh);
+      remotePlayersRef.current.delete(id);
+    }
+  }, []);
+
+  const handlePlayerUpdated = useCallback((id: string, update: PlayerUpdate) => {
+    const data = remotePlayersRef.current.get(id);
+    if (!data) return;
+    data.mesh.position.set(update.x, update.y, update.z);
+    data.mesh.rotation.y = update.rotY;
+  }, []);
+
+  const { sendUpdate } = useMultiplayer({
+    playerName,
+    onInit: handleMultiplayerInit,
+    onPlayerJoined: handlePlayerJoined,
+    onPlayerLeft: handlePlayerLeft,
+    onPlayerUpdated: handlePlayerUpdated,
+  });
+
+  // Keep sendUpdate in a ref so it can be called from the animation loop
+  useEffect(() => {
+    sendUpdateRef.current = sendUpdate;
+  }, [sendUpdate]);
 
   const lockPointer = useCallback(() => {
     if (mountRef.current) {
@@ -2247,6 +2344,15 @@ export default function Game3D() {
         cam.rotation.y = yawRef.current;
         cam.rotation.x = pitchRef.current;
 
+        // ── Broadcast position to other players ─────────────────────────────
+        sendUpdateRef.current?.({
+          x: cam.position.x,
+          y: cam.position.y,
+          z: cam.position.z,
+          rotY: yawRef.current,
+          pitch: pitchRef.current,
+        });
+
         // ── Footstep sounds ─────────────────────────────────────────────────
         const isMovingHoriz =
           keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"] ||
@@ -2930,6 +3036,22 @@ export default function Game3D() {
       );
       setBleatingLabel(bleatingNear ? "🐑 Bééé!" : null);
 
+      // ── Remote player name labels ──────────────────────────────────────────
+      if (remotePlayersRef.current.size > 0 && cameraRef.current) {
+        const labels: Array<{ id: string; name: string; x: number; y: number }> = [];
+        remotePlayersRef.current.forEach((data, id) => {
+          const pos = data.mesh.position.clone();
+          pos.y += 2.8; // above head
+          const projected = pos.project(cameraRef.current!);
+          if (projected.z < 1) {
+            const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
+            const sy = (-projected.y * 0.5 + 0.5) * window.innerHeight;
+            labels.push({ id, name: data.name, x: sx, y: sy });
+          }
+        });
+        setPlayerLabels(labels);
+      }
+
       if (composerRef.current) {
         composerRef.current.render();
       } else {
@@ -2964,6 +3086,9 @@ export default function Game3D() {
       // Clean up any live bullets from the scene
       bulletsRef.current.forEach((b) => scene.remove(b.mesh));
       bulletsRef.current = [];
+      // Clean up remote player meshes
+      remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
+      remotePlayersRef.current.clear();
       composerRef.current?.dispose();
       composerRef.current = null;
       soundManager.destroy();
@@ -3038,10 +3163,21 @@ export default function Game3D() {
           >
             {/* Section label */}
             <div
-              className="text-xs font-semibold uppercase tracking-widest"
-              style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em", marginBottom: 14 }}
+              className="flex items-center justify-between"
+              style={{ marginBottom: 14 }}
             >
-              Hráč
+              <div
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.12em" }}
+              >
+                Hráč
+              </div>
+              <div
+                className="text-xs font-bold"
+                style={{ color: "rgba(74,158,255,0.9)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {playerName}
+              </div>
             </div>
 
             {/* HP bar */}
@@ -3518,6 +3654,32 @@ export default function Game3D() {
           </div>
         </div>
       )}
+
+      {/* ─── Remote player name labels ───────────────────────────────────────── */}
+      {playerLabels.map((label) => (
+        <div
+          key={label.id}
+          className="fixed pointer-events-none select-none"
+          style={{
+            left: label.x,
+            top: label.y,
+            transform: "translate(-50%, -50%)",
+            zIndex: 55,
+          }}
+        >
+          <div
+            className="rounded-lg text-white text-xs font-bold px-2 py-1 whitespace-nowrap"
+            style={{
+              background: "rgba(5,8,20,0.75)",
+              border: "1px solid rgba(74,158,255,0.4)",
+              backdropFilter: "blur(6px)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+            }}
+          >
+            {label.name}
+          </div>
+        </div>
+      ))}
 
       {/* ─── Sound mute button ─────────────────────────────────────────────── */}
       {gameStarted && (

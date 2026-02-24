@@ -20,6 +20,17 @@ jest.mock("three", () => {
   };
 });
 
+// Mock socket.io-client to prevent real WebSocket connections in tests
+jest.mock("socket.io-client", () => ({
+  io: jest.fn(() => ({
+    connected: false,
+    on: jest.fn(),
+    off: jest.fn(),
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  })),
+}));
+
 // Mock EffectComposer and postprocessing passes (require WebGL context)
 const mockComposer = {
   addPass: jest.fn(),
