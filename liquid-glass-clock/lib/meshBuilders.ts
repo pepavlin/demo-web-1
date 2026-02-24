@@ -1049,3 +1049,104 @@ export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group;
 
   return { group, beamPivot, lighthouseLight };
 }
+
+// ─── Boat ──────────────────────────────────────────────────────────────────────
+/**
+ * A small wooden rowboat that floats on the water surface.
+ * Origin sits at the waterline; the deck is ~0.4 units above origin.
+ * Overall dimensions: ~4.8 × 2.2 × 0.9 (L × W × H).
+ */
+export function buildBoatMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const darkWood  = new THREE.MeshLambertMaterial({ color: 0x5C3317 }); // dark hull planks
+  const lightWood = new THREE.MeshLambertMaterial({ color: 0xC8894A }); // deck & bench
+  const redPaint  = new THREE.MeshLambertMaterial({ color: 0xAA2200 }); // decorative stripe
+  const metalMat  = new THREE.MeshLambertMaterial({ color: 0x888888 }); // oarlocks
+
+  // ── Hull floor ────────────────────────────────────────────────────────────────
+  const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.22, 1.6), darkWood);
+  floorMesh.position.y = 0.11;
+  floorMesh.castShadow = true;
+  floorMesh.receiveShadow = true;
+  group.add(floorMesh);
+
+  // ── Hull sides (port & starboard) ─────────────────────────────────────────────
+  const wallGeo = new THREE.BoxGeometry(4.8, 0.65, 0.18);
+  ([-1, 1] as const).forEach((s) => {
+    const wall = new THREE.Mesh(wallGeo, darkWood);
+    wall.position.set(0, 0.55, s * 0.91);
+    wall.castShadow = true;
+    group.add(wall);
+  });
+
+  // ── Bow (front cap) ───────────────────────────────────────────────────────────
+  const bowMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.65, 2.0), darkWood);
+  bowMesh.position.set(2.37, 0.55, 0);
+  bowMesh.castShadow = true;
+  group.add(bowMesh);
+
+  // ── Stern (rear cap) ──────────────────────────────────────────────────────────
+  const sternMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.65, 2.0), darkWood);
+  sternMesh.position.set(-2.37, 0.55, 0);
+  sternMesh.castShadow = true;
+  group.add(sternMesh);
+
+  // ── Red waterline stripe ──────────────────────────────────────────────────────
+  const stripeGeo = new THREE.BoxGeometry(4.6, 0.09, 0.05);
+  ([-1, 1] as const).forEach((s) => {
+    const stripe = new THREE.Mesh(stripeGeo, redPaint);
+    stripe.position.set(0, 0.82, s * 0.95);
+    group.add(stripe);
+  });
+
+  // ── Deck planks ───────────────────────────────────────────────────────────────
+  const PLANK_Z_POSITIONS = [-0.55, -0.18, 0.18, 0.55];
+  PLANK_Z_POSITIONS.forEach((z) => {
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 0.30), lightWood);
+    plank.position.set(0, 0.26, z);
+    group.add(plank);
+  });
+
+  // ── Bench (centre seat) ───────────────────────────────────────────────────────
+  const benchTop = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.10, 1.50), lightWood);
+  benchTop.position.set(0, 0.44, 0);
+  benchTop.castShadow = true;
+  group.add(benchTop);
+
+  // Bench legs
+  const benchLegGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.18, 6);
+  ([-0.58, 0.58] as const).forEach((z) => {
+    const leg = new THREE.Mesh(benchLegGeo, lightWood);
+    leg.position.set(0, 0.30, z);
+    group.add(leg);
+  });
+
+  // ── Oarlocks ─────────────────────────────────────────────────────────────────
+  const lockGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.20, 6);
+  ([-1, 1] as const).forEach((s) => {
+    const lock = new THREE.Mesh(lockGeo, metalMat);
+    lock.position.set(0.4, 0.97, s * 0.93);
+    group.add(lock);
+  });
+
+  // ── Oars (resting along hull sides) ──────────────────────────────────────────
+  ([-1, 1] as const).forEach((s) => {
+    // Handle: long cylinder laid flat along boat length (X axis)
+    const handleGeo = new THREE.CylinderGeometry(0.038, 0.038, 3.6, 6);
+    const handle = new THREE.Mesh(handleGeo, lightWood);
+    handle.rotation.z = Math.PI / 2;            // lay along X
+    handle.position.set(-0.1, 0.90, s * 1.04);
+    group.add(handle);
+
+    // Paddle blade at the bow end
+    const bladeGeo = new THREE.BoxGeometry(0.55, 0.10, 0.16);
+    const blade = new THREE.Mesh(bladeGeo, lightWood);
+    blade.position.set(1.9, 0.90, s * 1.04);
+    group.add(blade);
+  });
+
+  group.castShadow = true;
+  group.receiveShadow = true;
+  return group;
+}

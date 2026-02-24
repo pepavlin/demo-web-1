@@ -36,6 +36,7 @@ import {
   buildWeaponMesh,
   buildSwordMesh,
   buildSniperMesh,
+  buildBoatMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -574,5 +575,58 @@ describe("buildSniperMesh", () => {
       }
     });
     expect(hasEmissive).toBe(true);
+  });
+});
+
+// ─── buildBoatMesh ────────────────────────────────────────────────────────────
+describe("buildBoatMesh", () => {
+  it("returns a THREE.Group", () => {
+    const boat = buildBoatMesh();
+    expect(boat).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple child meshes (hull, deck, bench, oars, etc.)", () => {
+    const boat = buildBoatMesh();
+    expect(boat.children.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("all children are THREE.Mesh instances", () => {
+    const boat = buildBoatMesh();
+    boat.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("has castShadow enabled on the group", () => {
+    const boat = buildBoatMesh();
+    expect(boat.castShadow).toBe(true);
+  });
+
+  it("uses MeshLambertMaterial on all mesh children", () => {
+    const boat = buildBoatMesh();
+    boat.children.forEach((child) => {
+      const mesh = child as THREE.Mesh;
+      expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    });
+  });
+
+  it("includes a red-painted stripe piece", () => {
+    const boat = buildBoatMesh();
+    let hasRed = false;
+    boat.children.forEach((child) => {
+      const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
+      // Red stripe material has red channel dominant over green and blue
+      if (mat.color.r > mat.color.g && mat.color.r > mat.color.b && mat.color.g < mat.color.r * 0.4) {
+        hasRed = true;
+      }
+    });
+    expect(hasRed).toBe(true);
+  });
+
+  it("is positioned at origin by default", () => {
+    const boat = buildBoatMesh();
+    expect(boat.position.x).toBe(0);
+    expect(boat.position.y).toBe(0);
+    expect(boat.position.z).toBe(0);
   });
 });
