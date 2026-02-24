@@ -15,6 +15,34 @@ await app.prepare();
 
 const httpServer = createServer(async (req, res) => {
   const parsedUrl = parse(req.url, true);
+
+  // Player count API — used by lobby to show online count
+  if (parsedUrl.pathname === "/api/players/count") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    });
+    res.end(JSON.stringify({ count: players.size }));
+    return;
+  }
+
+  // Player list API — used by lobby and in-game UI
+  if (parsedUrl.pathname === "/api/players/list") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    });
+    const list = Array.from(players.values()).map((p) => ({
+      id: p.id,
+      name: p.name,
+      color: p.color,
+    }));
+    res.end(JSON.stringify({ players: list }));
+    return;
+  }
+
   await handle(req, res, parsedUrl);
 });
 
@@ -82,6 +110,22 @@ io.on("connection", (socket) => {
     player.rotY = data.rotY;
     player.pitch = data.pitch;
     socket.broadcast.emit("player:update", { id: socket.id, ...data });
+  });
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  socket.on("player:chat", ({ text }) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    const msg = String(text || "").trim().slice(0, 120);
+    if (!msg) return;
+    io.emit("chat:message", {
+      id: socket.id,
+      name: player.name,
+      color: player.color,
+      text: msg,
+      ts: Date.now(),
+    });
+    console.log(`[Chat] ${player.name}: ${msg}`);
   });
 
   // ── Disconnect ────────────────────────────────────────────────────────────

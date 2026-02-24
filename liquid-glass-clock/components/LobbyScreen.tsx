@@ -6,8 +6,15 @@ interface Props {
   onJoin: (name: string) => void;
 }
 
+interface OnlinePlayer {
+  id: string;
+  name: string;
+  color: number;
+}
+
 export default function LobbyScreen({ onJoin }: Props) {
   const [name, setName] = useState("");
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleJoin = useCallback(() => {
@@ -18,6 +25,24 @@ export default function LobbyScreen({ onJoin }: Props) {
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Poll online player list every 4 seconds
+  useEffect(() => {
+    const fetchPlayers = async () => {
+      try {
+        const res = await fetch("/api/players/list");
+        if (res.ok) {
+          const data = await res.json();
+          setOnlinePlayers(data.players ?? []);
+        }
+      } catch {
+        // server might not be ready yet — ignore
+      }
+    };
+    fetchPlayers();
+    const interval = setInterval(fetchPlayers, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   // Spacebar to join when input is NOT focused, Enter always joins
@@ -34,6 +59,10 @@ export default function LobbyScreen({ onJoin }: Props) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleJoin]);
+
+  /** Convert a hex color number to a CSS rgba string */
+  const colorDot = (hex: number) =>
+    `#${hex.toString(16).padStart(6, "0")}`;
 
   return (
     <div
@@ -84,15 +113,87 @@ export default function LobbyScreen({ onJoin }: Props) {
         >
           Open World
         </h1>
+
+        {/* Live player count */}
         <p
+          data-testid="online-count"
           style={{
             color: "rgba(255,255,255,0.4)",
             fontSize: 14,
             marginBottom: 36,
           }}
         >
-          Multiplayer — připoj se ke světu
+          Multiplayer —{" "}
+          <span
+            style={{
+              color: onlinePlayers.length > 0 ? "rgba(107,255,138,0.85)" : "rgba(255,255,255,0.4)",
+              fontWeight: onlinePlayers.length > 0 ? 600 : 400,
+            }}
+          >
+            {onlinePlayers.length === 0
+              ? "připoj se ke světu"
+              : onlinePlayers.length === 1
+              ? "1 hráč online"
+              : `${onlinePlayers.length} hráčů online`}
+          </span>
         </p>
+
+        {/* Who's online list (when players are present) */}
+        {onlinePlayers.length > 0 && (
+          <div
+            data-testid="online-players-list"
+            style={{
+              marginBottom: 24,
+              padding: "10px 14px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 12,
+              textAlign: "left",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.1em",
+                color: "rgba(255,255,255,0.25)",
+                textTransform: "uppercase",
+                marginBottom: 8,
+              }}
+            >
+              Ve světě právě hrají
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {onlinePlayers.map((p) => (
+                <span
+                  key={p.id}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    background: "rgba(255,255,255,0.05)",
+                    border: `1px solid ${colorDot(p.color)}44`,
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.75)",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: colorDot(p.color),
+                      flexShrink: 0,
+                    }}
+                  />
+                  {p.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Name input section */}
         <div style={{ marginBottom: 28 }}>

@@ -22,16 +22,26 @@ export interface PlayerUpdate {
   pitch: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  name: string;
+  color: number;
+  text: string;
+  ts: number;
+}
+
 export interface UseMultiplayerOptions {
   playerName: string;
   onInit?: (players: Record<string, RemotePlayer>) => void;
   onPlayerJoined?: (player: RemotePlayer) => void;
   onPlayerLeft?: (id: string) => void;
   onPlayerUpdated?: (id: string, update: PlayerUpdate) => void;
+  onChatMessage?: (msg: ChatMessage) => void;
 }
 
 export interface UseMultiplayerReturn {
   sendUpdate: (update: PlayerUpdate) => void;
+  sendChat: (text: string) => void;
   isConnected: () => boolean;
 }
 
@@ -41,6 +51,7 @@ export function useMultiplayer({
   onPlayerJoined,
   onPlayerLeft,
   onPlayerUpdated,
+  onChatMessage,
 }: UseMultiplayerOptions): UseMultiplayerReturn {
   const socketRef = useRef<Socket | null>(null);
   const lastUpdateTimeRef = useRef(0);
@@ -49,19 +60,13 @@ export function useMultiplayer({
   const onJoinedRef = useRef(onPlayerJoined);
   const onLeftRef = useRef(onPlayerLeft);
   const onUpdatedRef = useRef(onPlayerUpdated);
+  const onChatRef = useRef(onChatMessage);
 
-  useEffect(() => {
-    onInitRef.current = onInit;
-  });
-  useEffect(() => {
-    onJoinedRef.current = onPlayerJoined;
-  });
-  useEffect(() => {
-    onLeftRef.current = onPlayerLeft;
-  });
-  useEffect(() => {
-    onUpdatedRef.current = onPlayerUpdated;
-  });
+  useEffect(() => { onInitRef.current = onInit; });
+  useEffect(() => { onJoinedRef.current = onPlayerJoined; });
+  useEffect(() => { onLeftRef.current = onPlayerLeft; });
+  useEffect(() => { onUpdatedRef.current = onPlayerUpdated; });
+  useEffect(() => { onChatRef.current = onChatMessage; });
 
   useEffect(() => {
     const socket = io({ path: "/socket.io", transports: ["websocket", "polling"] });
@@ -88,6 +93,10 @@ export function useMultiplayer({
       onLeftRef.current?.(id);
     });
 
+    socket.on("chat:message", (msg: ChatMessage) => {
+      onChatRef.current?.(msg);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -102,9 +111,13 @@ export function useMultiplayer({
     socketRef.current?.emit("player:update", update);
   }, []);
 
+  const sendChat = useCallback((text: string) => {
+    socketRef.current?.emit("player:chat", { text });
+  }, []);
+
   const isConnected = useCallback(() => {
     return socketRef.current?.connected ?? false;
   }, []);
 
-  return { sendUpdate, isConnected };
+  return { sendUpdate, sendChat, isConnected };
 }

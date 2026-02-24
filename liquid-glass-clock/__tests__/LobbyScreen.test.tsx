@@ -2,9 +2,27 @@
  * @jest-environment jsdom
  */
 import React from "react";
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import LobbyScreen from "../components/LobbyScreen";
+
+// Mock fetch so polling requests don't fail in JSDOM
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ players: [] }),
+  });
+});
+
+afterEach(() => {
+  jest.runOnlyPendingTimers();
+  jest.useRealTimers();
+  mockFetch.mockReset();
+});
 
 describe("LobbyScreen component", () => {
   it("renders without crashing", () => {
@@ -113,5 +131,97 @@ describe("LobbyScreen component", () => {
     const calls = removeSpy.mock.calls.map((c) => c[0]);
     expect(calls).toContain("keydown");
     removeSpy.mockRestore();
+  });
+
+  it("fetches player list on mount", async () => {
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    expect(mockFetch).toHaveBeenCalledWith("/api/players/list");
+  });
+
+  it("shows online-count element", async () => {
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    expect(screen.getByTestId("online-count")).toBeInTheDocument();
+  });
+
+  it("shows 'připoj se ke světu' when no players are online", async () => {
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    expect(screen.getByTestId("online-count")).toHaveTextContent(/připoj se ke světu/i);
+  });
+
+  it("shows player names when players are online", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        players: [
+          { id: "1", name: "Alice", color: 0x4a9eff },
+          { id: "2", name: "Bob", color: 0xff6b6b },
+        ],
+      }),
+    });
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("online-players-list")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+  });
+
+  it("shows singular '1 hráč online' when exactly 1 player is online", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        players: [{ id: "1", name: "Alice", color: 0x4a9eff }],
+      }),
+    });
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("online-count")).toHaveTextContent(/1 hráč online/i);
+    });
+  });
+
+  it("shows plural 'hráčů online' when 2+ players are online", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        players: [
+          { id: "1", name: "Alice", color: 0x4a9eff },
+          { id: "2", name: "Bob", color: 0xff6b6b },
+        ],
+      }),
+    });
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("online-count")).toHaveTextContent(/2 hráčů online/i);
+    });
+  });
+
+  it("polls for updated player list every 4 seconds", async () => {
+    await act(async () => {
+      render(<LobbyScreen onJoin={() => {}} />);
+    });
+    const callsBefore = mockFetch.mock.calls.length;
+    await act(async () => {
+      jest.advanceTimersByTime(4001);
+    });
+    expect(mockFetch.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it("gracefully handles a failed fetch without crashing", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("Network error"));
+    await expect(
+      act(async () => { render(<LobbyScreen onJoin={() => {}} />); })
+    ).resolves.not.toThrow();
   });
 });

@@ -343,28 +343,30 @@ function buildRemotePlayerMesh(color: number): THREE.Group {
   head.position.y = 0.58;
   group.add(head);
 
-  // Legs
+  // Legs (named so they can be animated)
   const legGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.45, 6);
   const legL = new THREE.Mesh(legGeo, mat);
+  legL.name = "legL";
   legL.position.set(0.13, -0.6, 0);
   group.add(legL);
   const legR = new THREE.Mesh(legGeo, mat);
+  legR.name = "legR";
   legR.position.set(-0.13, -0.6, 0);
   group.add(legR);
 
-  // Arms
+  // Arms (named for animation)
   const armGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.42, 6);
   const armL = new THREE.Mesh(armGeo, mat);
+  armL.name = "armL";
   armL.position.set(0.33, 0.04, 0);
   armL.rotation.z = 0.3;
   group.add(armL);
   const armR = new THREE.Mesh(armGeo, mat);
+  armR.name = "armR";
   armR.position.set(-0.33, 0.04, 0);
   armR.rotation.z = -0.3;
   group.add(armR);
 
-  // Lift group so feet are at y=0
-  group.position.y = 0.83;
   return group;
 }
 
@@ -487,55 +489,133 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const implementBufferRef = useRef<string>("");
 
   // ─── Multiplayer Refs ────────────────────────────────────────────────────────
-  const remotePlayersRef = useRef<Map<string, { mesh: THREE.Group; name: string; color: number }>>(new Map());
+  const remotePlayersRef = useRef<Map<string, {
+    mesh: THREE.Group;
+    name: string;
+    color: number;
+    // Interpolation targets
+    targetX: number;
+    targetY: number;
+    targetZ: number;
+    targetRotY: number;
+    // Leg animation
+    legL: THREE.Object3D | null;
+    legR: THREE.Object3D | null;
+    armL: THREE.Object3D | null;
+    armR: THREE.Object3D | null;
+    legPhase: number;
+    prevX: number;
+    prevZ: number;
+  }>>(new Map());
   const sendUpdateRef = useRef<((update: PlayerUpdate) => void) | null>(null);
   const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number }>>([]);
+  const [mpNotification, setMpNotification] = useState<string | null>(null);
+  const mpNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; color: number }>>([]);
+
+  // ─── Chat state ──────────────────────────────────────────────────────────────
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; name: string; color: number; text: string; ts: number }>>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const sendChatRef = useRef<((text: string) => void) | null>(null);
+
+  // ─── Show a multiplayer notification for 4 seconds ───────────────────────────
+  const showMpNotif = useCallback((msg: string) => {
+    setMpNotification(msg);
+    if (mpNotifTimerRef.current) clearTimeout(mpNotifTimerRef.current);
+    mpNotifTimerRef.current = setTimeout(() => setMpNotification(null), 4000);
+  }, []);
+
+  // ─── Handle incoming chat message ─────────────────────────────────────────────
+  const handleChatMessage = useCallback((msg: { id: string; name: string; color: number; text: string; ts: number }) => {
+    setChatMessages((prev) => {
+      const next = [...prev, msg];
+      // Keep last 50 messages
+      return next.length > 50 ? next.slice(next.length - 50) : next;
+    });
+  }, []);
 
   // ─── Multiplayer callbacks (use sceneRef which is set inside useEffect) ───────
   const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number }>) => {
     const scene = sceneRef.current;
     if (!scene) return;
+    const list: Array<{ id: string; name: string; color: number }> = [];
     Object.values(players).forEach((p) => {
       const mesh = buildRemotePlayerMesh(p.color);
-      mesh.position.set(p.x, p.y, p.z);
+      // p.y is camera height (terrain + PLAYER_HEIGHT); offset so feet touch ground
+      const meshY = p.y - PLAYER_HEIGHT + 0.825;
+      mesh.position.set(p.x, meshY, p.z);
       mesh.rotation.y = p.rotY;
       scene.add(mesh);
-      remotePlayersRef.current.set(p.id, { mesh, name: p.name, color: p.color });
+      remotePlayersRef.current.set(p.id, {
+        mesh, name: p.name, color: p.color,
+        targetX: p.x, targetY: meshY, targetZ: p.z, targetRotY: p.rotY,
+        legL: mesh.getObjectByName("legL") ?? null,
+        legR: mesh.getObjectByName("legR") ?? null,
+        armL: mesh.getObjectByName("armL") ?? null,
+        armR: mesh.getObjectByName("armR") ?? null,
+        legPhase: 0, prevX: p.x, prevZ: p.z,
+      });
+      list.push({ id: p.id, name: p.name, color: p.color });
     });
+    setOnlinePlayers(list);
   }, []);
 
   const handlePlayerJoined = useCallback((p: { id: string; name: string; x: number; y: number; z: number; rotY: number; color: number }) => {
     const scene = sceneRef.current;
     if (!scene) return;
     const mesh = buildRemotePlayerMesh(p.color);
-    mesh.position.set(p.x, p.y, p.z);
+    const meshY = p.y - PLAYER_HEIGHT + 0.825;
+    mesh.position.set(p.x, meshY, p.z);
     mesh.rotation.y = p.rotY;
     scene.add(mesh);
-    remotePlayersRef.current.set(p.id, { mesh, name: p.name, color: p.color });
-  }, []);
+    remotePlayersRef.current.set(p.id, {
+      mesh, name: p.name, color: p.color,
+      targetX: p.x, targetY: meshY, targetZ: p.z, targetRotY: p.rotY,
+      legL: mesh.getObjectByName("legL") ?? null,
+      legR: mesh.getObjectByName("legR") ?? null,
+      armL: mesh.getObjectByName("armL") ?? null,
+      armR: mesh.getObjectByName("armR") ?? null,
+      legPhase: 0, prevX: p.x, prevZ: p.z,
+    });
+    setOnlinePlayers((prev) => [...prev, { id: p.id, name: p.name, color: p.color }]);
+    showMpNotif(`${p.name} se připojil ke světu`);
+  }, [showMpNotif]);
 
   const handlePlayerLeft = useCallback((id: string) => {
     const data = remotePlayersRef.current.get(id);
     if (data) {
       sceneRef.current?.remove(data.mesh);
       remotePlayersRef.current.delete(id);
+      showMpNotif(`${data.name} odešel ze světa`);
     }
-  }, []);
+    setOnlinePlayers((prev) => prev.filter((p) => p.id !== id));
+  }, [showMpNotif]);
 
   const handlePlayerUpdated = useCallback((id: string, update: PlayerUpdate) => {
     const data = remotePlayersRef.current.get(id);
     if (!data) return;
-    data.mesh.position.set(update.x, update.y, update.z);
-    data.mesh.rotation.y = update.rotY;
+    // Update interpolation targets (not position directly — lerp happens in animation loop)
+    data.targetX = update.x;
+    data.targetY = update.y - PLAYER_HEIGHT + 0.825;
+    data.targetZ = update.z;
+    data.targetRotY = update.rotY;
   }, []);
 
-  const { sendUpdate } = useMultiplayer({
+  const { sendUpdate, sendChat } = useMultiplayer({
     playerName,
     onInit: handleMultiplayerInit,
     onPlayerJoined: handlePlayerJoined,
     onPlayerLeft: handlePlayerLeft,
     onPlayerUpdated: handlePlayerUpdated,
+    onChatMessage: handleChatMessage,
   });
+
+  // Keep sendChat in a ref so it can be called from event handlers
+  useEffect(() => {
+    sendChatRef.current = sendChat;
+  }, [sendChat]);
 
   // Keep sendUpdate in a ref so it can be called from the animation loop
   useEffect(() => {
@@ -1937,6 +2017,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, mode: next }));
       }
 
+      // T key — open chat (only in explore mode; build mode uses T for sculpt)
+      if (e.type === "keydown" && e.code === "KeyT" && buildModeRef.current === "explore" && isLockedRef.current) {
+        e.preventDefault();
+        document.exitPointerLock();
+        setChatOpen(true);
+        setTimeout(() => chatInputRef.current?.focus(), 50);
+      }
+
       // Digit keys 1–8 — select block material in build mode
       if (e.type === "keydown" && buildModeRef.current !== "explore") {
         const digit = parseInt(e.key);
@@ -2926,6 +3014,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         sheep.tailGroup.rotation.x = 0.12 * Math.sin(tailPhase * 0.7 + 0.5);
       });
 
+      // ── Remote player interpolation + leg animation ────────────────────────
+      if (remotePlayersRef.current.size > 0) {
+        const lerpFactor = 1 - Math.exp(-12 * dt);
+        remotePlayersRef.current.forEach((data) => {
+          const prevX = data.mesh.position.x;
+          const prevZ = data.mesh.position.z;
+
+          // Smooth position interpolation
+          data.mesh.position.x += (data.targetX - data.mesh.position.x) * lerpFactor;
+          data.mesh.position.y += (data.targetY - data.mesh.position.y) * lerpFactor;
+          data.mesh.position.z += (data.targetZ - data.mesh.position.z) * lerpFactor;
+
+          // Smooth rotation interpolation (handle angle wrap)
+          let dRot = data.targetRotY - data.mesh.rotation.y;
+          while (dRot > Math.PI) dRot -= 2 * Math.PI;
+          while (dRot < -Math.PI) dRot += 2 * Math.PI;
+          data.mesh.rotation.y += dRot * lerpFactor;
+
+          // Leg animation based on horizontal speed
+          const spd = Math.sqrt(
+            (data.mesh.position.x - prevX) ** 2 +
+            (data.mesh.position.z - prevZ) ** 2
+          ) / dt;
+          if (spd > 0.5 && data.legL && data.legR) {
+            data.legPhase += spd * 2.0;
+            const swing = Math.min(spd * 0.06, 0.55);
+            data.legL.rotation.x = Math.sin(data.legPhase) * swing;
+            data.legR.rotation.x = -Math.sin(data.legPhase) * swing;
+            if (data.armL && data.armR) {
+              data.armL.rotation.x = -Math.sin(data.legPhase) * swing * 0.6;
+              data.armR.rotation.x = Math.sin(data.legPhase) * swing * 0.6;
+            }
+          } else {
+            // Return legs to rest
+            if (data.legL) data.legL.rotation.x *= 0.85;
+            if (data.legR) data.legR.rotation.x *= 0.85;
+            if (data.armL) data.armL.rotation.x *= 0.85;
+            if (data.armR) data.armR.rotation.x *= 0.85;
+          }
+
+          data.prevX = data.mesh.position.x;
+          data.prevZ = data.mesh.position.z;
+        });
+      }
+
       // ── Minimap ────────────────────────────────────────────────────────────
       const canvas = minimapRef.current;
       if (canvas && cameraRef.current) {
@@ -3041,7 +3174,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const labels: Array<{ id: string; name: string; x: number; y: number }> = [];
         remotePlayersRef.current.forEach((data, id) => {
           const pos = data.mesh.position.clone();
-          pos.y += 2.8; // above head
+          pos.y += 2.2; // above head
           const projected = pos.project(cameraRef.current!);
           if (projected.z < 1) {
             const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
@@ -3050,6 +3183,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         });
         setPlayerLabels(labels);
+      } else if (remotePlayersRef.current.size === 0) {
+        setPlayerLabels([]);
       }
 
       if (composerRef.current) {
@@ -3089,6 +3224,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
+      if (mpNotifTimerRef.current) clearTimeout(mpNotifTimerRef.current);
       composerRef.current?.dispose();
       composerRef.current = null;
       soundManager.destroy();
@@ -3564,6 +3700,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             <span style={{ color: "#f87171", opacity: 1 }}>[F]/Drž klik</span> – útok &nbsp;·&nbsp;{" "}
             <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
             <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#34d399", opacity: 1 }}>[T]</span> – chat &nbsp;·&nbsp;{" "}
             <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
           </div>
         </div>
@@ -3585,8 +3722,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* Pause overlay — shown when game started but pointer is unlocked */}
-      {gameStarted && !gameState.isLocked && !showIntro && (
+      {/* Pause overlay — shown when game started but pointer is unlocked (and not chatting) */}
+      {gameStarted && !gameState.isLocked && !showIntro && !chatOpen && (
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{
@@ -3680,6 +3817,212 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           </div>
         </div>
       ))}
+
+      {/* ─── Multiplayer join/leave notification ─────────────────────────────── */}
+      {mpNotification && gameStarted && (
+        <div
+          data-testid="mp-notification"
+          className="fixed pointer-events-none select-none"
+          style={{
+            bottom: 76,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 70,
+            padding: "8px 18px",
+            borderRadius: 12,
+            background: "rgba(5,8,20,0.82)",
+            border: "1px solid rgba(74,158,255,0.35)",
+            backdropFilter: "blur(12px)",
+            color: "rgba(255,255,255,0.85)",
+            fontSize: 13,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+          }}
+        >
+          🌍 {mpNotification}
+        </div>
+      )}
+
+      {/* ─── Online players panel (bottom-left) ──────────────────────────────── */}
+      {gameStarted && onlinePlayers.length > 0 && (
+        <div
+          data-testid="online-players-panel"
+          className="fixed pointer-events-none select-none"
+          style={{
+            bottom: 20,
+            left: 20,
+            zIndex: 60,
+            padding: "8px 12px",
+            borderRadius: 12,
+            background: "rgba(5,8,20,0.72)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
+            minWidth: 120,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: "rgba(255,255,255,0.3)",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            Online ({onlinePlayers.length + 1})
+          </div>
+          {/* Current player */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 3,
+              fontSize: 11,
+              color: "rgba(107,255,138,0.9)",
+              fontWeight: 600,
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "rgba(107,255,138,0.9)",
+                flexShrink: 0,
+              }}
+            />
+            {playerName} (já)
+          </div>
+          {/* Remote players */}
+          {onlinePlayers.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 2,
+                fontSize: 11,
+                color: "rgba(255,255,255,0.65)",
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: `#${p.color.toString(16).padStart(6, "0")}`,
+                  flexShrink: 0,
+                }}
+              />
+              {p.name}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ─── Chat panel ───────────────────────────────────────────────────────── */}
+      {gameStarted && (
+        <div
+          data-testid="chat-panel"
+          style={{
+            position: "fixed",
+            bottom: chatMessages.length > 0 || chatOpen ? 20 : -200,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 65,
+            width: 380,
+            maxWidth: "90vw",
+            transition: "bottom 0.3s ease",
+            pointerEvents: chatOpen ? "auto" : "none",
+          }}
+        >
+          {/* Chat message log */}
+          {chatMessages.length > 0 && (
+            <div
+              style={{
+                marginBottom: 6,
+                maxHeight: 150,
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+              }}
+            >
+              {chatMessages.slice(-8).map((msg, i) => (
+                <div
+                  key={`${msg.ts}-${i}`}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                    background: "rgba(5,8,20,0.78)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    backdropFilter: "blur(8px)",
+                    fontSize: 12,
+                    color: "rgba(255,255,255,0.88)",
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "baseline",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      color: `#${msg.color.toString(16).padStart(6, "0")}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {msg.name}:
+                  </span>
+                  <span style={{ wordBreak: "break-word" }}>{msg.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Chat input (visible when chatOpen or game paused) */}
+          {chatOpen && (
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                ref={chatInputRef}
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value.slice(0, 120))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const text = chatInput.trim();
+                    if (text) sendChatRef.current?.(text);
+                    setChatInput("");
+                    setChatOpen(false);
+                    lockPointer();
+                  }
+                  if (e.key === "Escape") {
+                    setChatInput("");
+                    setChatOpen(false);
+                    lockPointer();
+                  }
+                }}
+                placeholder="Zpráva… (Enter odešle, Esc zruší)"
+                maxLength={120}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background: "rgba(5,8,20,0.92)",
+                  border: "1px solid rgba(74,158,255,0.5)",
+                  color: "white",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ─── Sound mute button ─────────────────────────────────────────────── */}
       {gameStarted && (

@@ -338,4 +338,22 @@ describe("Game3D component", () => {
     const hints = getAllByText(/\[F\]\/Drž klik/);
     expect(hints.length).toBeGreaterThan(0);
   });
+
+  // ─── Multiplayer UI ───────────────────────────────────────────────────────
+
+  it("does not show mp-notification initially", () => {
+    const { queryByTestId } = render(<Game3D playerName="Tester" />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByTestId("mp-notification")).toBeNull();
+  });
+
+  it("does not show online-players-panel when no remote players", () => {
+    const { queryByTestId } = render(<Game3D playerName="Tester" />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByTestId("online-players-panel")).toBeNull();
+  });
+
+  it("accepts a playerName prop without crashing", () => {
+    expect(() => render(<Game3D playerName="Karel" />)).not.toThrow();
+  });
 });
