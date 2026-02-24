@@ -370,6 +370,8 @@ export default function Game3D() {
     windPhase: number;     // per-plant phase offset so they sway out-of-sync
     windSpeed: number;     // 0.6–1.4 rad/s
     maxSway: number;       // max rotation amplitude (radians)
+    posX: number;          // world X for LOD distance check
+    posZ: number;          // world Z for LOD distance check
   }>>([]);
   const treeCollisionRef = useRef<Array<{
     x: number; z: number;
@@ -1200,6 +1202,8 @@ export default function Game3D() {
           dayFraction:   { value: 0.5 },
           // Global wind direction (normalised XZ); slowly rotates over time
           windDir:       { value: new THREE.Vector2(0.82, 0.38) },
+          // LOD: camera world position for distance-based animation reduction
+          cameraPos:     { value: new THREE.Vector3() },
         },
         vertexShader: `
           attribute float heightFactor;
@@ -1213,6 +1217,7 @@ export default function Game3D() {
           uniform float moonIntensity;
           uniform float dayFraction;
           uniform vec2  windDir;
+          uniform vec3  cameraPos;
           varying vec3  vColor;
           varying float vHeightFactor;
           varying float vWindBend;
@@ -1272,6 +1277,14 @@ export default function Game3D() {
             float crossWind = sin(windPhase * 0.88 + time * 1.55) * 0.32
                             + cos(windPhase * 0.59 + time * 2.20) * 0.18
                             + sin(travelPhase * 0.71 + 1.4) * 0.20;
+
+            // ── LOD: distance-based wind reduction ───────────────────────────
+            // Grass far from the camera animates less (standard 3D game LOD trick).
+            // Smooth fade: full animation <60 units, none >120 units.
+            float camDist = length(position.xz - cameraPos.xz);
+            float lodFactor = 1.0 - smoothstep(60.0, 120.0, camDist);
+            totalWind *= lodFactor;
+            crossWind *= lodFactor;
 
             // Wind displacement: main along wind dir, cross-component adds twist
             // curveMid: slight mid-blade pre-flex before the tip swings fully
@@ -1553,6 +1566,8 @@ export default function Game3D() {
           windPhase: treeRng() * Math.PI * 2,
           windSpeed: 0.65 + treeRng() * 0.7,
           maxSway: result.hasCollision ? 0.025 : 0.045, // large trees sway less
+          posX: p.x,
+          posZ: p.z,
         });
       }
 
@@ -1587,6 +1602,8 @@ export default function Game3D() {
         windPhase: bushRng() * Math.PI * 2,
         windSpeed: 0.9 + bushRng() * 0.9,
         maxSway: 0.06 + bushRng() * 0.04,
+        posX: p.x,
+        posZ: p.z,
       });
     });
 
@@ -2134,10 +2151,22 @@ export default function Game3D() {
         // Slowly rotate global wind direction so grass sways from varying angles
         const windAngle = elapsed * 0.04;
         gm.uniforms.windDir.value.set(Math.cos(windAngle), Math.sin(windAngle));
+        // LOD: pass camera world position so the shader can reduce wind at distance
+        if (cameraRef.current) {
+          gm.uniforms.cameraPos.value.copy(cameraRef.current.position);
+        }
       }
 
       // ── Flora (tree & bush foliage) wind sway ─────────────────────────────
+      // LOD: only animate plants within 80 units of the camera (standard 3D game
+      // practice — distant foliage motion is imperceptible at small screen size).
+      const LOD_FLORA_DIST_SQ = 80 * 80;
+      const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
+      const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
       floraRef.current.forEach((flora) => {
+        const dx = flora.posX - camPosX;
+        const dz = flora.posZ - camPosZ;
+        if (dx * dx + dz * dz > LOD_FLORA_DIST_SQ) return;
         const t = elapsed * flora.windSpeed + flora.windPhase;
         // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
         flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
