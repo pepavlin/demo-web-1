@@ -161,6 +161,8 @@ export default function Game3D() {
   const dayTimeRef = useRef(DAY_DURATION * 0.3); // start mid-morning
   const coinsCollectedRef = useRef(0);
   const windmillBladesRef = useRef<THREE.Group | null>(null);
+  const lighthouseBeamRef = useRef<THREE.Group | null>(null);
+  const lighthouseLightRef = useRef<THREE.PointLight | null>(null);
   const sunRef = useRef<THREE.DirectionalLight | null>(null);
   const moonRef = useRef<THREE.DirectionalLight | null>(null);
   const ambientRef = useRef<THREE.AmbientLight | null>(null);
@@ -1064,11 +1066,13 @@ export default function Game3D() {
     scene.add(ruins);
 
     // ── Lighthouse (on a coastal rise) ───────────────────────────────────────
-    const lighthouse = buildLighthouse();
+    const { group: lighthouse, beamPivot, lighthouseLight } = buildLighthouse();
     const lhX = -220;
     const lhZ = 180;
     lighthouse.position.set(lhX, getTerrainHeight(lhX, lhZ), lhZ);
     scene.add(lighthouse);
+    lighthouseBeamRef.current = beamPivot;
+    lighthouseLightRef.current = lighthouseLight;
 
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click attack ────────────────────────────────────────────────────
@@ -1311,6 +1315,15 @@ export default function Game3D() {
       // ── Windmill blades ────────────────────────────────────────────────────
       if (windmillBladesRef.current) {
         windmillBladesRef.current.rotation.x += dt * 0.8;
+      }
+
+      // ── Lighthouse rotating beam ────────────────────────────────────────────
+      if (lighthouseBeamRef.current) {
+        lighthouseBeamRef.current.rotation.y = elapsed * 1.2; // ~0.19 rot/s
+      }
+      // Brighten lighthouse light at night, dim at day
+      if (lighthouseLightRef.current) {
+        lighthouseLightRef.current.intensity = isNight ? 6 : 1.5;
       }
 
       // ── Player movement ────────────────────────────────────────────────────
