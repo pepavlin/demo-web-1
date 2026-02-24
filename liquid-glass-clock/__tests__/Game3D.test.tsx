@@ -165,8 +165,8 @@ describe("Game3D component", () => {
   it("shows attack on fox hint in intro overlay", () => {
     const { getAllByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    // [F]/Klik attack hint appears in the controls section of the intro
-    const attackHints = getAllByText(/\[F\]\/Klik/);
+    // [F]/Drž klik attack hint appears in the controls section of the intro
+    const attackHints = getAllByText(/\[F\]\/Drž klik/);
     expect(attackHints.length).toBeGreaterThan(0);
   });
 
@@ -191,6 +191,12 @@ describe("Game3D component", () => {
 
   it("renders without crashing when Three.js adds grass, clouds and galaxy", () => {
     // Ensures scene setup with grass/galaxy/cloud additions doesn't throw
+    expect(() => render(<Game3D />)).not.toThrow();
+  });
+
+  it("renders dense grass scene without crashing (GRASS_COUNT=180000)", () => {
+    // Ensures the higher-density grass (180 000 blades, 11–22 per cluster) still
+    // initialises without errors or memory overflows in the test environment.
     expect(() => render(<Game3D />)).not.toThrow();
   });
 
