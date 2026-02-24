@@ -7,21 +7,46 @@ A browser-based 3D open-world game built with [Three.js](https://threejs.org/) a
 You are an explorer in a living open world. The day/night cycle advances in real time, foxes hunt your sheep, and the landscape is filled with secrets to find.
 
 **Objectives:**
-- 🐑 Herd all **20 sheep** into the **pen** at the centre of the map
+- 🐑 Herd all **200 sheep** into the **pen** at the centre of the map
 - 🌟 Collect **35 gold coins** hidden across the terrain
-- 🦊 Watch out for **4 foxes** that actively chase your sheep!
+- 🦊 Watch out for **12 foxes** that actively chase you!
 - 🏚 Discover the **ancient ruins**, **farmhouse**, **windmill**, and **lighthouse**
+- 🧱 **Build structures** using 8 materials — press `B` to enter build mode
+- ⛏ **Sculpt the terrain** — raise and lower hills with the scroll wheel
 
 ## Controls
 
+### Exploration
 | Key / Input | Action |
 |---|---|
 | `W A S D` / Arrow keys | Move |
 | Mouse | Look around |
 | `Space` | Jump |
 | `Shift` | Sprint (depletes stamina) |
+| `F` / Click | Attack fox |
 | `Esc` | Release mouse / pause |
 | Click on canvas | Lock mouse & start playing |
+
+### Building Mode (`B` to toggle)
+| Key / Input | Action |
+|---|---|
+| `B` | Toggle build mode on/off |
+| Left click | Place block at ghost preview |
+| Right click | Remove block under crosshair |
+| Scroll wheel | Cycle through 8 materials |
+| `1` – `8` | Select material by number |
+| `T` | Switch to terrain sculpt sub-mode |
+
+### Terrain Sculpt Mode (`B` then `T`)
+| Key / Input | Action |
+|---|---|
+| Scroll up | Raise terrain under crosshair |
+| Scroll down | Lower terrain under crosshair |
+| `T` | Return to block placement |
+| `B` | Exit build mode entirely |
+
+**Block materials:** Wood · Stone · Glass · Dirt · Sand · Brick · Metal · Crystal
+**Max blocks:** 500 (saved to localStorage automatically)
 
 ## Features
 
@@ -59,6 +84,15 @@ You are an explorer in a living open world. The day/night cycle advances in real
 - **Ancient ruins** — broken walls, arch, toppled columns, scattered debris
 - **Lighthouse** — striped tower with glowing lantern room
 
+### Building System
+- **Build mode** (`B`) — place and remove blocks in 3D
+- **8 materials** with distinct colours: Wood, Stone, Glass, Dirt, Sand, Brick, Metal, Crystal
+- **Ghost block preview** — translucent preview snapped to the terrain/block grid before placement
+- **Right-click removal** — instantly remove any placed block within range
+- **Scroll-to-cycle** materials; **digit keys 1–8** for direct selection
+- **Persistence** — blocks saved to `localStorage` and restored on reload (up to 500)
+- **Terrain sculpt mode** (`T` while in build mode) — raise/lower terrain with the scroll wheel using a smooth cosine-falloff brush; vertex colours update live
+
 ## Getting Started
 
 ```bash
@@ -74,8 +108,9 @@ Open [http://localhost:3000](http://localhost:3000) — click **"Hrát!"** to st
 npm test
 ```
 
-Test suites (282 tests total):
-- `__tests__/terrainUtils.test.ts` — terrain generation and spawn points
+Test suites (344 tests total):
+- `__tests__/buildingSystem.test.ts` — block mesh builders, grid snapping, persistence
+- `__tests__/terrainUtils.test.ts` — terrain generation, spawn points, sculpt modification
 - `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions
 - `__tests__/soundManager.test.ts` — audio manager initialization and playback
 - `__tests__/Game3D.test.tsx` — Game3D component render and intro screen
@@ -117,10 +152,12 @@ liquid-glass-clock/
 │   ├── useTasks.ts         # Task polling hook (polls webhook)
 │   └── useVersionCheck.ts  # Build version checker
 ├── lib/                    # Shared utilities
+│   ├── buildingSystem.ts   # Block mesh builders, grid snapping, save/load
+│   ├── buildingTypes.ts    # Block material types and building constants
 │   ├── gameTypes.ts        # TypeScript types for the game
 │   ├── meshBuilders.ts     # Three.js mesh factory functions
 │   ├── soundManager.ts     # Web Audio API manager
-│   └── terrainUtils.ts     # Procedural terrain helpers
+│   └── terrainUtils.ts     # Procedural terrain + sculpt modification helpers
 └── __tests__/              # Jest test suites
 ```
 
