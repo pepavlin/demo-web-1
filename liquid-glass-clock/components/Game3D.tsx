@@ -2296,6 +2296,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
+      // Digit keys 1–3 — select weapon in explore mode
+      if (e.type === "keydown" && buildModeRef.current === "explore") {
+        const WEAPON_ORDER: WeaponType[] = ["pistol", "sword", "sniper"];
+        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
+          const idx = parseInt(e.code.replace("Digit", "")) - 1;
+          const newWeapon = WEAPON_ORDER[idx];
+          setSelectedWeapon(newWeapon);
+          selectedWeaponRef.current = newWeapon;
+          swapWeaponMesh(newWeapon);
+        }
+      }
+
       // Digit keys 1–8 — select block material in build mode
       if (e.type === "keydown" && buildModeRef.current !== "explore") {
         const digit = parseInt(e.key);
@@ -2392,6 +2404,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         selectedMaterialRef.current = newMat;
         if (ghostMeshRef.current) updateGhostMaterial(ghostMeshRef.current, newMat);
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
+      } else if (buildModeRef.current === "explore") {
+        // Mouse wheel — cycle through weapons
+        const WEAPON_ORDER: WeaponType[] = ["pistol", "sword", "sniper"];
+        const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
+        const next = (cur + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
+        const newWeapon = WEAPON_ORDER[next];
+        setSelectedWeapon(newWeapon);
+        selectedWeaponRef.current = newWeapon;
+        swapWeaponMesh(newWeapon);
       }
     };
     // passive: false would suppress default scrolling, but we keep passive:true
@@ -3916,22 +3937,37 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Active weapon indicator */}
-          <div
-            className="rounded-xl text-xs font-bold text-center"
-            style={{
-              width: 168,
-              padding: "8px 16px",
-              background: "rgba(0,0,0,0.55)",
-              backdropFilter: "blur(12px)",
-              border: `1px solid ${WEAPON_CONFIGS[selectedWeapon].color}44`,
-              color: WEAPON_CONFIGS[selectedWeapon].color,
-              boxShadow: `0 0 10px ${WEAPON_CONFIGS[selectedWeapon].color}22`,
-            }}
-          >
-            {selectedWeapon === "pistol" ? "🔫" : selectedWeapon === "sword" ? "⚔️" : "🎯"}{" "}
-            {WEAPON_CONFIGS[selectedWeapon].label}
-          </div>
+          {/* Weapon slots HUD — all 3 weapons, active one highlighted */}
+          {(["pistol", "sword", "sniper"] as WeaponType[]).map((w, idx) => {
+            const cfg = WEAPON_CONFIGS[w];
+            const isActive = selectedWeapon === w;
+            const emoji = w === "pistol" ? "🔫" : w === "sword" ? "⚔️" : "🎯";
+            return (
+              <div
+                key={w}
+                className="rounded-xl text-xs font-bold flex items-center gap-2"
+                style={{
+                  width: 168,
+                  padding: "7px 14px",
+                  background: isActive ? `${cfg.color}1a` : "rgba(0,0,0,0.40)",
+                  backdropFilter: "blur(12px)",
+                  border: isActive
+                    ? `1px solid ${cfg.color}88`
+                    : "1px solid rgba(255,255,255,0.08)",
+                  color: isActive ? cfg.color : "rgba(255,255,255,0.30)",
+                  boxShadow: isActive ? `0 0 12px ${cfg.color}33` : "none",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span style={{ opacity: isActive ? 0.8 : 0.4, fontSize: 10 }}>[{idx + 1}]</span>
+                <span>{emoji}</span>
+                <span>{cfg.label}</span>
+                {isActive && (
+                  <span style={{ marginLeft: "auto", fontSize: 8, opacity: 0.6 }}>◀</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
