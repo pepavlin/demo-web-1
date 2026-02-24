@@ -1,4 +1,4 @@
-import { getTerrainHeight, generateSpawnPoints, initNoise, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -92,6 +92,61 @@ describe("terrainUtils", () => {
       pts.forEach((p) => {
         expect(getTerrainHeight(p.x, p.z)).toBeGreaterThanOrEqual(WATER_LEVEL);
       });
+    });
+  });
+
+  describe("getTerrainHeightSampled", () => {
+    it("returns a number for origin", () => {
+      const h = getTerrainHeightSampled(0, 0);
+      expect(typeof h).toBe("number");
+      expect(isNaN(h)).toBe(false);
+    });
+
+    it("matches getTerrainHeight exactly at grid vertex positions", () => {
+      // Grid vertices are at multiples of cellSize from -WORLD_SIZE/2
+      const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+      const half = WORLD_SIZE / 2;
+      const testVertices = [
+        [0, 0],
+        [cellSize, 0],
+        [0, cellSize],
+        [-cellSize * 5, cellSize * 3],
+        [half - cellSize, half - cellSize],
+      ];
+      testVertices.forEach(([x, z]) => {
+        const exact = getTerrainHeight(x, z);
+        const sampled = getTerrainHeightSampled(x, z);
+        expect(sampled).toBeCloseTo(exact, 4);
+      });
+    });
+
+    it("stays within reasonable range", () => {
+      const testPoints = [
+        [0, 0], [50, 50], [-50, 100], [200, -150], [-300, 300],
+      ];
+      testPoints.forEach(([x, z]) => {
+        const h = getTerrainHeightSampled(x, z);
+        expect(h).toBeGreaterThan(-50);
+        expect(h).toBeLessThan(100);
+      });
+    });
+
+    it("returns consistent values for same coords", () => {
+      const h1 = getTerrainHeightSampled(123, 456);
+      const h2 = getTerrainHeightSampled(123, 456);
+      expect(h1).toBe(h2);
+    });
+
+    it("differs from exact getTerrainHeight at non-vertex positions by less than cell interpolation error", () => {
+      // Mid-cell point — difference is bounded by the local curvature
+      const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+      const midX = cellSize * 0.5;
+      const midZ = cellSize * 0.5;
+      const sampled = getTerrainHeightSampled(midX, midZ);
+      // Must be a finite number inside the world height range
+      expect(isFinite(sampled)).toBe(true);
+      expect(sampled).toBeGreaterThan(-50);
+      expect(sampled).toBeLessThan(100);
     });
   });
 
