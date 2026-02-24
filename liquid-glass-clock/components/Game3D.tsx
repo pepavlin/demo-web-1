@@ -407,6 +407,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
+  const waterMatRef = useRef<THREE.ShaderMaterial | null>(null);
   // Flora animation & collision data
   const floraRef = useRef<Array<{
     foliageGroup: THREE.Group;
@@ -1084,16 +1085,187 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Water ───────────────────────────────────────────────────────────────
-    const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE);
+    // Higher segment count gives smoother vertex-displaced waves
+    const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 256, 256);
     waterGeo.rotateX(-Math.PI / 2);
-    const waterMat = new THREE.MeshLambertMaterial({
-      color: 0x1a6aa0,
+    const waterMat = new THREE.ShaderMaterial({
+      uniforms: {
+        time:     { value: 0.0 },
+        sunDir:   { value: new THREE.Vector3(0, 1, 0) },
+        skyCol:   { value: new THREE.Color(0.45, 0.65, 0.90) },
+        sunColor: { value: new THREE.Color(1.0, 0.90, 0.75) },
+      },
+      vertexShader: `
+        uniform float time;
+        varying vec3  vWorldPos;
+        varying vec3  vNormal;
+        varying vec2  vUv;
+        varying float vHeight;
+
+        #define PI 3.14159265
+
+        // Gerstner wave: physically accurate ocean wave with horizontal displacement.
+        // dir = wave travel direction (normalized), wavelength in world units,
+        // amplitude = crest height, steepness Q in [0,1] (0=sine, 1=looped crest),
+        // speed = phase velocity, phase = time offset.
+        // Accumulates surface normal gradient into dNx/dNz.
+        vec3 gerstnerWave(vec2 dir, float wavelength, float amplitude,
+                          float steepness, float speed, float phase,
+                          vec2 xz, inout float dNx, inout float dNz) {
+          float k    = 2.0 * PI / wavelength;
+          float phi  = dot(dir, xz) * k + time * speed + phase;
+          float cp   = cos(phi);
+          float sp   = sin(phi);
+          // accumulate gradient for normal (∂Y/∂x and ∂Y/∂z)
+          dNx += dir.x * k * amplitude * cp;
+          dNz += dir.y * k * amplitude * cp;
+          // displacement: horizontal (Gerstner loop) + vertical (cosine crest)
+          // dir.x = world-X component, dir.y = world-Z component (vec2)
+          return vec3(-dir.x * steepness * amplitude * sp,
+                       amplitude * cp,
+                      -dir.y * steepness * amplitude * sp);
+        }
+
+        void main() {
+          vUv = uv;
+          vec3 pos   = position;
+          float dNx  = 0.0;
+          float dNz  = 0.0;
+          vec2  xz   = pos.xz; // evaluate all waves at rest position
+
+          // ── Primary ocean swells (long, slow rolling waves) ────────────────
+          vec3 d = vec3(0.0);
+          d += gerstnerWave(normalize(vec2( 1.0,  0.7)), 34.0, 0.26, 0.38, 0.50, 0.00, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2(-0.7,  1.0)), 26.0, 0.20, 0.35, 0.44, 1.70, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2( 0.5, -0.9)), 20.0, 0.14, 0.40, 0.57, 3.00, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2(-0.9, -0.4)), 42.0, 0.28, 0.28, 0.35, 0.90, xz, dNx, dNz);
+
+          // ── Secondary chop (faster, shorter cross-waves) ───────────────────
+          d += gerstnerWave(normalize(vec2( 1.5,  0.6)),  9.0, 0.065, 0.55, 0.84, 2.30, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2(-0.5,  0.8)),  7.0, 0.050, 0.60, 1.04, 4.10, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2( 0.9, -0.6)), 11.0, 0.070, 0.50, 0.77, 1.20, xz, dNx, dNz);
+
+          // ── Micro-chop (surface texture detail) ────────────────────────────
+          d += gerstnerWave(normalize(vec2(-1.2,  0.4)),  4.5, 0.022, 0.70, 1.34, 5.50, xz, dNx, dNz);
+          d += gerstnerWave(normalize(vec2( 0.6,  1.3)),  3.5, 0.018, 0.70, 1.64, 2.80, xz, dNx, dNz);
+
+          pos.x   += d.x;
+          pos.z   += d.z;
+          pos.y   += d.y;
+          vHeight  = d.y; // y-displacement: positive at crests, used for foam
+
+          vNormal   = normalize(vec3(-dNx, 1.0, -dNz));
+          vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float time;
+        uniform vec3  sunDir;
+        uniform vec3  skyCol;
+        uniform vec3  sunColor;
+        varying vec3  vWorldPos;
+        varying vec3  vNormal;
+        varying vec2  vUv;
+        varying float vHeight;
+
+        void main() {
+          vec3 viewDir = normalize(cameraPosition - vWorldPos);
+          vec2 xz      = vWorldPos.xz;
+
+          // ── Multi-octave detail normals (4 layers of animated ripples) ─────
+          // Each layer scrolls at a different speed/direction for complex turbulence
+          vec2 uv1 = xz * 0.16 + vec2( time * 0.07,  time * 0.05);
+          vec2 uv2 = xz * 0.34 + vec2(-time * 0.06,  time * 0.09);
+          vec2 uv3 = xz * 0.75 + vec2( time * 0.13, -time * 0.10);
+          vec2 uv4 = xz * 1.55 + vec2(-time * 0.16,  time * 0.12);
+
+          float dn1x = cos(uv1.x * 2.0 + uv1.y * 0.4) * 0.070;
+          float dn1z = cos(uv1.y * 2.0 - uv1.x * 0.4) * 0.070;
+          float dn2x = cos(uv2.x * 2.0 + uv2.y * 0.6) * 0.048;
+          float dn2z = cos(uv2.y * 2.0 + uv2.x * 0.6) * 0.048;
+          float dn3x = sin(uv3.x * 2.0 + uv3.y * 0.8) * 0.028;
+          float dn3z = sin(uv3.y * 2.0 - uv3.x * 0.8) * 0.028;
+          float dn4x = sin(uv4.x * 2.0) * 0.014;
+          float dn4z = sin(uv4.y * 2.0) * 0.014;
+
+          float dnX = dn1x + dn2x + dn3x + dn4x;
+          float dnZ = dn1z + dn2z + dn3z + dn4z;
+          vec3  n   = normalize(vNormal + vec3(-dnX, 0.0, -dnZ));
+
+          // ── Schlick Fresnel ────────────────────────────────────────────────
+          float cosTheta = max(dot(n, viewDir), 0.0);
+          float fresnel  = 0.04 + 0.96 * pow(1.0 - cosTheta, 5.0);
+          fresnel        = clamp(fresnel, 0.0, 1.0);
+
+          // ── Deep/shallow base colour ───────────────────────────────────────
+          vec3 deepColor    = vec3(0.01, 0.07, 0.24);
+          vec3 shallowColor = vec3(0.04, 0.28, 0.48);
+          vec3 waterColor   = mix(deepColor, shallowColor, clamp(1.0 - fresnel * 1.8, 0.0, 1.0));
+
+          // ── Sky reflection with horizon gradient + sun disk ────────────────
+          vec3  reflDir   = reflect(-viewDir, n);
+          float skyMix    = clamp(reflDir.y * 2.0 + 0.4, 0.0, 1.0);
+          vec3  horizCol  = mix(skyCol * 0.55, vec3(0.85, 0.93, 1.0), 0.40);
+          vec3  zenithCol = skyCol * 1.10;
+          vec3  reflColor = mix(horizCol, zenithCol, skyMix);
+
+          // Sun disk visible in reflection – bright spot centred on reflected sun
+          float sunDot  = dot(reflDir, sunDir);
+          float sunDisk = pow(max(sunDot, 0.0), 200.0) * 4.0;
+          reflColor    += sunColor * sunDisk;
+
+          waterColor = mix(waterColor, reflColor, fresnel * 0.90);
+
+          // ── Sub-surface scattering (turquoise light through wave crests) ───
+          float sss = smoothstep(0.18, 0.80, vHeight * 1.5 + 0.28);
+          waterColor += vec3(0.0, 0.18, 0.26) * sss * 0.38;
+
+          // ── Specular: sharp sun glint + soft halo + animated micro-sparkle ─
+          vec3  halfDir    = normalize(sunDir + viewDir);
+          float NdotH      = max(dot(n, halfDir), 0.0);
+          float specSharp  = pow(NdotH, 512.0) * 7.0;
+          float specSoft   = pow(NdotH,  48.0) * 0.32;
+
+          // Micro-sparkle from high-frequency detail normals catching the sun
+          vec3  n3 = normalize(vNormal + vec3(-dn3x * 3.0, 0.0, -dn3z * 3.0));
+          vec3  n4 = normalize(vNormal + vec3(-dn4x * 6.0, 0.0, -dn4z * 6.0));
+          float sp3 = pow(max(dot(n3, halfDir), 0.0), 320.0) * 2.5;
+          float sp4 = pow(max(dot(n4, halfDir), 0.0), 320.0) * 2.5;
+
+          waterColor += sunColor * (specSharp + specSoft + sp3 + sp4);
+
+          // ── Caustics (bright refracted-light lattice) ──────────────────────
+          float c1 = sin(xz.x * 2.2 + time * 2.8) * sin(xz.y * 1.8 + time * 2.4);
+          float c2 = sin(xz.x * 3.4 - time * 2.0) * sin(xz.y * 2.8 + time * 3.2);
+          float c3 = sin(xz.x * 1.6 + xz.y * 1.4 + time * 1.7) * 0.5;
+          float caustic = pow(max(mix(c1, c2 + c3, 0.4), 0.0), 6.0) * 0.18;
+          waterColor += vec3(0.60, 0.90, 1.0) * caustic * max(1.0 - fresnel, 0.15);
+
+          // ── Foam at wave crests ────────────────────────────────────────────
+          float foamNoise = 0.5 + 0.5 * sin(xz.x * 3.0 + time * 1.2) * sin(xz.y * 2.5 + time * 0.9);
+          float crestFoam = smoothstep(0.36, 0.90, vHeight * 1.15) * foamNoise;
+          waterColor = mix(waterColor, vec3(0.95, 0.98, 1.0), clamp(crestFoam, 0.0, 1.0) * 0.68);
+
+          // ── Shore foam band ────────────────────────────────────────────────
+          float sf = pow(max(sin(xz.x * 0.10 + time * 0.48)
+                           * sin(xz.y * 0.08 + time * 0.40), 0.0), 4.0) * 0.06;
+          waterColor += vec3(sf * 0.85, sf, sf);
+
+          // ── Alpha: grazing = more opaque/reflective ────────────────────────
+          float alpha = mix(0.72, 0.96, fresnel);
+
+          gl_FragColor = vec4(waterColor, alpha);
+        }
+      `,
       transparent: true,
-      opacity: 0.8,
+      depthWrite: false,
+      side: THREE.FrontSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
     water.position.y = -0.5;
     scene.add(water);
+    waterMatRef.current = waterMat;
 
     // ── Grass ───────────────────────────────────────────────────────────────
     {
@@ -2339,6 +2511,33 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // LOD: pass camera world position so the shader can reduce wind at distance
         if (cameraRef.current) {
           gm.uniforms.cameraPos.value.copy(cameraRef.current.position);
+        }
+      }
+
+      // ── Water wave animation ───────────────────────────────────────────────
+      if (waterMatRef.current) {
+        waterMatRef.current.uniforms.time.value = elapsed;
+        // Keep sun direction in sync with the day/night cycle
+        if (sunRef.current) {
+          const sd = sunRef.current.position.clone().normalize();
+          waterMatRef.current.uniforms.sunDir.value.copy(sd);
+        }
+        // Tint reflected sky to match current sky colour
+        waterMatRef.current.uniforms.skyCol.value.copy(
+          scene.background instanceof THREE.Color ? scene.background : new THREE.Color(0.45, 0.65, 0.90)
+        );
+        // Sun colour tints specular highlight (orange at golden hour, white at noon)
+        const isGoldenHourWater = dayFraction < 0.32 || dayFraction > 0.68;
+        const sunIntWater = getSunIntensity(dayFraction);
+        if (sunIntWater > 0) {
+          if (isGoldenHourWater) {
+            waterMatRef.current.uniforms.sunColor.value.setRGB(1.0, 0.55, 0.12);
+          } else {
+            waterMatRef.current.uniforms.sunColor.value.setRGB(1.0, 0.92, 0.78);
+          }
+        } else {
+          // Night: dim blue moonlight specular
+          waterMatRef.current.uniforms.sunColor.value.setRGB(0.18, 0.22, 0.35);
         }
       }
 
