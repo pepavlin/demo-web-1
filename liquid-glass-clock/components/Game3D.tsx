@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   getTerrainHeight,
@@ -141,6 +142,165 @@ function getAmbientIntensity(t: number): number {
   return 0.08 + smoothstep(0.18, 0.35, t) * 0.45;
 }
 
+// ─── Volumetric Scattering Shader (Screen-Space Crepuscular Rays) ─────────────
+// Based on NVIDIA GPU Gems 3 Ch.13 with the following physical improvements:
+//
+// 1. IGN JITTER (Jorge Jimenez, CoD:AW 2014): Per-pixel offset at ray start
+//    eliminates the repeating "stripe" banding caused by uniform step sizes.
+//
+// 2. FBM FOG DENSITY: Fractal Brownian Motion noise sampled along the march
+//    path simulates atmospheric density variation. Result: rays appear to
+//    penetrate through shifting fog patches — brighter where fog is dense
+//    (more scattering) and thinner where fog is sparse.
+//
+// 3. MIE PHASE FUNCTION (Henyey-Greenstein): Physical model for particle
+//    forward-scattering. Rays near the sun (forward scatter, g≈0.76) are
+//    significantly brighter, matching real crepuscular ray behaviour.
+//    Screen-space approximation: distance from pixel to sun UV position.
+//
+// 4. ANIMATED DRIFT: FBM coordinate offset shifts slowly over time so fog
+//    density variation evolves, giving rays a living, breathing quality.
+const VolumetricScatteringShader = {
+  uniforms: {
+    tDiffuse:      { value: null as THREE.Texture | null },
+    lightPosition: { value: new THREE.Vector2(0.5, 0.5) }, // sun UV [0..1]
+    exposure:      { value: 0.12 },   // subtle base brightness (much lower than before)
+    decay:         { value: 0.962 },  // slightly slower falloff for longer reach
+    density:       { value: 0.85 },   // march span toward the light
+    weight:        { value: 0.38 },   // per-sample weight
+    enabled:       { value: 1.0 },    // 0 = pass-through (night / sun below horizon)
+    time:          { value: 0.0 },    // elapsed time for animated fog drift
+    mieG:          { value: 0.76 },   // Henyey-Greenstein anisotropy (0.76 = realistic Mie)
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2  lightPosition;
+    uniform float exposure;
+    uniform float decay;
+    uniform float density;
+    uniform float weight;
+    uniform float enabled;
+    uniform float time;
+    uniform float mieG;
+    varying vec2 vUv;
+
+    const int NUM_SAMPLES = 90;
+
+    // ── Interleaved Gradient Noise (Jorge Jimenez, 2014) ──────────────────────
+    // Produces a spatially-uniform noise pattern with no texture lookup.
+    // Applied once at ray start to offset the first sample, breaking up banding.
+    float gradientNoise(vec2 pos) {
+      return fract(52.9829189 * fract(dot(pos, vec2(0.06711056, 0.00583715))));
+    }
+
+    // ── 2-D value noise base function ─────────────────────────────────────────
+    float hash21(vec2 p) {
+      p = fract(p * vec2(127.1, 311.7));
+      return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
+    }
+    float valueNoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f); // Hermite smoothing
+      return mix(
+        mix(hash21(i),              hash21(i + vec2(1.0, 0.0)), f.x),
+        mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x),
+        f.y
+      );
+    }
+
+    // ── 3-octave FBM fog density (animated) ───────────────────────────────────
+    // Slow atmospheric drift creates living, breathing fog patches.
+    // Denser regions scatter more sun-light → rays become locally brighter.
+    float fogFBM(vec2 p) {
+      vec2 q = p + time * vec2(0.007, -0.004); // gentle wind drift
+      float f  = 0.500 * valueNoise(q * 2.8);
+      f       += 0.250 * valueNoise(q * 5.9 + vec2(5.2, 1.3));
+      f       += 0.125 * valueNoise(q * 11.7 + vec2(1.7, 9.2));
+      return clamp(f, 0.0, 1.0);
+    }
+
+    // ── Henyey-Greenstein Mie phase function ──────────────────────────────────
+    // mu  = cos(scatter angle) = dot(viewDir, lightDir)
+    // g   = anisotropy factor  (0.76 → strong forward scattering, like water droplets)
+    // Returns scattering probability relative to isotropic (1/(4π)).
+    float miePhase(float mu) {
+      float g  = mieG;
+      float gg = g * g;
+      float denom = max(1.0 + gg - 2.0 * g * mu, 0.0001);
+      return (1.0 - gg) / (4.0 * 3.14159265 * pow(denom, 1.5));
+    }
+
+    void main() {
+      vec4 baseColor = texture2D(tDiffuse, vUv);
+
+      if (enabled < 0.5) {
+        gl_FragColor = baseColor;
+        return;
+      }
+
+      // Step vector: from current pixel toward the light source
+      vec2 texCoord     = vUv;
+      vec2 deltaTexCoord = (vUv - lightPosition) * (density / float(NUM_SAMPLES));
+
+      // ── IGN jitter: offset the first sample by a random fraction ──────────
+      // Every pixel gets a different starting offset, eliminating the repeating
+      // uniform stripes produced by fixed-step marching.
+      float jitter = gradientNoise(gl_FragCoord.xy);
+      texCoord -= deltaTexCoord * jitter;
+
+      // ── Mie phase weight ──────────────────────────────────────────────────
+      // Screen-space approximation: pixels near the sun disc (small dist)
+      // correspond to forward-scatter geometry → higher Mie contribution.
+      // Pixels far from the sun are side/back-scatter → lower contribution.
+      float distToLight = length(lightPosition - vUv);
+      // mu ranges from ~1.0 (at sun) to ~-0.5 (opposite side of screen)
+      float mu = clamp(1.0 - distToLight * 1.8, -1.0, 1.0);
+      float mieNorm    = miePhase(1.0); // peak value at mu=1 for normalisation
+      float mieFactor  = clamp(miePhase(mu) / mieNorm, 0.08, 2.5);
+
+      float illuminationDecay = 1.0;
+      vec4  accumulated       = vec4(0.0);
+
+      for (int i = 0; i < NUM_SAMPLES; i++) {
+        texCoord -= deltaTexCoord;
+        vec2 clampedCoord = clamp(texCoord, vec2(0.01), vec2(0.99));
+        vec4 samp = texture2D(tDiffuse, clampedCoord);
+
+        // ── Strict sun-disc threshold ───────────────────────────────────────
+        // Only HDR-bright pixels (the sun disc and its bloom glow) contribute.
+        // Normal sky, terrain, objects are excluded → produces thin shafts
+        // rather than uniform broad illumination.
+        float lum = dot(samp.rgb, vec3(0.299, 0.587, 0.114));
+        float sunContrib = smoothstep(0.74, 0.94, lum);
+
+        // ── FBM fog density modulation ──────────────────────────────────────
+        // Atmospheric fog patches scatter the light differently:
+        // dense fog → more scattering → ray appears locally brighter.
+        // thin/gap  → less scattering → ray fades naturally.
+        float fog     = fogFBM(texCoord * 1.8);
+        float scatter = mix(0.18, 1.0, fog); // minimum scatter even in thin fog
+
+        samp.rgb *= sunContrib * scatter;
+        samp.a   *= sunContrib;
+
+        accumulated += samp * (illuminationDecay * weight);
+        illuminationDecay *= decay;
+      }
+
+      // Additive blend: rays on top of scene with Mie directional weighting
+      gl_FragColor = baseColor + accumulated * exposure * mieFactor;
+    }
+  `,
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Game3D() {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -174,8 +334,7 @@ export default function Game3D() {
   const composerRef = useRef<EffectComposer | null>(null);
   const sunDiscRef = useRef<THREE.Mesh | null>(null);
   const sunCoronaRef = useRef<THREE.Mesh | null>(null);
-  const volShaftsRef = useRef<THREE.Group | null>(null);
-  const volShaftBaseOpsRef = useRef<number[]>([]);
+  const volScatterPassRef = useRef<ShaderPass | null>(null);
   const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
@@ -348,7 +507,11 @@ export default function Game3D() {
 
     // Scene
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x87ceeb, FOG_NEAR, FOG_FAR);
+    // Exponential fog: more realistic atmospheric haze than linear fog.
+    // Density 0.0095 ≈ 50 % opacity at ~73 m — slightly denser than the old 0.007.
+    // The extra atmospheric haze makes volumetric light shafts look like they are
+    // genuinely penetrating through fog/mist rather than drawing on clear air.
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.0095);
     scene.background = new THREE.Color(0x87ceeb);
     sceneRef.current = scene;
 
@@ -437,54 +600,30 @@ export default function Game3D() {
     sunCoronaRef.current = sunCorona;
 
     // Finish composing render pipeline — needs scene + camera ready
+    // Pipeline: RenderPass → BloomPass → VolumetricScatteringPass → OutputPass
     composer.addPass(new RenderPass(scene, camera));
+
+    // Bloom: amplifies the sun disc to near-white so it feeds the ray shader cleanly
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      /* strength */ 0.55,
-      /* radius   */ 0.5,
-      /* threshold*/ 0.92   // only objects with luminance > 0.92 get bloomed
+      /* strength */ 0.60,
+      /* radius   */ 0.55,
+      /* threshold*/ 0.90   // only objects with luminance > 0.90 get bloomed
     );
     composer.addPass(bloomPass);
     bloomPassRef.current = bloomPass;
+
+    // ── Screen-space volumetric scattering (crepuscular / god rays) ──────────
+    // Replaces the old 3-D cone shafts with a post-process shader that marches
+    // from each pixel toward the sun's UV position, accumulating only the bright
+    // sun disc+bloom contribution. Result: thin, fog-piercing shafts that look
+    // like sunlight scattering through haze — much more realistic than geometry.
+    const volScatterPass = new ShaderPass(VolumetricScatteringShader);
+    composer.addPass(volScatterPass);
+    volScatterPassRef.current = volScatterPass;
+
     composer.addPass(new OutputPass());
     composerRef.current = composer;
-
-    // ── Volumetric light shafts (3-D god rays) ──────────────────────────────
-    // Cone meshes with additive blending: tips point toward sun, bases spread
-    // toward terrain — creating the classic crepuscular-ray / god-ray look.
-    const volShaftsGroup = new THREE.Group();
-    const shaftBaseOps: number[] = [];
-    const shaftDefs: Array<{ spreadX: number; spreadZ: number; radius: number; op: number }> = [
-      { spreadX:  0.00, spreadZ:  0.00, radius: 18, op: 0.038 }, // centre beam
-      { spreadX:  0.13, spreadZ:  0.05, radius: 11, op: 0.026 },
-      { spreadX: -0.11, spreadZ:  0.09, radius: 13, op: 0.030 },
-      { spreadX:  0.24, spreadZ: -0.04, radius:  8, op: 0.016 },
-      { spreadX: -0.20, spreadZ: -0.07, radius: 10, op: 0.020 },
-      { spreadX:  0.07, spreadZ:  0.19, radius: 14, op: 0.032 },
-      { spreadX: -0.06, spreadZ: -0.14, radius:  7, op: 0.014 },
-    ];
-    shaftDefs.forEach(({ spreadX, spreadZ, radius, op }) => {
-      const coneLength = 300;
-      const geo = new THREE.ConeGeometry(radius, coneLength, 8, 1, true);
-      const mat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(1.2, 0.95, 0.55),
-        transparent: true,
-        opacity: op,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      // Slightly spread each shaft around the primary beam direction
-      mesh.rotation.x = spreadX;
-      mesh.rotation.z = spreadZ;
-      volShaftsGroup.add(mesh);
-      shaftBaseOps.push(op);
-    });
-    volShaftsGroup.visible = false; // shown only when sun is above horizon
-    scene.add(volShaftsGroup);
-    volShaftsRef.current = volShaftsGroup;
-    volShaftBaseOpsRef.current = shaftBaseOps;
 
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
@@ -1546,7 +1685,7 @@ export default function Game3D() {
 
       const skyColor = getSkyColor(dayFraction);
       scene.background = skyColor;
-      (scene.fog as THREE.Fog).color = skyColor;
+      (scene.fog as THREE.FogExp2).color = skyColor;
       if (skyMeshRef.current) {
         (skyMeshRef.current.material as THREE.MeshBasicMaterial).color = skyColor;
       }
@@ -1595,46 +1734,39 @@ export default function Game3D() {
         }
       }
 
-      // ── 3-D volumetric light shafts ────────────────────────────────────────
-      if (volShaftsRef.current && sunRef.current && cameraRef.current) {
-        const cam = cameraRef.current;
-        const sunDir3D = sunRef.current.position.clone().normalize();
-        const sunInt3D = getSunIntensity(dayFraction);
-        // Only show when sun is above the geometric horizon (y > 0)
-        if (sunInt3D > 0 && sunDir3D.y > 0) {
-          // Place shaft pivot above terrain near camera, offset toward sun
-          const th = getTerrainHeight(cam.position.x, cam.position.z);
-          volShaftsRef.current.position.set(
-            cam.position.x + sunDir3D.x * 20,
-            th + 25,
-            cam.position.z + sunDir3D.z * 20
-          );
-          // Rotate group so cone tip (+Y local) aligns with sun direction
-          const quatShaft = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(0, 1, 0),
-            sunDir3D.clone().normalize()
-          );
-          volShaftsRef.current.quaternion.copy(quatShaft);
-          volShaftsRef.current.visible = true;
+      // ── Screen-space volumetric scattering uniforms ────────────────────────
+      // Project the sun disc's world position into screen UV space [0..1] and
+      // feed it to the ShaderPass every frame so the rays always track the sun.
+      if (volScatterPassRef.current && sunDiscRef.current && cameraRef.current) {
+        const cam    = cameraRef.current;
+        const sunInt = getSunIntensity(dayFraction);
+        // Grab the sun disc world position and project it to NDC then to UV
+        const sunNDC = sunDiscRef.current.position.clone().project(cam);
 
-          const isGoldenHour3D = dayFraction < 0.32 || dayFraction > 0.68;
-          // Golden hour: more intense shafts; midday: subtler
-          const intensityMult = isGoldenHour3D ? sunInt3D * 0.9 : sunInt3D * 0.45;
-          const shaftPulse = 1.0 + Math.sin(elapsed * 0.22) * 0.08;
+        // UV coords: NDC [-1,1] → [0,1], Y is flipped (WebGL Y-up vs UV Y-down)
+        const sunUVx = (sunNDC.x + 1.0) * 0.5;
+        const sunUVy = (sunNDC.y + 1.0) * 0.5;
 
-          volShaftsRef.current.children.forEach((child, idx) => {
-            const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
-            const base = volShaftBaseOpsRef.current[idx] ?? 0.02;
-            mat.opacity = base * intensityMult * shaftPulse;
-            // Warm orange at golden hour, soft white-yellow at noon
-            if (isGoldenHour3D) {
-              mat.color.setRGB(1.1, 0.45, 0.1);
-            } else {
-              mat.color.setRGB(0.95, 0.78, 0.45);
-            }
-          });
-        } else {
-          volShaftsRef.current.visible = false;
+        // The sun disc is visible when in front of camera (z < 1 in NDC) and daytime
+        const sunInView = sunNDC.z < 1.0 && sunInt > 0;
+
+        const uniforms = volScatterPassRef.current.material.uniforms;
+        uniforms.lightPosition.value.set(sunUVx, sunUVy);
+        uniforms.enabled.value = sunInView ? 1.0 : 0.0;
+        // Always update time so animated fog drift runs continuously
+        uniforms.time.value = elapsed;
+
+        if (sunInView) {
+          const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
+          // Golden hour: vivid warm rays; midday: subtle pale haze shafts
+          // Exposure kept low so rays feel like light through mist, not searchlights
+          uniforms.exposure.value = isGoldenHour
+            ? 0.18 * sunInt                // warm golden dawn/dusk shafts
+            : 0.09 * sunInt;               // pale diffuse midday haze
+          // Weight variation: slow sine gives gentle, breathing turbulence
+          uniforms.weight.value = 0.35 + Math.sin(elapsed * 0.14) * 0.04;
+          // Mie anisotropy: slightly stronger forward-scattering at golden hour
+          uniforms.mieG.value = isGoldenHour ? 0.80 : 0.76;
         }
       }
 
