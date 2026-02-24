@@ -219,7 +219,7 @@ const VolumetricScatteringShader = {
     uniform float mieG;
     varying vec2 vUv;
 
-    const int NUM_SAMPLES = 90;
+    const int NUM_SAMPLES = 28;
 
     // ── Interleaved Gradient Noise (Jorge Jimenez, 2014) ──────────────────────
     // Produces a spatially-uniform noise pattern with no texture lookup.
@@ -244,14 +244,12 @@ const VolumetricScatteringShader = {
       );
     }
 
-    // ── 3-octave FBM fog density (animated) ───────────────────────────────────
-    // Slow atmospheric drift creates living, breathing fog patches.
-    // Denser regions scatter more sun-light → rays become locally brighter.
+    // ── 2-octave FBM fog density (animated) ───────────────────────────────────
+    // Reduced from 3 octaves to 2 for better performance.
     float fogFBM(vec2 p) {
       vec2 q = p + time * vec2(0.007, -0.004); // gentle wind drift
-      float f  = 0.500 * valueNoise(q * 2.8);
-      f       += 0.250 * valueNoise(q * 5.9 + vec2(5.2, 1.3));
-      f       += 0.125 * valueNoise(q * 11.7 + vec2(1.7, 9.2));
+      float f  = 0.600 * valueNoise(q * 2.8);
+      f       += 0.400 * valueNoise(q * 5.9 + vec2(5.2, 1.3));
       return clamp(f, 0.0, 1.0);
     }
 
@@ -661,7 +659,7 @@ export default function Game3D() {
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.4);
     sun.position.set(100, 150, 80);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.near = 0.5;
     sun.shadow.camera.far = 700;
     sun.shadow.camera.left = -250;
