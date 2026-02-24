@@ -1,4 +1,4 @@
-import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -214,6 +214,68 @@ describe("terrainUtils", () => {
       // Actually let's just request 0 points
       const pts = generateSpawnPoints(0, 20, 100, 1);
       expect(pts.length).toBe(0);
+    });
+  });
+
+  describe("modifyTerrainHeight", () => {
+    beforeEach(() => {
+      // Re-init noise to get a clean heightGrid before each sculpt test
+      initNoise(42);
+    });
+
+    it("increases height at the target point when delta is positive", () => {
+      const x = 0;
+      const z = 0;
+      // Use radius large enough to cover at least one grid cell (cellSize ≈ 6.67)
+      const before = getTerrainHeightSampled(x, z);
+      modifyTerrainHeight(x, z, 5, 12);
+      const after = getTerrainHeightSampled(x, z);
+      expect(after).toBeGreaterThan(before);
+    });
+
+    it("decreases height at the target point when delta is negative", () => {
+      const x = 10;
+      const z = 10;
+      const before = getTerrainHeightSampled(x, z);
+      modifyTerrainHeight(x, z, -5, 12);
+      const after = getTerrainHeightSampled(x, z);
+      expect(after).toBeLessThan(before);
+    });
+
+    it("change is larger at centre than at edge of brush", () => {
+      initNoise(42);
+      const cx = 50;
+      const cz = 50;
+      const radius = 15; // must cover several grid cells (cellSize ≈ 6.67)
+      const edgeX = cx + radius * 0.85; // near edge but still inside brush
+
+      const centreBeforeRaise = getTerrainHeightSampled(cx, cz);
+      const edgeBeforeRaise   = getTerrainHeightSampled(edgeX, cz);
+
+      modifyTerrainHeight(cx, cz, 10, radius);
+
+      const centreDelta = getTerrainHeightSampled(cx, cz) - centreBeforeRaise;
+      const edgeDelta   = getTerrainHeightSampled(edgeX, cz) - edgeBeforeRaise;
+
+      expect(centreDelta).toBeGreaterThan(edgeDelta);
+      expect(edgeDelta).toBeGreaterThan(0); // edge also changed
+    });
+
+    it("does not affect terrain far outside the brush radius", () => {
+      const cx = 0;
+      const cz = 0;
+      const farX = 200;
+      const farZ = 200;
+      const before = getTerrainHeightSampled(farX, farZ);
+      modifyTerrainHeight(cx, cz, 20, 5);
+      const after = getTerrainHeightSampled(farX, farZ);
+      expect(after).toBe(before); // unchanged
+    });
+
+    it("is a no-op when heightGrid is not initialised (does not throw)", () => {
+      // This just ensures the function handles the null-guard gracefully.
+      // Since initNoise() has already been called, this test verifies it runs without error.
+      expect(() => modifyTerrainHeight(0, 0, 1, 5)).not.toThrow();
     });
   });
 });

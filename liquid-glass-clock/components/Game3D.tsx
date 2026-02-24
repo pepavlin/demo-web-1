@@ -12,10 +12,34 @@ import {
   getTerrainHeightSampled,
   generateSpawnPoints,
   initNoise,
+  modifyTerrainHeight,
+  updateTerrainGeometry,
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
   WATER_LEVEL,
 } from "@/lib/terrainUtils";
+import {
+  BlockMaterial,
+  BuildMode,
+  BuildingUiState,
+  PlacedBlockData,
+  BLOCK_DEFS,
+  BLOCK_MATERIAL_ORDER,
+  BUILD_RANGE,
+  SCULPT_RADIUS,
+  SCULPT_STRENGTH,
+  MAX_BLOCKS,
+} from "@/lib/buildingTypes";
+import {
+  buildBlockMesh,
+  buildGhostMesh,
+  buildSculptIndicator,
+  updateGhostMaterial,
+  getPlacementPosition,
+  blockKey,
+  saveBlocks,
+  loadBlocks,
+} from "@/lib/buildingSystem";
 import {
   buildSheepMesh,
   buildFoxMesh,
@@ -365,7 +389,22 @@ export default function Game3D() {
   const footstepTimerRef = useRef(0);
   const foxGrowlCooldownRef = useRef(0);
 
+  // ─── Building / Terrain Sculpt Refs ──────────────────────────────────────────
+  const buildModeRef = useRef<BuildMode>("explore");
+  const selectedMaterialRef = useRef<BlockMaterial>("wood");
+  const placedBlockMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const placedBlocksDataRef = useRef<PlacedBlockData[]>([]);
+  const ghostMeshRef = useRef<THREE.Mesh | null>(null);
+  const terrainMeshRef = useRef<THREE.Mesh | null>(null);
+  const sculptIndicatorRef = useRef<THREE.Mesh | null>(null);
+  const buildRaycasterRef = useRef(new THREE.Raycaster());
+
   const [isMuted, setIsMuted] = useState(false);
+  const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
+    mode: "explore",
+    selectedMaterial: "wood",
+    blockCount: 0,
+  });
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -482,6 +521,58 @@ export default function Game3D() {
         foxesDefeatedRef.current++;
         soundManager.playFoxDeath();
       }
+    }
+  }, []);
+
+  // ─── Block placement ──────────────────────────────────────────────────────────
+  const placeBlock = useCallback((position: THREE.Vector3) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (placedBlocksDataRef.current.length >= MAX_BLOCKS) return;
+
+    const { x, y, z } = position;
+    const key = blockKey(x, y, z);
+    if (placedBlockMeshesRef.current.has(key)) return;
+
+    const mat = selectedMaterialRef.current;
+    const mesh = buildBlockMesh(mat);
+    mesh.position.set(x, y, z);
+    scene.add(mesh);
+    placedBlockMeshesRef.current.set(key, mesh);
+
+    const blockData: PlacedBlockData = { x, y, z, material: mat };
+    placedBlocksDataRef.current.push(blockData);
+    saveBlocks(placedBlocksDataRef.current);
+    soundManager.playBlockPlace();
+    setBuildingUiState((s) => ({ ...s, blockCount: placedBlocksDataRef.current.length }));
+  }, []);
+
+  // ─── Block removal ────────────────────────────────────────────────────────────
+  const removeBlock = useCallback(() => {
+    const scene = sceneRef.current;
+    const cam = cameraRef.current;
+    if (!scene || !cam) return;
+
+    const raycaster = buildRaycasterRef.current;
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+    raycaster.far = BUILD_RANGE;
+
+    const blockMeshes = Array.from(placedBlockMeshesRef.current.values());
+    if (blockMeshes.length === 0) return;
+
+    const hits = raycaster.intersectObjects(blockMeshes, false);
+    if (hits.length > 0) {
+      const hitMesh = hits[0].object as THREE.Mesh;
+      const pos = hitMesh.position;
+      const key = blockKey(pos.x, pos.y, pos.z);
+      scene.remove(hitMesh);
+      placedBlockMeshesRef.current.delete(key);
+      placedBlocksDataRef.current = placedBlocksDataRef.current.filter(
+        (b) => !(b.x === pos.x && b.y === pos.y && b.z === pos.z)
+      );
+      saveBlocks(placedBlocksDataRef.current);
+      soundManager.playBlockRemove();
+      setBuildingUiState((s) => ({ ...s, blockCount: placedBlocksDataRef.current.length }));
     }
   }, []);
 
@@ -762,6 +853,29 @@ export default function Game3D() {
     const terrain = new THREE.Mesh(terrainGeo, terrainMat);
     terrain.receiveShadow = true;
     scene.add(terrain);
+    terrainMeshRef.current = terrain;
+
+    // ── Building system: ghost block + sculpt indicator ──────────────────────
+    const ghost = buildGhostMesh("wood");
+    scene.add(ghost);
+    ghostMeshRef.current = ghost;
+
+    const sculptRing = buildSculptIndicator(SCULPT_RADIUS);
+    scene.add(sculptRing);
+    sculptIndicatorRef.current = sculptRing;
+
+    // Restore placed blocks from localStorage
+    const savedBlocks = loadBlocks();
+    savedBlocks.forEach((b) => {
+      const mesh = buildBlockMesh(b.material);
+      mesh.position.set(b.x, b.y, b.z);
+      scene.add(mesh);
+      placedBlockMeshesRef.current.set(blockKey(b.x, b.y, b.z), mesh);
+      placedBlocksDataRef.current.push(b);
+    });
+    if (savedBlocks.length > 0) {
+      setBuildingUiState((s) => ({ ...s, blockCount: savedBlocks.length }));
+    }
 
     // ── Water ───────────────────────────────────────────────────────────────
     const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE);
@@ -1608,21 +1722,66 @@ export default function Game3D() {
     lighthouseLightRef.current = lighthouseLight;
 
     // ── Input ─────────────────────────────────────────────────────────────────
-    // ── Mouse click attack ────────────────────────────────────────────────────
+    // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && isLockedRef.current) {
-        doAttack();
+      if (!isLockedRef.current) return;
+      if (e.button === 0) {
+        if (buildModeRef.current === "build") {
+          if (ghostMeshRef.current?.visible) {
+            placeBlock(ghostMeshRef.current.position.clone());
+          }
+        } else if (buildModeRef.current === "explore") {
+          doAttack();
+        }
+        // sculpt mode: scroll wheel sculpts, left click does nothing extra
+      } else if (e.button === 2 && buildModeRef.current !== "explore") {
+        removeBlock();
       }
     };
     document.addEventListener("mousedown", onMouseDown);
+
+    // Suppress context menu while pointer is locked (needed for right-click removal)
+    const onContextMenu = (e: MouseEvent) => {
+      if (isLockedRef.current) e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onContextMenu);
 
     const IMPLEMENT_WORD = "IMPLEMENT";
     const onKey = (e: KeyboardEvent) => {
       keysRef.current[e.code] = e.type === "keydown";
 
-      // F key attack
-      if (e.type === "keydown" && e.code === "KeyF") {
+      // F key attack (only in explore mode)
+      if (e.type === "keydown" && e.code === "KeyF" && buildModeRef.current === "explore") {
         doAttack();
+      }
+
+      // B key — toggle build mode on/off
+      if (e.type === "keydown" && e.code === "KeyB") {
+        const next: BuildMode = buildModeRef.current !== "explore" ? "explore" : "build";
+        buildModeRef.current = next;
+        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
+        setBuildingUiState((s) => ({ ...s, mode: next }));
+      }
+
+      // T key — toggle sculpt sub-mode (only when already in build mode)
+      if (e.type === "keydown" && e.code === "KeyT" && buildModeRef.current !== "explore") {
+        const next: BuildMode = buildModeRef.current === "sculpt" ? "build" : "sculpt";
+        buildModeRef.current = next;
+        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
+        setBuildingUiState((s) => ({ ...s, mode: next }));
+      }
+
+      // Digit keys 1–8 — select block material in build mode
+      if (e.type === "keydown" && buildModeRef.current !== "explore") {
+        const digit = parseInt(e.key);
+        if (digit >= 1 && digit <= 8) {
+          const newMat = BLOCK_MATERIAL_ORDER[digit - 1];
+          selectedMaterialRef.current = newMat;
+          if (ghostMeshRef.current) updateGhostMaterial(ghostMeshRef.current, newMat);
+          setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
+        }
       }
 
       // IMPLEMENT word detection — any single printable character
@@ -1667,6 +1826,40 @@ export default function Game3D() {
       }
     };
     document.addEventListener("pointerlockchange", onLockChange);
+
+    // ── Mouse wheel — sculpt terrain or cycle materials ───────────────────────
+    const onWheel = (e: WheelEvent) => {
+      if (!isLockedRef.current) return;
+
+      if (buildModeRef.current === "sculpt") {
+        const cam = cameraRef.current;
+        const terrainMesh = terrainMeshRef.current;
+        if (!cam || !terrainMesh) return;
+
+        const raycaster = buildRaycasterRef.current;
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+        raycaster.far = BUILD_RANGE * 2;
+        const hits = raycaster.intersectObject(terrainMesh, false);
+        if (hits.length > 0) {
+          const delta = e.deltaY > 0 ? -SCULPT_STRENGTH : SCULPT_STRENGTH;
+          modifyTerrainHeight(hits[0].point.x, hits[0].point.z, delta, SCULPT_RADIUS);
+          updateTerrainGeometry(terrainMesh);
+          soundManager.playTerrainSculpt();
+        }
+      } else if (buildModeRef.current === "build") {
+        const cur = BLOCK_MATERIAL_ORDER.indexOf(selectedMaterialRef.current);
+        const next =
+          (cur + (e.deltaY > 0 ? 1 : -1) + BLOCK_MATERIAL_ORDER.length) %
+          BLOCK_MATERIAL_ORDER.length;
+        const newMat = BLOCK_MATERIAL_ORDER[next];
+        selectedMaterialRef.current = newMat;
+        if (ghostMeshRef.current) updateGhostMaterial(ghostMeshRef.current, newMat);
+        setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
+      }
+    };
+    // passive: false would suppress default scrolling, but we keep passive:true
+    // since we don't need to block page scroll (pointer lock suppresses it anyway)
+    window.addEventListener("wheel", onWheel);
 
     // ── Animation loop ────────────────────────────────────────────────────────
     let elapsed = 0;
@@ -1980,6 +2173,45 @@ export default function Game3D() {
         } else {
           footstepTimerRef.current = 0;
         }
+      }
+
+      // ── Build mode: ghost block preview & sculpt indicator position ───────────
+      if (buildModeRef.current !== "explore" && cameraRef.current) {
+        const cam = cameraRef.current;
+        const raycaster = buildRaycasterRef.current;
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+
+        if (buildModeRef.current === "build") {
+          raycaster.far = BUILD_RANGE;
+          const rayTargets: THREE.Object3D[] = terrainMeshRef.current
+            ? [terrainMeshRef.current, ...placedBlockMeshesRef.current.values()]
+            : [...placedBlockMeshesRef.current.values()];
+          const hits = raycaster.intersectObjects(rayTargets, false);
+          if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
+            const placePos = getPlacementPosition(hits[0].point, hits[0].face.normal);
+            ghostMeshRef.current.position.copy(placePos);
+            ghostMeshRef.current.visible = true;
+          } else if (ghostMeshRef.current) {
+            ghostMeshRef.current.visible = false;
+          }
+          if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
+        } else if (buildModeRef.current === "sculpt") {
+          raycaster.far = BUILD_RANGE * 2;
+          if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+          if (terrainMeshRef.current && sculptIndicatorRef.current) {
+            const hits = raycaster.intersectObject(terrainMeshRef.current, false);
+            if (hits.length > 0) {
+              const h = getTerrainHeightSampled(hits[0].point.x, hits[0].point.z);
+              sculptIndicatorRef.current.position.set(hits[0].point.x, h + 0.12, hits[0].point.z);
+              sculptIndicatorRef.current.visible = true;
+            } else {
+              sculptIndicatorRef.current.visible = false;
+            }
+          }
+        }
+      } else {
+        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
+        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
       }
 
       // ── Coin collection & rotation ─────────────────────────────────────────
@@ -2508,7 +2740,9 @@ export default function Game3D() {
       window.removeEventListener("keyup", onKey);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("pointerlockchange", onLockChange);
+      window.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
       // Clean up any live bullets from the scene
       bulletsRef.current.forEach((b) => scene.remove(b.mesh));
@@ -2548,7 +2782,10 @@ export default function Game3D() {
         className="w-full h-full cursor-crosshair"
         onClick={() => {
           if (isLockedRef.current) {
-            doAttack();
+            // Attack only in explore mode; build mode is handled by onMouseDown
+            if (buildModeRef.current === "explore") {
+              doAttack();
+            }
           } else {
             lockPointer();
           }
@@ -2679,6 +2916,20 @@ export default function Game3D() {
                   <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🦊 Poraženo</span>
                   <span className="text-xs font-bold text-orange-300 tabular-nums">
                     {gameState.foxesDefeated}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Placed blocks counter */}
+            {buildingUiState.blockCount > 0 && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🧱 Bloky</span>
+                  <span className="text-xs font-bold text-cyan-300 tabular-nums">
+                    {buildingUiState.blockCount}
+                    <span style={{ color: "rgba(255,255,255,0.30)" }}> / {MAX_BLOCKS}</span>
                   </span>
                 </div>
               </>
@@ -2850,6 +3101,62 @@ export default function Game3D() {
         </div>
       )}
 
+      {/* ═══════════════ BOTTOM CENTER — Build Mode HUD ═══════════════ */}
+      {gameState.isLocked && buildingUiState.mode !== "explore" && (
+        <div
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 pointer-events-none select-none"
+          style={{ zIndex: 55 }}
+        >
+          {/* Material palette */}
+          <div className="flex gap-2 items-end justify-center" style={{ marginBottom: 10 }}>
+            {BLOCK_MATERIAL_ORDER.map((mat, i) => {
+              const def = BLOCK_DEFS[mat];
+              const isSelected = buildingUiState.selectedMaterial === mat;
+              const hex = "#" + def.color.toString(16).padStart(6, "0");
+              return (
+                <div key={mat} className="flex flex-col items-center gap-1">
+                  <div
+                    style={{
+                      width: isSelected ? 46 : 34,
+                      height: isSelected ? 46 : 34,
+                      background: hex,
+                      borderRadius: 8,
+                      border: isSelected
+                        ? "2px solid rgba(255,255,255,0.90)"
+                        : "2px solid rgba(255,255,255,0.18)",
+                      boxShadow: isSelected ? `0 0 14px ${hex}99` : "none",
+                      transition: "all 0.14s ease",
+                    }}
+                  />
+                  <span style={{ fontSize: 9, color: isSelected ? "#fff" : "rgba(255,255,255,0.45)" }}>
+                    {i + 1}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Selected material label + mode indicator */}
+          <div
+            className="rounded-xl text-white text-xs text-center font-semibold"
+            style={{
+              padding: "9px 22px",
+              background:
+                buildingUiState.mode === "sculpt"
+                  ? "rgba(0,180,220,0.82)"
+                  : "rgba(60,160,50,0.82)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              boxShadow: "0 2px 14px rgba(0,0,0,0.45)",
+            }}
+          >
+            {buildingUiState.mode === "sculpt"
+              ? "Tvarování terénu  ·  Scroll=výška  ·  [T] zpět  ·  [B] konec"
+              : `Stavění: ${BLOCK_DEFS[buildingUiState.selectedMaterial].label}  ·  Klik=umístit  ·  Pklik=smazat  ·  Scroll=materiál  ·  [T] terén  ·  [B] konec`}
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ BOTTOM CENTER — Controls hint ═══════════════ */}
       {gameState.isLocked && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -2866,6 +3173,7 @@ export default function Game3D() {
             WASD – pohyb &nbsp;·&nbsp; Myš – pohled &nbsp;·&nbsp; Mezerník – skok &nbsp;·&nbsp;
             Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
             <span style={{ color: "#f87171", opacity: 1 }}>[F]/Klik</span> – útok &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
             <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
           </div>
         </div>
@@ -3033,6 +3341,8 @@ export default function Game3D() {
                 <div>🏚 Prozkoumej <strong className="text-white">ruiny</strong> a vesnici</div>
                 <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo kliknutím</div>
                 <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
+                <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
+                <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
               </div>
             </div>
 
@@ -3058,6 +3368,10 @@ export default function Game3D() {
               <div className="flex gap-6 justify-center flex-wrap">
                 <span>⚔️ <strong className="text-gray-300">[F]/Klik</strong> – útok</span>
                 <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
+                <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
+              </div>
+              <div className="flex gap-6 justify-center flex-wrap">
+                <span>⛏ <strong className="text-cyan-400">[T]</strong> – terén (v stavění)</span>
                 <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
               </div>
             </div>

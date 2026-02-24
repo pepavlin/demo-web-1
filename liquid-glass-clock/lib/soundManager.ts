@@ -564,6 +564,103 @@ class SoundManager {
     });
   }
 
+  /** Short satisfying thud when placing a block. */
+  playBlockPlace(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Low-freq thud (body resonance)
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(60, t + 0.12);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(0.45, t + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+
+    osc.connect(env);
+    env.connect(this.sfxGain);
+    osc.start(t);
+    osc.stop(t + 0.2);
+
+    // High click transient
+    const osc2 = ctx.createOscillator();
+    osc2.type = "square";
+    osc2.frequency.value = 900;
+    const env2 = ctx.createGain();
+    env2.gain.setValueAtTime(0.15, t);
+    env2.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    osc2.connect(env2);
+    env2.connect(this.sfxGain);
+    osc2.start(t);
+    osc2.stop(t + 0.04);
+  }
+
+  /** Crumble/break sound when removing a block. */
+  playBlockRemove(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Short noise burst
+    const bufLen = Math.floor(ctx.sampleRate * 0.12);
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+
+    const filt = ctx.createBiquadFilter();
+    filt.type = "bandpass";
+    filt.frequency.value = 800;
+    filt.Q.value = 0.8;
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.3, t);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+
+    noise.connect(filt);
+    filt.connect(env);
+    env.connect(this.sfxGain);
+    noise.start(t);
+    noise.stop(t + 0.14);
+  }
+
+  /** Gentle brush sound for terrain sculpting. */
+  playTerrainSculpt(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    const bufLen = Math.floor(ctx.sampleRate * 0.08);
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      const env = Math.sin((i / bufLen) * Math.PI);
+      data[i] = (Math.random() * 2 - 1) * env * 0.4;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+
+    const filt = ctx.createBiquadFilter();
+    filt.type = "lowpass";
+    filt.frequency.value = 400;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.18;
+
+    noise.connect(filt);
+    filt.connect(gain);
+    gain.connect(this.sfxGain);
+    noise.start(t);
+    noise.stop(t + 0.1);
+  }
+
   // ── Day / night music adaptation ─────────────────────────────────────────
 
   /**

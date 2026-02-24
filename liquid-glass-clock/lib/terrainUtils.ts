@@ -1,4 +1,5 @@
 import { createNoise2D } from "simplex-noise";
+import * as THREE from "three";
 
 export const WORLD_SIZE = 800;
 export const TERRAIN_SEGMENTS = 120;
@@ -105,6 +106,108 @@ export interface SpawnPoint {
   x: number;
   z: number;
   y: number;
+}
+
+// ─── Terrain modification (sculpt build tool) ─────────────────────────────────
+
+/**
+ * Raise or lower the terrain heightGrid in a circular brush around (worldX, worldZ).
+ * Uses a smooth cosine falloff from the brush centre to the edge.
+ *
+ * @param worldX  Centre X in world space
+ * @param worldZ  Centre Z in world space
+ * @param delta   Height change at the centre (positive = raise, negative = lower)
+ * @param radius  Brush radius in world units
+ */
+export function modifyTerrainHeight(
+  worldX: number,
+  worldZ: number,
+  delta: number,
+  radius: number
+): void {
+  if (!heightGrid) return;
+  const N = TERRAIN_SEGMENTS + 1;
+  const halfSize = WORLD_SIZE / 2;
+  const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+
+  const gxCenter = (worldX + halfSize) / cellSize;
+  const gzCenter = (worldZ + halfSize) / cellSize;
+  const gridRadius = radius / cellSize;
+
+  const xMin = Math.max(0, Math.floor(gxCenter - gridRadius));
+  const xMax = Math.min(N - 1, Math.ceil(gxCenter + gridRadius));
+  const zMin = Math.max(0, Math.floor(gzCenter - gridRadius));
+  const zMax = Math.min(N - 1, Math.ceil(gzCenter + gridRadius));
+
+  for (let j = zMin; j <= zMax; j++) {
+    for (let i = xMin; i <= xMax; i++) {
+      const dx = i - gxCenter;
+      const dz = j - gzCenter;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < gridRadius) {
+        const t = dist / gridRadius;
+        // Smooth cosine falloff: 1 at centre, 0 at edge
+        const falloff = 0.5 - 0.5 * Math.cos((1 - t) * Math.PI);
+        heightGrid[j * N + i] += delta * falloff;
+      }
+    }
+  }
+}
+
+/**
+ * Synchronise the Three.js terrain mesh geometry with the current heightGrid.
+ * Call this after one or more `modifyTerrainHeight` calls.
+ *
+ * Also recomputes vertex colours (same palette as the initial terrain setup
+ * in Game3D.tsx) and vertex normals so lighting stays correct.
+ */
+export function updateTerrainGeometry(terrain: THREE.Mesh): void {
+  if (!heightGrid) return;
+  const geo = terrain.geometry as THREE.BufferGeometry;
+  const positions = geo.attributes.position as THREE.BufferAttribute;
+  const colors = geo.attributes.color as THREE.BufferAttribute | undefined;
+
+  // Colour helpers — kept in sync with Game3D.tsx initial terrain setup
+  const lerpC = (a: number[], b: number[], t: number): number[] => {
+    const tc = Math.max(0, Math.min(1, t));
+    return [
+      a[0] + (b[0] - a[0]) * tc,
+      a[1] + (b[1] - a[1]) * tc,
+      a[2] + (b[2] - a[2]) * tc,
+    ];
+  };
+  const deepWater    = [0.12, 0.22, 0.50];
+  const shallowWater = [0.22, 0.44, 0.68];
+  const sand         = [0.74, 0.68, 0.44];
+  const brightGrass  = [0.40, 0.68, 0.22];
+  const midGrass     = [0.30, 0.54, 0.17];
+  const darkGrass    = [0.23, 0.43, 0.13];
+  const rockBrown    = [0.50, 0.42, 0.30];
+  const rockGray     = [0.62, 0.59, 0.56];
+
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i);
+    const z = positions.getZ(i);
+    const h = getTerrainHeightSampled(x, z);
+    positions.setY(i, h);
+
+    if (colors) {
+      let col: number[];
+      if (h < -3)        col = deepWater;
+      else if (h < -0.5) col = lerpC(deepWater, shallowWater, (h + 3) / 2.5);
+      else if (h < 0.4)  col = lerpC(shallowWater, sand, (h + 0.5) / 0.9);
+      else if (h < 2.5)  col = lerpC(sand, brightGrass, (h - 0.4) / 2.1);
+      else if (h < 7)    col = lerpC(brightGrass, midGrass, (h - 2.5) / 4.5);
+      else if (h < 17)   col = lerpC(midGrass, darkGrass, (h - 7) / 10);
+      else if (h < 28)   col = lerpC(darkGrass, rockBrown, (h - 17) / 11);
+      else               col = lerpC(rockBrown, rockGray, Math.min(1, (h - 28) / 12));
+      colors.setXYZ(i, col[0], col[1], col[2]);
+    }
+  }
+
+  positions.needsUpdate = true;
+  if (colors) colors.needsUpdate = true;
+  geo.computeVertexNormals();
 }
 
 export function generateSpawnPoints(
