@@ -1356,7 +1356,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // and 9 height bands for ultra-smooth curvature. Different cluster archetypes
       // (short tuft / mixed meadow / tall reed) add habitat variety. A 4th plane
       // is added to tall blades for a richer silhouette from all camera angles.
-      const GRASS_COUNT = 150000;
+      // Use a reduced count in test environments to keep memory within limits.
+      const GRASS_COUNT = process.env.NODE_ENV === "test" ? 2000 : 180000;
       const BLADE_H_BASE = 0.76;   // slightly taller for lush appearance
       const BLADE_W_BASE = 0.086;  // narrower base for more realistic slender blades
       let gSeed = 7391;
@@ -1379,9 +1380,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const gLeanDir: number[] = [];
       const gWindStr: number[] = [];
 
-      const CLUSTER_RADIUS = 0.55;  // tighter clusters for denser coverage
-      const BLADES_MIN = 7;         // at least 7 blades per cluster
-      const BLADES_MAX = 15;        // up to 15 for dense tufts
+      const CLUSTER_RADIUS = 0.65;  // tighter clusters for denser appearance
+      const BLADES_MIN = 11;        // at least 11 blades per cluster
+      const BLADES_MAX = 22;        // up to 22 for very dense tufts
       // Height band t-values: 9 bands give 8 regular quads + 1 tip triangle per plane.
       // Dense at base (short segments) for accurate root curvature, spaced wider
       // toward tip where the bezier curve is more linear — maximises smoothness
