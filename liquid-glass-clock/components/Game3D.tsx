@@ -502,7 +502,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // ─── Third-Person Camera Refs ────────────────────────────────────────────────
   const thirdPersonRef    = useRef(false);
   const playerBodyMeshRef = useRef<THREE.Group | null>(null);
-  const playerBodyPosRef  = useRef(new THREE.Vector3()); // logical foot/body position
 
   const [isMuted, setIsMuted] = useState(false);
   const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
@@ -512,7 +511,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   });
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
-  const [cameraMode, setCameraMode] = useState<'first' | 'third'>('first');
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
   const [onBoat, setOnBoat] = useState(false);
 
