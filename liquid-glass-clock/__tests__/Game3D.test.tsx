@@ -438,4 +438,47 @@ describe("Game3D component", () => {
   it("renders without crashing when V key hint is present in intro", () => {
     expect(() => render(<Game3D />)).not.toThrow();
   });
+
+  // ── Catapult HUD tests ──────────────────────────────────────────────────────
+  it("does not show catapult warning by default (player far from catapults)", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // catapultWarning is false by default — warning banner must not be visible
+    expect(queryByText(/Katapult v blízkosti/)).toBeNull();
+  });
+
+  it("does not show catapult HP bar by default", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // nearCatapultHp is null by default — HP display must not be visible
+    expect(queryByText(/^Katapult$/)).toBeNull();
+  });
+
+  it("does not show catapults defeated counter when count is 0", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Katapulty/)).toBeNull();
+  });
+
+  // ── Catapult intro objective tests ─────────────────────────────────────────
+
+  it("shows catapult destroy objective in intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // Intro must list catapults as a combat objective
+    expect(getByText(/katapultů/i)).toBeInTheDocument();
+  });
+
+  it("shows cannonball warning text ('střílí kule') in catapult objective", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/střílí kule/i)).toBeInTheDocument();
+  });
+
+  it("shows 💣 emoji for catapult objective in intro", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // The catapult objective starts with the 💣 emoji
+    expect(getByText(/💣/)).toBeInTheDocument();
+  });
 });

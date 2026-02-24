@@ -1150,3 +1150,137 @@ export function buildBoatMesh(): THREE.Group {
   group.receiveShadow = true;
   return group;
 }
+
+// ─── Catapult ─────────────────────────────────────────────────────────────────
+// Returns the full catapult group and the arm sub-group (for fire animation).
+// The arm pivots around the X axis at its origin (which sits at axle height).
+export function buildCatapultMesh(): { group: THREE.Group; armGroup: THREE.Group } {
+  const group = new THREE.Group();
+
+  const wood    = new THREE.MeshLambertMaterial({ color: 0x8b5e3c });
+  const darkWood = new THREE.MeshLambertMaterial({ color: 0x4a2f1a });
+  const metal   = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+  const rope    = new THREE.MeshLambertMaterial({ color: 0xc8a060 });
+
+  // ── Base frame ──────────────────────────────────────────────────────────────
+  // Two long side beams running front-to-back (along Z axis)
+  const sideBeamGeo = new THREE.BoxGeometry(0.22, 0.22, 3.4);
+  ([-0.72, 0.72] as const).forEach((x) => {
+    const beam = new THREE.Mesh(sideBeamGeo, wood);
+    beam.position.set(x, 0.11, 0);
+    beam.castShadow = true;
+    group.add(beam);
+  });
+
+  // Front and rear crossbars
+  const crossGeo = new THREE.BoxGeometry(1.65, 0.20, 0.20);
+  [-1.1, 0, 1.1].forEach((z) => {
+    const cross = new THREE.Mesh(crossGeo, darkWood);
+    cross.position.set(0, 0.12, z);
+    cross.castShadow = true;
+    group.add(cross);
+  });
+
+  // ── Wheels (4 total, pairs at front & rear) ──────────────────────────────────
+  const wheelGeo  = new THREE.CylinderGeometry(0.40, 0.40, 0.12, 12);
+  const spokeGeo  = new THREE.BoxGeometry(0.06, 0.70, 0.08);
+  ([-1, 1] as const).forEach((side) => {
+    ([-1.0, 1.0] as const).forEach((z) => {
+      const wheel = new THREE.Mesh(wheelGeo, darkWood);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(side * 0.92, 0.40, z);
+      wheel.castShadow = true;
+      group.add(wheel);
+
+      // 4 spokes per wheel
+      for (let sp = 0; sp < 4; sp++) {
+        const spoke = new THREE.Mesh(spokeGeo, wood);
+        spoke.rotation.z = (sp * Math.PI) / 4;
+        spoke.position.copy(wheel.position);
+        spoke.position.x += side * 0.07;
+        group.add(spoke);
+      }
+
+      // Metal hub cap
+      const hubGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.16, 8);
+      const hub = new THREE.Mesh(hubGeo, metal);
+      hub.rotation.z = Math.PI / 2;
+      hub.position.set(side * 0.92, 0.40, z);
+      group.add(hub);
+    });
+  });
+
+  // ── Upright A-frame supports ─────────────────────────────────────────────────
+  const AXLE_Y = 1.65; // height of the throwing arm axle
+  const uprightGeo = new THREE.BoxGeometry(0.18, AXLE_Y, 0.18);
+  // Two uprights, left and right, slightly forward of centre
+  ([-0.62, 0.62] as const).forEach((x) => {
+    const upright = new THREE.Mesh(uprightGeo, wood);
+    upright.position.set(x, AXLE_Y / 2, -0.1);
+    upright.castShadow = true;
+    group.add(upright);
+
+    // Diagonal brace from base to mid-upright
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.30, 0.12), darkWood);
+    brace.position.set(x * 0.6, 0.8, 0.52);
+    brace.rotation.x = 0.55;
+    brace.castShadow = true;
+    group.add(brace);
+  });
+
+  // Axle cylinder
+  const axleGeo = new THREE.CylinderGeometry(0.075, 0.075, 1.55, 8);
+  const axle = new THREE.Mesh(axleGeo, metal);
+  axle.rotation.z = Math.PI / 2;
+  axle.position.set(0, AXLE_Y, -0.1);
+  group.add(axle);
+
+  // ── Throwing arm (pivots around axle) ────────────────────────────────────────
+  // Long end (sling) extends upward/forward; short end (counterweight) goes back.
+  const armGroup = new THREE.Group();
+  armGroup.position.set(0, AXLE_Y, -0.1); // pivot at axle
+  group.add(armGroup);
+
+  // Arm beam — long side (toward sling)
+  const longArmGeo = new THREE.BoxGeometry(0.14, 2.55, 0.14);
+  const longArm = new THREE.Mesh(longArmGeo, wood);
+  longArm.position.set(0, 1.275, 0); // extends upward from pivot
+  longArm.castShadow = true;
+  armGroup.add(longArm);
+
+  // Arm beam — short side (counterweight side)
+  const shortArmGeo = new THREE.BoxGeometry(0.14, 0.95, 0.14);
+  const shortArm = new THREE.Mesh(shortArmGeo, darkWood);
+  shortArm.position.set(0, -0.475, 0); // extends downward from pivot
+  shortArm.castShadow = true;
+  armGroup.add(shortArm);
+
+  // Counterweight block on short end
+  const cwGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+  const cw = new THREE.Mesh(cwGeo, metal);
+  cw.position.set(0, -1.1, 0);
+  cw.castShadow = true;
+  armGroup.add(cw);
+
+  // Sling rope (two thin cylinders forming a Y)
+  const slingGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.70, 5);
+  ([-0.15, 0.15] as const).forEach((x) => {
+    const sling = new THREE.Mesh(slingGeo, rope);
+    sling.position.set(x, 2.8, 0);
+    sling.rotation.z = x > 0 ? -0.25 : 0.25;
+    armGroup.add(sling);
+  });
+
+  // Cannonball in sling (round stone)
+  const ballGeo = new THREE.SphereGeometry(0.22, 8, 6);
+  const ballMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+  ballMesh.position.set(0, 3.05, 0);
+  ballMesh.castShadow = true;
+  armGroup.add(ballMesh);
+
+  // Rest position: arm tilted back so sling is high behind
+  armGroup.rotation.x = -1.1;
+
+  return { group, armGroup };
+}

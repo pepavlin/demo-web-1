@@ -56,10 +56,11 @@ import {
   buildSwordMesh,
   buildSniperMesh,
   buildBoatMesh,
+  buildCatapultMesh,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, GameState, WeaponType } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
@@ -101,6 +102,22 @@ const FOX_MAX_HP = 60;
 const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
 const FOX_ATTACK_RANGE = 2.5;
 const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
+
+// ─── Catapult Constants ────────────────────────────────────────────────────────
+const CATAPULT_COUNT = 6;
+const CATAPULT_MAX_HP = 180;
+const CATAPULT_FIRE_RANGE = 90;    // fires cannonballs when player is within this distance
+const CATAPULT_FIRE_COOLDOWN = 4;  // seconds between shots
+const CATAPULT_HIT_RADIUS = 2.8;   // for player bullet collisions vs catapult body
+
+// ─── Cannonball Constants ─────────────────────────────────────────────────────
+const CANNONBALL_SPEED = 22;       // units/s launch speed
+const CANNONBALL_DAMAGE = 28;      // damage dealt to player on hit
+const CANNONBALL_LIFETIME = 8;     // seconds before auto-despawn
+const CANNONBALL_HIT_RADIUS = 1.6; // sphere radius for player collision
+const CANNONBALL_GRAVITY = -14;    // vertical acceleration (lofted arc)
+const CANNONBALL_SHADOW_MAX_SCALE = 3.2; // ground-shadow disc max diameter
+const IMPACT_EFFECT_DURATION = 0.45;     // seconds the impact explosion ring lasts
 
 // ─── Bullet / Weapon Constants ────────────────────────────────────────────────
 // Per-weapon values come from WEAPON_CONFIGS; these are shared constants:
@@ -445,6 +462,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const playerHpRef = useRef(PLAYER_MAX_HP);
   const playerAttackCooldownRef = useRef(0);
   const foxesDefeatedRef = useRef(0);
+  const catapultsDefeatedRef = useRef(0);
   const isMouseHeldRef = useRef(false); // true while left mouse button is held down
 
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
@@ -452,6 +470,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const weaponMeshRef = useRef<THREE.Group | null>(null);
   const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
   const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
+
+  // ─── Catapult / Cannonball Refs ──────────────────────────────────────────────
+  const catapultListRef = useRef<CatapultData[]>([]);
+  const cannonballsRef = useRef<CannonballData[]>([]);
+  const impactEffectsRef = useRef<ImpactEffect[]>([]);
 
   // ─── Sound Refs ─────────────────────────────────────────────────────────────
   const footstepTimerRef = useRef(0);
@@ -525,8 +548,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     direction: "N",
     playerHp: PLAYER_MAX_HP,
     foxesDefeated: 0,
+    catapultsDefeated: 0,
     attackReady: true,
   });
+  const [nearCatapultHp, setNearCatapultHp] = useState<{ hp: number; maxHp: number } | null>(null);
+  const [catapultWarning, setCatapultWarning] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showWeaponSelect, setShowWeaponSelect] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
@@ -718,6 +744,62 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
   }
 
+  // ─── Flash catapult mesh red on hit ──────────────────────────────────────────
+  function flashCatapultMesh(mesh: THREE.Group) {
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.set(0xff2200);
+          setTimeout(() => mat.emissive.set(0x000000), 260);
+        }
+      }
+    });
+  }
+
+  // ─── Cannonball impact explosion ────────────────────────────────────────────
+  // Spawns an expanding ring + debris cloud at `pos` and queues it for update.
+  function spawnImpactEffect(scene: THREE.Scene, pos: THREE.Vector3) {
+    // Expanding shockwave ring
+    const ringGeo = new THREE.RingGeometry(0.1, 0.4, 16);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff6600,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.copy(pos);
+    ring.position.y += 0.1;
+    scene.add(ring);
+
+    // Small debris particles (8 tiny spheres that shoot outward)
+    const particles: THREE.Mesh[] = [];
+    for (let i = 0; i < 8; i++) {
+      const debrisMat = new THREE.MeshBasicMaterial({ color: 0x884400, transparent: true });
+      const pGeo = new THREE.SphereGeometry(0.1 + Math.random() * 0.12, 4, 3);
+      const p = new THREE.Mesh(pGeo, debrisMat);
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.5;
+      const radius = 0.3 + Math.random() * 0.4;
+      p.position.copy(pos);
+      p.position.x += Math.cos(angle) * radius;
+      p.position.z += Math.sin(angle) * radius;
+      p.position.y += 0.15 + Math.random() * 0.5;
+      scene.add(p);
+      particles.push(p);
+    }
+
+    impactEffectsRef.current.push({
+      ring,
+      particles,
+      age: 0,
+      maxAge: IMPACT_EFFECT_DURATION,
+    });
+  }
+
   // ─── Sheep highlight helpers (possession target) ─────────────────────────────
   function setSheepEmissive(sheep: SheepData, color: number) {
     sheep.mesh.traverse((child) => {
@@ -801,6 +883,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         fox.isAlive = false;
         foxesDefeatedRef.current++;
         soundManager.playFoxDeath();
+      }
+    }
+
+    // ── Melee hit on catapults ───────────────────────────────────────────────
+    if (weaponCfg.type === "sword") {
+      let closestCatapult: CatapultData | null = null;
+      let closestCatapultDist = weaponCfg.range * 2; // sword can reach catapult from a bit further
+
+      catapultListRef.current.forEach((cat) => {
+        if (!cat.isAlive) return;
+        const d = cat.mesh.position.distanceTo(playerPos);
+        if (d < closestCatapultDist) {
+          closestCatapultDist = d;
+          closestCatapult = cat;
+        }
+      });
+
+      if (closestCatapult) {
+        const cat = closestCatapult as CatapultData;
+        cat.hp = Math.max(0, cat.hp - weaponCfg.damage);
+        cat.hitFlashTimer = 0.3;
+        flashCatapultMesh(cat.mesh);
+        soundManager.playFoxHit();
+        setAttackEffect(`-${weaponCfg.damage}`);
+        setTimeout(() => setAttackEffect(null), 700);
+        if (cat.hp <= 0) {
+          cat.isAlive = false;
+          catapultsDefeatedRef.current++;
+        }
       }
     }
   }, []);
@@ -2135,6 +2246,36 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       };
     });
 
+    // ── Catapults ─────────────────────────────────────────────────────────────
+    // Placed at fixed strategic positions around the map (not random so they
+    // don't spawn in water). 4 distant + 2 closer ones for early encounters.
+    const catapultPositions = [
+      { x:  80, z:  40 },
+      { x: -75, z:  55 },
+      { x:  60, z: -80 },
+      { x: -55, z: -65 },
+      { x:  38, z:  32 },   // closer to spawn — encountered early
+      { x: -34, z: -38 },   // closer to spawn — encountered early
+    ];
+    catapultListRef.current = catapultPositions.slice(0, CATAPULT_COUNT).map((p) => {
+      const { group, armGroup } = buildCatapultMesh();
+      const ty = getTerrainHeightSampled(p.x, p.z);
+      group.position.set(p.x, ty, p.z);
+      // Face toward the map centre (player spawn area)
+      group.rotation.y = Math.atan2(-p.x, -p.z);
+      scene.add(group);
+      return {
+        mesh: group,
+        armGroup,
+        hp: CATAPULT_MAX_HP,
+        maxHp: CATAPULT_MAX_HP,
+        isAlive: true,
+        fireCooldown: 1 + Math.random() * 3, // stagger initial shots
+        hitFlashTimer: 0,
+        firingAnimation: 0,
+      };
+    });
+
     // ── Coins / Gems ─────────────────────────────────────────────────────────
     const coinPoints = generateSpawnPoints(COIN_COUNT, 20, 350, 555);
     coinsRef.current = coinPoints.map((p) => {
@@ -3370,6 +3511,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
 
         // Check fox collisions
+        let bulletHit = false;
         for (const fox of foxListRef.current) {
           if (!fox.isAlive) continue;
           const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
@@ -3387,7 +3529,31 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               soundManager.playFoxDeath();
             }
             toRemove.push(bullet);
+            bulletHit = true;
             break;
+          }
+        }
+
+        // Check catapult collisions (bullets can damage catapults)
+        if (!bulletHit) {
+          for (const cat of catapultListRef.current) {
+            if (!cat.isAlive) continue;
+            const dist = bullet.mesh.position.distanceTo(cat.mesh.position);
+            if (dist < CATAPULT_HIT_RADIUS) {
+              const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              cat.hp = Math.max(0, cat.hp - dmg);
+              cat.hitFlashTimer = 0.3;
+              flashCatapultMesh(cat.mesh);
+              soundManager.playFoxHit();
+              setAttackEffect(`-${dmg}`);
+              setTimeout(() => setAttackEffect(null), 700);
+              if (cat.hp <= 0) {
+                cat.isAlive = false;
+                catapultsDefeatedRef.current++;
+              }
+              toRemove.push(bullet);
+              break;
+            }
           }
         }
       });
@@ -3544,6 +3710,215 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setNearFoxHp({ hp: f.hp, maxHp: f.maxHp, name: "Liška" });
       } else {
         setNearFoxHp(null);
+      }
+
+      // ── Catapult AI ─────────────────────────────────────────────────────────
+      let catapultNear = false;
+      let closestAliveCatapult: CatapultData | null = null;
+      let closestCatapultDist = Infinity;
+
+      catapultListRef.current.forEach((cat) => {
+        const cm = cat.mesh;
+
+        // Death animation: scale down then hide
+        if (!cat.isAlive) {
+          if (cm.visible) {
+            cm.scale.setScalar(Math.max(0, cm.scale.x - dt * 3));
+            if (cm.scale.x <= 0.01) cm.visible = false;
+          }
+          return;
+        }
+
+        // Hit flash timer
+        if (cat.hitFlashTimer > 0) {
+          cat.hitFlashTimer = Math.max(0, cat.hitFlashTimer - dt);
+        }
+
+        const distToPlayer = cm.position.distanceTo(playerPos);
+
+        // Track nearest alive catapult for HP display
+        if (distToPlayer < closestCatapultDist) {
+          closestCatapultDist = distToPlayer;
+          closestAliveCatapult = cat;
+        }
+
+        if (distToPlayer < 30) catapultNear = true;
+
+        // Rotate catapult to face player
+        const dx = playerPos.x - cm.position.x;
+        const dz = playerPos.z - cm.position.z;
+        const targetYaw = Math.atan2(-dx, -dz);
+        cm.rotation.y += (targetYaw - cm.rotation.y) * Math.min(1, dt * 1.2);
+
+        // Firing animation: arm swings forward on fire
+        if (cat.firingAnimation > 0) {
+          cat.firingAnimation = Math.max(0, cat.firingAnimation - dt * 2.5);
+          // Arm rotation: rest = -1.1 rad (loaded), peak = +0.8 rad (released), then back
+          const t = cat.firingAnimation;
+          const armRot = t > 0.5
+            ? THREE.MathUtils.lerp(0.8, -1.1, (t - 0.5) * 2)   // swing forward
+            : THREE.MathUtils.lerp(-1.1, 0.8, 1 - t * 2);       // snap to release
+          cat.armGroup.rotation.x = armRot;
+        } else {
+          // Slowly return to loaded position
+          cat.armGroup.rotation.x += (-1.1 - cat.armGroup.rotation.x) * Math.min(1, dt * 1.5);
+        }
+
+        // Fire at player if in range and cooldown is ready
+        cat.fireCooldown -= dt;
+        if (cat.fireCooldown <= 0 && distToPlayer < CATAPULT_FIRE_RANGE) {
+          cat.fireCooldown = CATAPULT_FIRE_COOLDOWN + (Math.random() - 0.5) * 1.5;
+          cat.firingAnimation = 1.0;
+
+          // Spawn cannonball from the tip of the arm (roughly 3 units above catapult)
+          const launchPos = cm.position.clone();
+          launchPos.y += 3.5;
+
+          // Aim toward player with a slight upward arc
+          const toDx = playerPos.x - launchPos.x;
+          const toDz = playerPos.z - launchPos.z;
+          const horizontal = Math.sqrt(toDx * toDx + toDz * toDz);
+          const launchAngle = Math.atan2(CANNONBALL_SPEED * 0.65, horizontal); // arc
+          const cosA = Math.cos(launchAngle);
+          const sinA = Math.sin(launchAngle);
+          const hSpeed = CANNONBALL_SPEED * cosA;
+          const vSpeed = CANNONBALL_SPEED * sinA;
+
+          // Larger, glowing cannonball for visibility
+          const ballGeo = new THREE.SphereGeometry(0.38, 9, 6);
+          const ballMat = new THREE.MeshLambertMaterial({
+            color: 0x1a1a1a,
+            emissive: 0x552200,   // faint ember glow
+          });
+          const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+          ballMesh.position.copy(launchPos);
+          ballMesh.castShadow = true;
+          scene.add(ballMesh);
+
+          // Ground-shadow disc: flat dark circle projected to terrain below ball
+          const shadowGeo = new THREE.CircleGeometry(1, 12);
+          const shadowMat = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.45,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+          shadowMesh.rotation.x = -Math.PI / 2;
+          shadowMesh.renderOrder = -1;
+          scene.add(shadowMesh);
+
+          const dirH = horizontal > 0.001
+            ? new THREE.Vector3(toDx / horizontal, 0, toDz / horizontal)
+            : new THREE.Vector3(0, 0, 1);
+
+          cannonballsRef.current.push({
+            mesh: ballMesh,
+            shadowMesh,
+            velocity: new THREE.Vector3(
+              dirH.x * hSpeed,
+              vSpeed,
+              dirH.z * hSpeed
+            ),
+            lifetime: CANNONBALL_LIFETIME,
+          });
+        }
+      });
+
+      setCatapultWarning(catapultNear);
+
+      if (closestAliveCatapult && closestCatapultDist < 35) {
+        const c = closestAliveCatapult as CatapultData;
+        setNearCatapultHp({ hp: c.hp, maxHp: c.maxHp });
+      } else {
+        setNearCatapultHp(null);
+      }
+
+      // ── Cannonball update ────────────────────────────────────────────────────
+      const cannonballsToRemove: CannonballData[] = [];
+      cannonballsRef.current.forEach((ball) => {
+        ball.lifetime -= dt;
+        if (ball.lifetime <= 0) {
+          cannonballsToRemove.push(ball);
+          return;
+        }
+
+        // Apply gravity (arc trajectory)
+        ball.velocity.y += CANNONBALL_GRAVITY * dt;
+        ball.mesh.position.addScaledVector(ball.velocity, dt);
+
+        const bx = ball.mesh.position.x;
+        const bz = ball.mesh.position.z;
+        const groundY = getTerrainHeightSampled(bx, bz);
+
+        // Update ground-shadow: project disc to terrain, scale with altitude
+        const altitude = Math.max(0, ball.mesh.position.y - groundY);
+        const shadowScale = Math.min(CANNONBALL_SHADOW_MAX_SCALE, 0.5 + altitude * 0.18);
+        ball.shadowMesh.position.set(bx, groundY + 0.06, bz);
+        ball.shadowMesh.scale.setScalar(shadowScale);
+        // Fade shadow as ball gets very high (more transparent = farther away)
+        const shadowMat = ball.shadowMesh.material as THREE.MeshBasicMaterial;
+        shadowMat.opacity = Math.max(0.06, 0.45 - altitude * 0.006);
+
+        // Despawn below terrain — show impact explosion
+        if (ball.mesh.position.y < groundY) {
+          spawnImpactEffect(scene, new THREE.Vector3(bx, groundY, bz));
+          cannonballsToRemove.push(ball);
+          return;
+        }
+
+        // Check player collision
+        if (!gameOver) {
+          const distToPlayer = ball.mesh.position.distanceTo(playerPos);
+          if (distToPlayer < CANNONBALL_HIT_RADIUS) {
+            playerHpRef.current = Math.max(0, playerHpRef.current - CANNONBALL_DAMAGE);
+            setHitFlash(true);
+            setTimeout(() => setHitFlash(false), 350);
+            soundManager.playPlayerHit();
+            spawnImpactEffect(scene, ball.mesh.position.clone());
+            cannonballsToRemove.push(ball);
+          }
+        }
+      });
+
+      if (cannonballsToRemove.length > 0) {
+        cannonballsToRemove.forEach((b) => {
+          scene.remove(b.mesh);
+          scene.remove(b.shadowMesh);
+        });
+        cannonballsRef.current = cannonballsRef.current.filter(
+          (b) => !cannonballsToRemove.includes(b)
+        );
+      }
+
+      // ── Impact effects update ──────────────────────────────────────────────
+      const doneEffects: ImpactEffect[] = [];
+      impactEffectsRef.current.forEach((fx) => {
+        fx.age += dt;
+        const t = fx.age / fx.maxAge; // 0..1
+        if (t >= 1) {
+          doneEffects.push(fx);
+          return;
+        }
+        // Expand ring and fade it out
+        const ringScale = 1 + t * 8;
+        fx.ring.scale.setScalar(ringScale);
+        (fx.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - t);
+        // Lift and fade debris particles
+        fx.particles.forEach((p, i) => {
+          p.position.y += dt * (1.5 + i * 0.3);
+          (p.material as THREE.MeshBasicMaterial).opacity = 1 - t;
+        });
+      });
+      if (doneEffects.length > 0) {
+        doneEffects.forEach((fx) => {
+          scene.remove(fx.ring);
+          fx.particles.forEach((p) => scene.remove(p));
+        });
+        impactEffectsRef.current = impactEffectsRef.current.filter(
+          (fx) => !doneEffects.includes(fx)
+        );
       }
 
       // ── Possession proximity — find nearest sheep, manage highlight ──────────
@@ -3887,6 +4262,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         direction: getDirection(yawRef.current),
         playerHp: playerHpRef.current,
         foxesDefeated: foxesDefeatedRef.current,
+        catapultsDefeated: catapultsDefeatedRef.current,
         attackReady: playerAttackCooldownRef.current <= 0,
       }));
 
@@ -3948,6 +4324,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up any live bullets from the scene
       bulletsRef.current.forEach((b) => scene.remove(b.mesh));
       bulletsRef.current = [];
+      // Clean up cannonballs and their shadow discs
+      cannonballsRef.current.forEach((b) => { scene.remove(b.mesh); scene.remove(b.shadowMesh); });
+      cannonballsRef.current = [];
+      // Clean up impact effects
+      impactEffectsRef.current.forEach((fx) => { scene.remove(fx.ring); fx.particles.forEach((p) => scene.remove(p)); });
+      impactEffectsRef.current = [];
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
@@ -4132,6 +4514,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🦊 Poraženo</span>
                   <span className="text-xs font-bold text-orange-300 tabular-nums">
                     {gameState.foxesDefeated}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Catapults defeated (conditional) */}
+            {gameState.catapultsDefeated > 0 && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>⚔️ Katapulty</span>
+                  <span className="text-xs font-bold tabular-nums" style={{ color: "#fbbf24" }}>
+                    {gameState.catapultsDefeated}
+                    <span style={{ color: "rgba(255,255,255,0.30)" }}> / {CATAPULT_COUNT}</span>
                   </span>
                 </div>
               </>
@@ -4381,6 +4777,58 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
+      {/* ═══════════════ CENTER TOP — Catapult warning ═══════════════ */}
+      {catapultWarning && !foxWarning && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 61 }}>
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 22px",
+              background: "rgba(100,50,0,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,180,30,0.35)",
+              boxShadow: "0 0 22px rgba(200,120,0,0.50)",
+            }}
+          >
+            ⚔️ Katapult v blízkosti!
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Nearest catapult HP ═══════════════ */}
+      {nearCatapultHp && gameState.isLocked && (
+        <div className="fixed bottom-52 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 60 }}>
+          <div
+            className="rounded-2xl text-white text-xs text-center"
+            style={{
+              padding: "12px 22px 14px",
+              background: "rgba(5,8,20,0.72)",
+              backdropFilter: "blur(14px)",
+              border: "1px solid rgba(255,180,40,0.20)",
+              minWidth: 200,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div className="font-bold text-sm" style={{ color: "#fbbf24", marginBottom: 8 }}>
+              Katapult
+            </div>
+            <div className="h-3 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", marginBottom: 6 }}>
+              <div
+                className="h-full rounded-full transition-all duration-100"
+                style={{
+                  width: `${(nearCatapultHp.hp / nearCatapultHp.maxHp) * 100}%`,
+                  background: nearCatapultHp.hp > nearCatapultHp.maxHp * 0.5 ? "#f59e0b" : "#ef4444",
+                  boxShadow: "0 0 8px #f59e0b66",
+                }}
+              />
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
+              {nearCatapultHp.hp} / {nearCatapultHp.maxHp}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER — Nearest fox HP ═══════════════ */}
       {nearFoxHp && gameState.isLocked && (
         <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -4595,10 +5043,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             <div className="text-5xl" style={{ marginBottom: 16 }}>💀</div>
             <h2 className="text-3xl font-bold" style={{ marginBottom: 12 }}>Byl jsi poražen!</h2>
-            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky tě dostaly…</p>
-            <p className="text-gray-500 text-xs" style={{ marginBottom: 28 }}>
+            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky nebo katapulty tě dostaly…</p>
+            <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
               Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
             </p>
+            {gameState.catapultsDefeated > 0 && (
+              <p className="text-gray-500 text-xs" style={{ marginBottom: 28 }}>
+                Zničil jsi <span className="font-bold" style={{ color: "#fbbf24" }}>{gameState.catapultsDefeated}</span> katapultů
+              </p>
+            )}
+            {gameState.catapultsDefeated === 0 && <div style={{ marginBottom: 28 }} />}
             <button
               className="bg-red-700 hover:bg-red-600 transition-colors text-white font-bold rounded-xl text-lg w-full"
               style={{ padding: "14px 32px" }}
@@ -4917,6 +5371,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
                 <div>🏚 Prozkoumej <strong className="text-white">ruiny</strong> a vesnici</div>
                 <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo drž klik</div>
+                <div>💣 Znič <strong className="text-yellow-400">{CATAPULT_COUNT} katapultů</strong> — střílí kule!</div>
                 <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
                 <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
                 <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
