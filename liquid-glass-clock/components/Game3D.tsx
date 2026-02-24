@@ -1954,7 +1954,14 @@ export default function Game3D() {
       // ── Day / Night cycle ──────────────────────────────────────────────────
       dayTimeRef.current = (dayTimeRef.current + dt) % DAY_DURATION;
       const dayFraction = dayTimeRef.current / DAY_DURATION;
-      const isNight = dayFraction < 0.18 || dayFraction > 0.82;
+      // Smooth night factor: 1.0 at full night, 0.0 at full day
+      // Transitions over sunrise (0.18→0.25) and sunset (0.75→0.82)
+      const nightFactor =
+        dayFraction < 0.18   ? 1.0
+        : dayFraction < 0.25 ? 1.0 - smoothstep(0.18, 0.25, dayFraction)
+        : dayFraction < 0.75 ? 0.0
+        : dayFraction < 0.82 ? smoothstep(0.75, 0.82, dayFraction)
+        : 1.0;
       soundManager.updateDaytime(dayFraction);
 
       const skyColor = getSkyColor(dayFraction);
@@ -2069,10 +2076,9 @@ export default function Game3D() {
           Math.sin(moonAngle) * 180,
           -80
         );
-        moonRef.current.intensity = isNight
-          ? smoothstep(0.82, 0.9, dayFraction) * 0.35 +
-            smoothstep(0.18, 0.1, dayFraction) * 0.35
-          : 0;
+        moonRef.current.intensity =
+          smoothstep(0.82, 0.9, dayFraction) * 0.35 +
+          smoothstep(0.18, 0.1, dayFraction) * 0.35;
       }
 
       if (ambientRef.current) {
@@ -2147,9 +2153,9 @@ export default function Game3D() {
       if (lighthouseBeamRef.current) {
         lighthouseBeamRef.current.rotation.y = elapsed * 1.2; // ~0.19 rot/s
       }
-      // Brighten lighthouse light at night, dim at day
+      // Brighten lighthouse light at night, dim at day (smooth transition)
       if (lighthouseLightRef.current) {
-        lighthouseLightRef.current.intensity = isNight ? 6 : 1.5;
+        lighthouseLightRef.current.intensity = 1.5 + nightFactor * 4.5;
       }
 
       // ── Player movement (only when NOT possessing an entity) ───────────────
@@ -2824,7 +2830,11 @@ export default function Game3D() {
           const cx = W / 2;
           const cy = W / 2;
 
-          ctx.fillStyle = isNight ? "#060e06" : "#1a2e1a";
+          // Blend minimap bg: day #1a2e1a → night #060e06 (smooth with nightFactor)
+          const mmR = Math.round(0x1a - nightFactor * (0x1a - 0x06));
+          const mmG = Math.round(0x2e - nightFactor * (0x2e - 0x0e));
+          const mmB = Math.round(0x1a - nightFactor * (0x1a - 0x06));
+          ctx.fillStyle = `rgb(${mmR},${mmG},${mmB})`;
           ctx.fillRect(0, 0, W, W);
 
           // Pen
