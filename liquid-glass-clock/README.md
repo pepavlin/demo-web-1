@@ -23,7 +23,8 @@ You are an explorer in a living open world. The day/night cycle advances in real
 | Mouse | Look around |
 | `Space` | Jump |
 | `Shift` | Sprint (depletes stamina) |
-| `F` / Click | Attack fox |
+| `E` | **Possess nearby sheep** (within 3.5 units) / exit possession |
+| `F` / Left click | Attack (melee + projectile) |
 | `Esc` | Release mouse / pause |
 | Click on canvas | Lock mouse & start playing |
 
@@ -72,6 +73,7 @@ You are an explorer in a living open world. The day/night cycle advances in real
 - **First-person controls** with gravity, jumping, and pointer-lock mouse look
 - **Stamina system** — sprinting drains stamina (shown as a coloured bar)
 - **Fox proximity warning** — alert appears when a fox is nearby
+- **Entity possession** — press `E` when close to a sheep to swap into its body and control it directly; press `E` again to return to human form
 
 ### HUD & Navigation
 - **Top-left HUD** — sheep count, coin count, elapsed time, clock, compass direction
