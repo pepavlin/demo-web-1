@@ -111,9 +111,9 @@ const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
 const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when possessed
 
-// ─── Third-Person Camera Constants ──────────────────────────────────────────
-const THIRD_PERSON_DIST   = 4.5;  // camera distance behind player
-const THIRD_PERSON_HEIGHT = 2.0;  // extra height above player body
+// ─── Third-person Camera Constants ───────────────────────────────────────────
+const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
+const TP_HEIGHT   = 2.5; // camera height above player in 3rd-person view
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
@@ -463,6 +463,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const possessedSheepRef = useRef<SheepData | null>(null);
   const nearestSheepForPossessRef = useRef<SheepData | null>(null);
   const highlightedSheepRef = useRef<SheepData | null>(null);
+
+  // ─── Camera Mode Refs ────────────────────────────────────────────────────────
+  const cameraModeRef = useRef<"first" | "third">("first");
+  const [cameraMode, setCameraMode] = useState<"first" | "third">("first");
+  /** Logical player body position (separate from camera position in 3rd-person). */
+  const playerBodyPosRef = useRef(new THREE.Vector3());
+  /** Visible player body mesh shown in 3rd-person mode. */
+  const playerBodyRef = useRef<THREE.Group | null>(null);
+  /** Walk phase for 3rd-person body animation. */
+  const playerBodyLegPhaseRef = useRef(0);
 
   // ─── Selected weapon (persisted via ref for use inside animation loop) ───────
   const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("pistol");
@@ -865,6 +875,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     );
     camera.position.set(0, PLAYER_HEIGHT + getTerrainHeight(0, 0), 0);
     cameraRef.current = camera;
+
+    // ── Third-person player body mesh ────────────────────────────────────────
+    const playerBody = buildRemotePlayerMesh(0x4a9eff);
+    playerBody.visible = false; // hidden in first-person (default)
+    scene.add(playerBody);
+    playerBodyRef.current = playerBody;
+    playerBodyPosRef.current.copy(camera.position);
 
     // ── First-person weapon (attached to camera) ─────────────────────────────
     const wType = selectedWeaponRef.current;
@@ -2243,12 +2260,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           highlightedSheepRef.current = null;
           possessedSheepRef.current = null;
           setIsPossessed(false);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+          // Restore weapon visibility only in first-person mode
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
         } else if (nearestSheepForPossessRef.current) {
           // Enter sheep body
           possessedSheepRef.current = nearestSheepForPossessRef.current;
           setIsPossessed(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        }
+      }
+
+      // V key — toggle first/third-person camera (only in explore mode, not while possessed)
+      if (e.type === "keydown" && e.code === "KeyV" && !possessedSheepRef.current) {
+        const newMode = cameraModeRef.current === "first" ? "third" : "first";
+        cameraModeRef.current = newMode;
+        setCameraMode(newMode);
+        if (weaponMeshRef.current) {
+          weaponMeshRef.current.visible = newMode === "first";
+        }
+        if (playerBodyRef.current) {
+          playerBodyRef.current.visible = newMode === "third";
         }
       }
 
@@ -2427,6 +2458,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const dt = Math.min((now - prevTimeRef.current) / 1000, 0.05);
       prevTimeRef.current = now;
       elapsed += dt;
+
+      // ── Sync player body position in first-person (always matches cam.position) ──
+      if (cameraModeRef.current === "first" && cameraRef.current) {
+        playerBodyPosRef.current.copy(cameraRef.current.position);
+      }
 
       // ── Day / Night cycle ──────────────────────────────────────────────────
       dayTimeRef.current = (dayTimeRef.current + dt) % DAY_DURATION;
@@ -2679,16 +2715,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
-        // In third-person mode the camera was moved to the offset position at the
-        // end of the previous frame. Restore the logical eye-level position before
-        // running physics so that all movement and collision code operates on the
-        // correct player position (not the orbiting camera position).
-        if (thirdPersonRef.current) {
-          cam.position.set(
-            playerBodyPosRef.current.x,
-            playerBodyPosRef.current.y + PLAYER_HEIGHT,
-            playerBodyPosRef.current.z
-          );
+        // In 3rd-person, temporarily restore cam.position to player body position
+        // so all movement + collision code runs against the correct world position.
+        if (cameraModeRef.current === "third") {
+          cam.position.copy(playerBodyPosRef.current);
         }
 
         // Stamina
@@ -2771,15 +2801,36 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           player.onGround = true;
         }
 
-        cam.rotation.order = "YXZ";
-        cam.rotation.y = yawRef.current;
-        cam.rotation.x = pitchRef.current;
+        // Save player body position (same in both modes at this point)
+        playerBodyPosRef.current.copy(cam.position);
+
+        if (cameraModeRef.current === "third") {
+          // ── 3rd-person: orbit camera behind and above the player ─────────
+          const behindX = Math.sin(yawRef.current) * TP_DISTANCE;
+          const behindZ = Math.cos(yawRef.current) * TP_DISTANCE;
+          // Pitch tilts camera up/down while preserving "looking at player" feel
+          const pitchOffset = Math.sin(pitchRef.current) * TP_DISTANCE * 0.5;
+          cam.position.set(
+            playerBodyPosRef.current.x + behindX,
+            playerBodyPosRef.current.y + TP_HEIGHT + pitchOffset,
+            playerBodyPosRef.current.z + behindZ
+          );
+          cam.lookAt(
+            playerBodyPosRef.current.x,
+            playerBodyPosRef.current.y + 0.8,
+            playerBodyPosRef.current.z
+          );
+        } else {
+          cam.rotation.order = "YXZ";
+          cam.rotation.y = yawRef.current;
+          cam.rotation.x = pitchRef.current;
+        }
 
         // ── Broadcast position to other players ─────────────────────────────
         sendUpdateRef.current?.({
-          x: cam.position.x,
-          y: cam.position.y,
-          z: cam.position.z,
+          x: playerBodyPosRef.current.x,
+          y: playerBodyPosRef.current.y,
+          z: playerBodyPosRef.current.z,
           rotY: yawRef.current,
           pitch: pitchRef.current,
         });
@@ -2920,66 +2971,43 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         cam.rotation.x = pitchRef.current;
       }
 
-      // ── Sync logical player body position (before 3rd-person camera offset) ─
-      // cam.position at this point is the eye-level logical player position.
-      // Store the foot/body-level position for gameplay & body-mesh placement.
-      {
-        const cam = cameraRef.current!;
-        playerBodyPosRef.current.set(
-          cam.position.x,
-          cam.position.y - PLAYER_HEIGHT,
-          cam.position.z
-        );
-
-        // Position and orient the player body mesh (only visible in 3rd person)
-        if (playerBodyMeshRef.current) {
-          playerBodyMeshRef.current.position.copy(playerBodyPosRef.current);
-          // Face the direction the player is looking (body rotated 180° from yaw)
-          playerBodyMeshRef.current.rotation.y = yawRef.current + Math.PI;
-        }
-
-        // ── Apply third-person camera offset ────────────────────────────────
-        if (thirdPersonRef.current && !possessedSheepRef.current) {
-          const bodyPos = playerBodyPosRef.current;
-          const bodyY   = bodyPos.y + 0.9; // roughly chest height
-
-          // Orbit camera behind and above using yaw + clamped pitch
-          const clampedPitch = Math.max(-0.3, Math.min(0.7, pitchRef.current));
-          const hDist = Math.cos(clampedPitch) * THIRD_PERSON_DIST;
-          const vDist = Math.sin(clampedPitch) * THIRD_PERSON_DIST;
-
-          cam.position.set(
-            bodyPos.x + Math.sin(yawRef.current) * hDist,
-            bodyY + THIRD_PERSON_HEIGHT + vDist,
-            bodyPos.z + Math.cos(yawRef.current) * hDist
+      // ── Third-person player body mesh: position, rotation, walk animation ────
+      if (playerBodyRef.current) {
+        if (cameraModeRef.current === "third" && !possessedSheepRef.current) {
+          playerBodyRef.current.visible = true;
+          // Place body so feet rest on terrain (cam Y = terrain + PLAYER_HEIGHT,
+          // remote mesh origin is at body centre ≈ 0.825 above foot level)
+          playerBodyRef.current.position.set(
+            playerBodyPosRef.current.x,
+            playerBodyPosRef.current.y - PLAYER_HEIGHT + 0.825,
+            playerBodyPosRef.current.z
           );
-          cam.lookAt(bodyPos.x, bodyY, bodyPos.z);
+          // Body faces forward (same direction as yaw, flipped to face away from camera)
+          playerBodyRef.current.rotation.y = yawRef.current + Math.PI;
 
-          // Walk animation on the body mesh
-          const pbMesh = playerBodyMeshRef.current;
-          if (pbMesh) {
-            const isMoving =
-              keysRef.current["KeyW"] || keysRef.current["KeyS"] ||
-              keysRef.current["KeyA"] || keysRef.current["KeyD"] ||
-              keysRef.current["ArrowUp"] || keysRef.current["ArrowDown"] ||
-              keysRef.current["ArrowLeft"] || keysRef.current["ArrowRight"];
-            const legL = pbMesh.getObjectByName("legL");
-            const legR = pbMesh.getObjectByName("legR");
-            const armL = pbMesh.getObjectByName("armL");
-            const armR = pbMesh.getObjectByName("armR");
-            const walkPhase = elapsed * 6;
-            const swing = isMoving ? 0.5 : 0;
-            if (legL) legL.rotation.x = Math.sin(walkPhase) * swing;
-            if (legR) legR.rotation.x = -Math.sin(walkPhase) * swing;
-            if (armL) armL.rotation.x = -Math.sin(walkPhase) * swing * 0.6;
-            if (armR) armR.rotation.x =  Math.sin(walkPhase) * swing * 0.6;
-          }
+          // Walk cycle animation
+          const isMovingNow = !!(
+            keysRef.current["KeyW"] || keysRef.current["KeyS"] ||
+            keysRef.current["KeyA"] || keysRef.current["KeyD"]
+          );
+          if (isMovingNow && isLockedRef.current) playerBodyLegPhaseRef.current += dt * 6;
+          const swing = isMovingNow ? 0.5 * Math.sin(playerBodyLegPhaseRef.current) : 0;
+          const pbLegL = playerBodyRef.current.getObjectByName("legL");
+          const pbLegR = playerBodyRef.current.getObjectByName("legR");
+          const pbArmL = playerBodyRef.current.getObjectByName("armL");
+          const pbArmR = playerBodyRef.current.getObjectByName("armR");
+          if (pbLegL) pbLegL.rotation.x = swing;
+          if (pbLegR) pbLegR.rotation.x = -swing;
+          if (pbArmL) pbArmL.rotation.x = -swing * 0.5;
+          if (pbArmR) pbArmR.rotation.x = swing * 0.5;
+        } else {
+          playerBodyRef.current.visible = false;
         }
       }
 
       // ── Coin collection & rotation ─────────────────────────────────────────
-      // Use body position for gameplay — ensures correct hit-detection in both
-      // 1st-person (body pos ≈ cam pos) and 3rd-person (camera is offset).
+      // Use playerBodyPosRef so gameplay logic is always based on player body
+      // position (in 3rd-person cam.position is the camera offset, not the body).
       const playerPos = playerBodyPosRef.current;
       let collected = coinsCollectedRef.current;
       coinsRef.current.forEach((coin) => {
@@ -3526,7 +3554,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           });
 
-          // Player arrow (use body position so 3rd-person offset doesn't shift dot)
+          // Player arrow — always based on body position, not camera offset
           const px = cx + playerBodyPosRef.current.x * scale;
           const pz = cy + playerBodyPosRef.current.z * scale;
           ctx.save();
@@ -4162,7 +4190,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
             <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
             <span style={{ color: "#34d399", opacity: 1 }}>[T]</span> – chat &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#93c5fd", opacity: 1 }}>[V]</span> – kamera &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#fbbf24", opacity: 1 }}>[V]</span> – {cameraMode === "first" ? "1. osoba" : "3. osoba"} &nbsp;·&nbsp;{" "}
             <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
           </div>
         </div>
@@ -4565,7 +4593,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
                 <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
                 <div>🐑 <strong className="text-blue-300">[E]</strong> vstoupit do těla ovce</div>
-                <div>📷 <strong className="text-blue-200">[V]</strong> přepnout 1./3. osoba</div>
+                <div>📷 <strong className="text-yellow-300">[V]</strong> přepnout 1./3. osobu</div>
               </div>
             </div>
 
@@ -4596,7 +4624,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               </div>
               <div className="flex gap-6 justify-center flex-wrap">
                 <span>⛏ <strong className="text-cyan-400">[T]</strong> – terén (v stavění)</span>
-                <span>📷 <strong className="text-blue-300">[V]</strong> – přepnout kameru</span>
+                <span>📷 <strong className="text-yellow-400">[V]</strong> – přepnout 1./3. osobu</span>
                 <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
               </div>
             </div>
