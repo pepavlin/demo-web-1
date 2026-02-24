@@ -39,6 +39,20 @@ jest.mock("three/examples/jsm/postprocessing/UnrealBloomPass.js", () => ({
 jest.mock("three/examples/jsm/postprocessing/OutputPass.js", () => ({
   OutputPass: jest.fn().mockImplementation(() => ({})),
 }));
+jest.mock("three/examples/jsm/postprocessing/ShaderPass.js", () => ({
+  ShaderPass: jest.fn().mockImplementation(() => ({
+    material: {
+      uniforms: {
+        lightPosition: { value: { set: jest.fn() } },
+        enabled:       { value: 1 },
+        exposure:      { value: 0.12 },
+        weight:        { value: 0.35 },
+        time:          { value: 0.0 },   // animated fog drift uniform
+        mieG:          { value: 0.76 },  // Henyey-Greenstein anisotropy
+      },
+    },
+  })),
+}));
 
 // Minimal pointer lock mock
 Object.defineProperty(document, "pointerLockElement", {
@@ -214,10 +228,13 @@ describe("Game3D component", () => {
     expect(mockComposer.dispose).toHaveBeenCalled();
   });
 
-  it("sets up volumetric light shaft cones without throwing", () => {
-    // The shaft cones use THREE.ConeGeometry + MeshBasicMaterial with AdditiveBlending.
-    // This verifies the entire scene setup (including shafts) completes successfully.
+  it("sets up screen-space volumetric scattering pass without throwing", async () => {
+    // The new implementation uses a ShaderPass (crepuscular-rays technique) instead of
+    // 3-D cone geometry. Verify the entire scene setup completes successfully.
+    const { ShaderPass } = await import("three/examples/jsm/postprocessing/ShaderPass.js");
     expect(() => render(<Game3D />)).not.toThrow();
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(ShaderPass).toHaveBeenCalled();
   });
 
   it("stores bloomPass reference for dynamic strength updates", async () => {
