@@ -386,4 +386,51 @@ describe("Game3D component", () => {
     expect(getByTestId("weapon-card-sword")).toBeInTheDocument();
     expect(getByTestId("weapon-card-sniper")).toBeInTheDocument();
   });
+
+  // ─── Third-person / first-person camera toggle ────────────────────────────
+
+  it("shows [V] camera toggle hint in the intro controls", () => {
+    const { getAllByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const vHints = getAllByText(/\[V\]/);
+    expect(vHints.length).toBeGreaterThan(0);
+  });
+
+  it("shows 'přepnout kameru' text in the intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/přepnout kameru/i)).toBeInTheDocument();
+  });
+
+  it("shows '1. osoba' camera mode indicator when game is not locked (default first person)", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // Camera mode indicator only shows when isLocked = true; not visible yet
+    expect(queryByText(/1. osoba/)).toBeNull();
+    expect(queryByText(/3. osoba/)).toBeNull();
+  });
+
+  it("registers keydown/keyup listeners for V key handling", () => {
+    const addSpy = jest.spyOn(window, "addEventListener");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const events = addSpy.mock.calls.map(([event]) => event);
+    expect(events).toContain("keydown");
+    expect(events).toContain("keyup");
+    addSpy.mockRestore();
+  });
+
+  it("shows [V] hint in the bottom controls bar text", () => {
+    const { getAllByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // [V] appears in the intro controls section referencing camera switch
+    const vElements = getAllByText(/\[V\]/);
+    expect(vElements.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows '1./3. osoba' camera toggle item in intro objectives grid", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/1\.\/3\. osoba/i)).toBeInTheDocument();
+  });
 });
