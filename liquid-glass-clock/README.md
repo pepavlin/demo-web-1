@@ -14,6 +14,18 @@ You are an explorer in a living open world. The day/night cycle advances in real
 - 🧱 **Build structures** using 8 materials — press `B` to enter build mode
 - ⛏ **Sculpt the terrain** — raise and lower hills with the scroll wheel
 
+## Weapon Selection
+
+Before starting, you choose one of three animated weapons:
+
+| Weapon | Type | Damage | Style |
+|---|---|---|---|
+| **Pistole** | Ranged | 25 | Balanced — bullet + close melee |
+| **Meč** | Melee only | 50 | High damage, short range, very fast |
+| **Sniperka** | Ranged | 90 | One-shot power, long range, slow reload |
+
+Keys `[1]` `[2]` `[3]` select a weapon; `[Enter]` or the confirm button starts the game.
+
 ## Controls
 
 ### Exploration
@@ -24,7 +36,7 @@ You are an explorer in a living open world. The day/night cycle advances in real
 | `Space` | Jump |
 | `Shift` | Sprint (depletes stamina) |
 | `E` | **Possess nearby sheep** (within 3.5 units) / exit possession |
-| `F` / Left click | Attack (melee + projectile) |
+| `F` / Click | Attack (weapon-dependent) |
 | `Esc` | Release mouse / pause |
 | Click on canvas | Lock mouse & start playing |
 
@@ -143,12 +155,13 @@ Open [http://localhost:3000](http://localhost:3000) in one or more browser tabs 
 npm test
 ```
 
-Test suites (344 tests total):
+Test suites (344+ tests total):
 - `__tests__/buildingSystem.test.ts` — block mesh builders, grid snapping, persistence
 - `__tests__/terrainUtils.test.ts` — terrain generation, spawn points, sculpt modification
-- `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions
+- `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions (including sword & sniper)
 - `__tests__/soundManager.test.ts` — audio manager initialization and playback
-- `__tests__/Game3D.test.tsx` — Game3D component render and intro screen
+- `__tests__/Game3D.test.tsx` — Game3D component render, intro screen, and weapon select flow
+- `__tests__/WeaponSelect.test.tsx` — weapon selection UI, keyboard shortcuts, confirm callback
 - `__tests__/Clock.test.tsx` — clock display and time formatting
 - `__tests__/Sheep.test.tsx` — sheep component rendering
 - `__tests__/SheepWalker.test.tsx` — sheep walker component
@@ -183,7 +196,8 @@ liquid-glass-clock/
 │   ├── SheepWalker.tsx     # Mouse-following sheep
 │   ├── SlimeJumper.tsx     # Slime physics character
 │   ├── UpdateNotification.tsx     # App update banner
-│   └── VioletSheep.tsx    # Keyboard-controlled wall-walker
+│   ├── VioletSheep.tsx    # Keyboard-controlled wall-walker
+│   └── WeaponSelect.tsx    # Weapon selection screen
 ├── hooks/                  # Custom React hooks
 │   ├── useMouseParallax.ts # Mouse-based 3D tilt
 │   ├── useMultiplayer.ts   # Socket.io multiplayer hook

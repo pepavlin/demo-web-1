@@ -34,6 +34,8 @@ import {
   buildLighthouse,
   buildBulletMesh,
   buildWeaponMesh,
+  buildSwordMesh,
+  buildSniperMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -400,5 +402,66 @@ describe("buildWeaponMesh", () => {
       const maxChannel = Math.max(mat.color.r, mat.color.g, mat.color.b);
       expect(maxChannel).toBeLessThan(0.35);
     });
+  });
+});
+
+describe("buildSwordMesh", () => {
+  it("returns a THREE.Group", () => {
+    const sword = buildSwordMesh();
+    expect(sword).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple parts (blade, guard, grip, pommel, etc.)", () => {
+    const sword = buildSwordMesh();
+    expect(sword.children.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("all parts are THREE.Mesh instances", () => {
+    const sword = buildSwordMesh();
+    sword.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("blade material has a light blue-white color", () => {
+    const sword = buildSwordMesh();
+    // First child is the blade
+    const blade = sword.children[0] as THREE.Mesh;
+    const mat = blade.material as THREE.MeshLambertMaterial;
+    // THREE.js stores color in linear space; 0xd0e8ff ≈ 0.63 in linear red
+    // Just check it's a relatively light color (r + g + b > 1.5)
+    const brightness = mat.color.r + mat.color.g + mat.color.b;
+    expect(brightness).toBeGreaterThan(1.5);
+  });
+});
+
+describe("buildSniperMesh", () => {
+  it("returns a THREE.Group", () => {
+    const sniper = buildSniperMesh();
+    expect(sniper).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has many parts (barrel, body, scope, stock, grip, bipod, etc.)", () => {
+    const sniper = buildSniperMesh();
+    expect(sniper.children.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("all parts are THREE.Mesh instances", () => {
+    const sniper = buildSniperMesh();
+    sniper.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("includes a glowing scope lens (emissive material)", () => {
+    const sniper = buildSniperMesh();
+    let hasEmissive = false;
+    sniper.children.forEach((child) => {
+      const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
+      if (mat.emissive && (mat.emissive.r > 0 || mat.emissive.g > 0 || mat.emissive.b > 0)) {
+        hasEmissive = true;
+      }
+    });
+    expect(hasEmissive).toBe(true);
   });
 });

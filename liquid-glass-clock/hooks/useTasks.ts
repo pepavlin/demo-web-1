@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 const TASKS_URL =
   "https://n8n.pavlin.dev/webhook/demo-web-1-create-issue";
@@ -8,8 +8,8 @@ const TASKS_URL =
 const POLL_INTERVAL = 30_000;
 
 export interface Task {
-  id?: string;
-  status: string;
+  id?: string | number;
+  status?: string;
   message?: string;
   title?: string;
   name?: string;
@@ -43,31 +43,26 @@ export function parseTasks(raw: unknown): Task[] {
 export function useTasks(): Task[] {
   const [tasks, setTasks] = useState<Task[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchTasks = async () => {
-      try {
-        const res = await fetch(TASKS_URL);
-        if (!res.ok) {
-          if (!cancelled) setTasks([]);
-          return;
-        }
-        const data = await res.json();
-        if (!cancelled) setTasks(parseTasks(data));
-      } catch {
-        if (!cancelled) setTasks([]);
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(TASKS_URL);
+      if (!res.ok) {
+        setTasks([]);
+        return;
       }
-    };
+      const data: unknown = await res.json();
+      setTasks(parseTasks(data));
+    } catch {
+      setTasks([]);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchTasks();
     const interval = setInterval(fetchTasks, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchTasks]);
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   return tasks;
 }

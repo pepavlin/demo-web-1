@@ -53,11 +53,15 @@ import {
   buildLighthouse,
   buildBulletMesh,
   buildWeaponMesh,
+  buildSwordMesh,
+  buildSniperMesh,
   type SheepMeshParts,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, GameState } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, GameState, WeaponType } from "@/lib/gameTypes";
+import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
+import WeaponSelect from "./WeaponSelect";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
@@ -92,18 +96,15 @@ const STAMINA_REGEN = 9; // per second while walking/idle
 // ─── Combat Constants ─────────────────────────────────────────────────────────
 const PLAYER_MAX_HP = 100;
 const FOX_MAX_HP = 60;
-const ATTACK_RANGE = 5;
-const ATTACK_DAMAGE = 25;
-const ATTACK_COOLDOWN = 0.65;
 const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
 const FOX_ATTACK_RANGE = 2.5;
 const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
 
 // ─── Bullet / Weapon Constants ────────────────────────────────────────────────
-const BULLET_SPEED = 55;        // units per second
+// Per-weapon values come from WEAPON_CONFIGS; these are shared constants:
 const BULLET_LIFETIME = 4;      // seconds before auto-despawn
 const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
-// Weapon position in camera-local space (first-person)
+// Default weapon position in camera-local space (pistol)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
 // ─── Possession Constants ─────────────────────────────────────────────────────
@@ -459,6 +460,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const nearestSheepForPossessRef = useRef<SheepData | null>(null);
   const highlightedSheepRef = useRef<SheepData | null>(null);
 
+  // ─── Selected weapon (persisted via ref for use inside animation loop) ───────
+  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("pistol");
+  const selectedWeaponRef = useRef<WeaponType>("pistol");
+
   const [isMuted, setIsMuted] = useState(false);
   const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
     mode: "explore",
@@ -482,6 +487,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     attackReady: true,
   });
   const [showIntro, setShowIntro] = useState(true);
+  const [showWeaponSelect, setShowWeaponSelect] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [bleatingLabel, setBleatingLabel] = useState<string | null>(null);
   const [foxWarning, setFoxWarning] = useState(false);
@@ -631,6 +637,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
   }, []);
 
+  // ─── Swap weapon mesh when player confirms weapon selection ──────────────────
+  const swapWeaponMesh = useCallback((type: WeaponType) => {
+    const cam = cameraRef.current;
+    if (!cam || !weaponMeshRef.current) return;
+    // Remove old mesh
+    cam.remove(weaponMeshRef.current);
+    // Build new mesh
+    const newMesh =
+      type === "sword" ? buildSwordMesh()
+      : type === "sniper" ? buildSniperMesh()
+      : buildWeaponMesh();
+    if (type === "sword") {
+      newMesh.position.set(0.20, -0.18, -0.38);
+      newMesh.rotation.y = -0.25;
+      newMesh.rotation.z = -0.05;
+    } else if (type === "sniper") {
+      newMesh.position.set(0.18, -0.22, -0.55);
+      newMesh.rotation.y = -0.08;
+    } else {
+      newMesh.position.copy(WEAPON_POS);
+      newMesh.rotation.y = -0.12;
+    }
+    cam.add(newMesh);
+    weaponMeshRef.current = newMesh;
+  }, []);
+
   // ─── Flash fox mesh red on hit ───────────────────────────────────────────────
   function flashFoxMesh(mesh: THREE.Group) {
     mesh.traverse((child) => {
@@ -662,47 +694,48 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
 
-    playerAttackCooldownRef.current = ATTACK_COOLDOWN;
+    const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
+
+    playerAttackCooldownRef.current = weaponCfg.cooldown;
     soundManager.playAttack();
 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
 
-    // ── Muzzle flash (brief PointLight at barrel tip) ───────────────────────
-    if (muzzleFlashRef.current) {
+    // ── Muzzle flash (only for ranged weapons) ──────────────────────────────
+    if (muzzleFlashRef.current && weaponCfg.bulletSpeed > 0) {
       muzzleFlashRef.current.intensity = 4;
       setTimeout(() => {
         if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
       }, 75);
     }
 
-    // ── Spawn bullet projectile ─────────────────────────────────────────────
     const cam = cameraRef.current;
     const scene = sceneRef.current;
 
-    // Camera world position and look direction
-    const startPos = new THREE.Vector3();
-    cam.getWorldPosition(startPos);
-    const forward = new THREE.Vector3(0, 0, -1);
-    forward.transformDirection(cam.matrixWorld);
+    // ── Spawn bullet projectile (ranged weapons only) ───────────────────────
+    if (weaponCfg.bulletSpeed > 0) {
+      const startPos = new THREE.Vector3();
+      cam.getWorldPosition(startPos);
+      const forward = new THREE.Vector3(0, 0, -1);
+      forward.transformDirection(cam.matrixWorld);
+      startPos.addScaledVector(forward, 1.2);
 
-    // Start bullet slightly in front of camera (past the near plane)
-    startPos.addScaledVector(forward, 1.2);
+      const bulletMesh = buildBulletMesh();
+      bulletMesh.position.copy(startPos);
+      scene.add(bulletMesh);
 
-    const bulletMesh = buildBulletMesh();
-    bulletMesh.position.copy(startPos);
-    scene.add(bulletMesh);
+      bulletsRef.current.push({
+        mesh: bulletMesh,
+        velocity: forward.clone().multiplyScalar(weaponCfg.bulletSpeed),
+        lifetime: BULLET_LIFETIME,
+      });
+    }
 
-    bulletsRef.current.push({
-      mesh: bulletMesh,
-      velocity: forward.clone().multiplyScalar(BULLET_SPEED),
-      lifetime: BULLET_LIFETIME,
-    });
-
-    // ── Immediate melee fallback for very close foxes ───────────────────────
+    // ── Melee hit (sword always; ranged weapons also hit if close enough) ───
     const playerPos = cam.position;
     let closest: (typeof foxListRef.current)[0] | null = null;
-    let closestDist = ATTACK_RANGE;
+    let closestDist = weaponCfg.range;
 
     foxListRef.current.forEach((fox) => {
       if (!fox.isAlive) return;
@@ -715,12 +748,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     if (closest) {
       const fox = closest as (typeof foxListRef.current)[0];
-      fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
+      fox.hp = Math.max(0, fox.hp - weaponCfg.damage);
       fox.hitFlashTimer = 0.25;
       flashFoxMesh(fox.mesh);
       soundManager.playFoxHit();
 
-      setAttackEffect(`-${ATTACK_DAMAGE}`);
+      setAttackEffect(`-${weaponCfg.damage}`);
       setTimeout(() => setAttackEffect(null), 700);
 
       if (fox.hp <= 0) {
@@ -824,9 +857,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     cameraRef.current = camera;
 
     // ── First-person weapon (attached to camera) ─────────────────────────────
-    const weaponGroup = buildWeaponMesh();
-    weaponGroup.position.copy(WEAPON_POS);
-    weaponGroup.rotation.y = -0.12; // slight inward cant
+    const wType = selectedWeaponRef.current;
+    const weaponGroup =
+      wType === "sword" ? buildSwordMesh()
+      : wType === "sniper" ? buildSniperMesh()
+      : buildWeaponMesh();
+    // Sword sits closer/lower and rotates differently for melee feel
+    if (wType === "sword") {
+      weaponGroup.position.set(0.20, -0.18, -0.38);
+      weaponGroup.rotation.y = -0.25;
+      weaponGroup.rotation.z = -0.05;
+    } else if (wType === "sniper") {
+      weaponGroup.position.set(0.18, -0.22, -0.55);
+      weaponGroup.rotation.y = -0.08;
+    } else {
+      weaponGroup.position.copy(WEAPON_POS);
+      weaponGroup.rotation.y = -0.12; // slight inward cant
+    }
     camera.add(weaponGroup);
     weaponMeshRef.current = weaponGroup;
     scene.add(camera); // camera must be in scene for its children to render
@@ -2852,10 +2899,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const swayAmt = isMoving ? 0.012 : 0.005;
         const swaySpeed = isMoving ? 7 : 3;
 
+        const wType = selectedWeaponRef.current;
+        const baseX = wType === "sword" ? 0.20 : wType === "sniper" ? 0.18 : WEAPON_POS.x;
+        const baseY = wType === "sword" ? -0.18 : wType === "sniper" ? -0.22 : WEAPON_POS.y;
+        const baseZ = wType === "sword" ? -0.38 : wType === "sniper" ? -0.55 : WEAPON_POS.z;
         wep.position.set(
-          WEAPON_POS.x + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
-          WEAPON_POS.y + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
-          WEAPON_POS.z + recoil * 0.12
+          baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
+          baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
+          baseZ + recoil * 0.12
         );
         wep.rotation.x = recoil * 0.18 + Math.sin(elapsed * swaySpeed) * swayAmt * 0.4;
       }
@@ -2876,11 +2927,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (!fox.isAlive) continue;
           const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
           if (dist < BULLET_HIT_RADIUS) {
-            fox.hp = Math.max(0, fox.hp - ATTACK_DAMAGE);
+            const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+            fox.hp = Math.max(0, fox.hp - dmg);
             fox.hitFlashTimer = 0.25;
             flashFoxMesh(fox.mesh);
             soundManager.playFoxHit();
-            setAttackEffect(`-${ATTACK_DAMAGE}`);
+            setAttackEffect(`-${dmg}`);
             setTimeout(() => setAttackEffect(null), 700);
             if (fox.hp <= 0) {
               fox.isAlive = false;
@@ -3735,6 +3787,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
+
+          {/* Active weapon indicator */}
+          <div
+            className="rounded-xl text-xs font-bold text-center"
+            style={{
+              width: 168,
+              padding: "8px 16px",
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(12px)",
+              border: `1px solid ${WEAPON_CONFIGS[selectedWeapon].color}44`,
+              color: WEAPON_CONFIGS[selectedWeapon].color,
+              boxShadow: `0 0 10px ${WEAPON_CONFIGS[selectedWeapon].color}22`,
+            }}
+          >
+            {selectedWeapon === "pistol" ? "🔫" : selectedWeapon === "sword" ? "⚔️" : "🎯"}{" "}
+            {WEAPON_CONFIGS[selectedWeapon].label}
+          </div>
         </div>
       )}
 
@@ -4368,12 +4437,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             <button
               className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold rounded-xl text-lg w-full"
               style={{ padding: "14px 32px" }}
-              onClick={(e) => { e.stopPropagation(); lockPointer(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowIntro(false);
+                setShowWeaponSelect(true);
+              }}
             >
               Hrát!
             </button>
           </div>
         </div>
+      )}
+
+      {/* Weapon selection overlay */}
+      {showWeaponSelect && (
+        <WeaponSelect
+          onConfirm={(weapon) => {
+            setSelectedWeapon(weapon);
+            selectedWeaponRef.current = weapon;
+            swapWeaponMesh(weapon);
+            setShowWeaponSelect(false);
+            lockPointer();
+          }}
+        />
       )}
     </div>
   );

@@ -754,6 +754,171 @@ export function buildWeaponMesh(): THREE.Group {
   return group;
 }
 
+// ─── Weapon (sword) ───────────────────────────────────────────────────────────
+/** Simple first-person sword shown in bottom-right of viewport. */
+export function buildSwordMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const bladeMat = new THREE.MeshLambertMaterial({ color: 0xd0e8ff, emissive: 0x4488cc, emissiveIntensity: 0.18 });
+  const guardMat = new THREE.MeshLambertMaterial({ color: 0xc8960c });
+  const gripMat = new THREE.MeshLambertMaterial({ color: 0x5c2a0a });
+  const pommelMat = new THREE.MeshLambertMaterial({ color: 0xc8960c });
+
+  // Blade (long flat box, oriented along -Z)
+  const bladeGeo = new THREE.BoxGeometry(0.028, 0.008, 0.52);
+  const blade = new THREE.Mesh(bladeGeo, bladeMat);
+  blade.position.set(0, 0, -0.24);
+  group.add(blade);
+
+  // Blade edge bevel (slightly narrower, offset)
+  const bevelGeo = new THREE.BoxGeometry(0.018, 0.015, 0.50);
+  const bevel = new THREE.Mesh(bevelGeo, bladeMat);
+  bevel.position.set(0, 0.008, -0.23);
+  group.add(bevel);
+
+  // Cross-guard
+  const guardGeo = new THREE.BoxGeometry(0.18, 0.018, 0.022);
+  const guard = new THREE.Mesh(guardGeo, guardMat);
+  guard.position.set(0, 0, 0.005);
+  group.add(guard);
+
+  // Guard decoration (small spheres at ends)
+  const knobGeo = new THREE.SphereGeometry(0.016, 6, 6);
+  const knobL = new THREE.Mesh(knobGeo, guardMat);
+  knobL.position.set(-0.091, 0, 0.005);
+  group.add(knobL);
+  const knobR = new THREE.Mesh(knobGeo.clone(), guardMat);
+  knobR.position.set(0.091, 0, 0.005);
+  group.add(knobR);
+
+  // Grip (wrapped handle)
+  const gripGeo = new THREE.CylinderGeometry(0.016, 0.018, 0.14, 8);
+  const grip = new THREE.Mesh(gripGeo, gripMat);
+  grip.rotation.x = Math.PI / 2;
+  grip.position.set(0, 0, 0.082);
+  group.add(grip);
+
+  // Pommel
+  const pommelGeo = new THREE.SphereGeometry(0.024, 8, 8);
+  const pommel = new THREE.Mesh(pommelGeo, pommelMat);
+  pommel.position.set(0, 0, 0.162);
+  group.add(pommel);
+
+  return group;
+}
+
+// ─── Weapon (sniper rifle) ────────────────────────────────────────────────────
+/** Simple first-person sniper rifle shown in bottom-right of viewport. */
+export function buildSniperMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b3d1a });
+  const glassMat = new THREE.MeshLambertMaterial({ color: 0x88ddff, emissive: 0x224488, emissiveIntensity: 0.35 });
+  const lensMat = new THREE.MeshLambertMaterial({ color: 0x99ccff, emissive: 0x4488cc, emissiveIntensity: 0.5 });
+
+  // Long barrel
+  const barrelGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.72, 8);
+  const barrel = new THREE.Mesh(barrelGeo, bodyMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.005, -0.34);
+  group.add(barrel);
+
+  // Barrel suppressor/flash hider at tip
+  const tipGeo = new THREE.CylinderGeometry(0.022, 0.019, 0.06, 8);
+  const tip = new THREE.Mesh(tipGeo, metalMat);
+  tip.rotation.x = Math.PI / 2;
+  tip.position.set(0, 0.005, -0.71);
+  group.add(tip);
+
+  // Receiver (main body)
+  const receiverGeo = new THREE.BoxGeometry(0.07, 0.065, 0.30);
+  const receiver = new THREE.Mesh(receiverGeo, bodyMat);
+  receiver.position.set(0, 0, -0.02);
+  group.add(receiver);
+
+  // Stock (wooden part)
+  const stockGeo = new THREE.BoxGeometry(0.055, 0.055, 0.22);
+  const stock = new THREE.Mesh(stockGeo, woodMat);
+  stock.position.set(0, -0.01, 0.19);
+  stock.rotation.x = 0.12;
+  group.add(stock);
+
+  // Cheekrest
+  const cheekGeo = new THREE.BoxGeometry(0.05, 0.032, 0.12);
+  const cheek = new THREE.Mesh(cheekGeo, woodMat);
+  cheek.position.set(0, 0.045, 0.16);
+  group.add(cheek);
+
+  // Scope body (tube)
+  const scopeBodyGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.22, 10);
+  const scopeBody = new THREE.Mesh(scopeBodyGeo, metalMat);
+  scopeBody.rotation.x = Math.PI / 2;
+  scopeBody.position.set(0, 0.062, -0.04);
+  group.add(scopeBody);
+
+  // Scope objective lens (front - larger)
+  const objLensGeo = new THREE.CylinderGeometry(0.028, 0.026, 0.022, 10);
+  const objLens = new THREE.Mesh(objLensGeo, metalMat);
+  objLens.rotation.x = Math.PI / 2;
+  objLens.position.set(0, 0.062, -0.152);
+  group.add(objLens);
+
+  // Scope glass (front lens)
+  const glassGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.004, 10);
+  const glass = new THREE.Mesh(glassGeo, glassMat);
+  glass.rotation.x = Math.PI / 2;
+  glass.position.set(0, 0.062, -0.165);
+  group.add(glass);
+
+  // Scope eyepiece (rear - slightly smaller)
+  const eyepieceGeo = new THREE.CylinderGeometry(0.018, 0.022, 0.018, 10);
+  const eyepiece = new THREE.Mesh(eyepieceGeo, metalMat);
+  eyepiece.rotation.x = Math.PI / 2;
+  eyepiece.position.set(0, 0.062, 0.072);
+  group.add(eyepiece);
+
+  // Eyepiece lens
+  const eyeLensGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.004, 10);
+  const eyeLens = new THREE.Mesh(eyeLensGeo, lensMat);
+  eyeLens.rotation.x = Math.PI / 2;
+  eyeLens.position.set(0, 0.062, 0.082);
+  group.add(eyeLens);
+
+  // Scope turrets (elevation knob)
+  const turretGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.022, 6);
+  const turret = new THREE.Mesh(turretGeo, metalMat);
+  turret.position.set(0, 0.084, -0.02);
+  group.add(turret);
+
+  // Trigger guard
+  const guardGeo = new THREE.TorusGeometry(0.024, 0.008, 5, 8, Math.PI);
+  const guard = new THREE.Mesh(guardGeo, metalMat);
+  guard.rotation.z = Math.PI / 2;
+  guard.rotation.y = Math.PI / 2;
+  guard.position.set(0, -0.042, 0.05);
+  group.add(guard);
+
+  // Grip (pistol grip below receiver)
+  const gripGeo = new THREE.BoxGeometry(0.048, 0.13, 0.072);
+  const grip = new THREE.Mesh(gripGeo, bodyMat);
+  grip.position.set(0, -0.095, 0.07);
+  grip.rotation.x = 0.18;
+  group.add(grip);
+
+  // Bipod legs (folded down slightly)
+  const bipodLegGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.12, 6);
+  const legL = new THREE.Mesh(bipodLegGeo, metalMat);
+  legL.position.set(-0.028, -0.075, -0.38);
+  legL.rotation.z = 0.22;
+  group.add(legL);
+  const legR = new THREE.Mesh(bipodLegGeo.clone(), metalMat);
+  legR.position.set(0.028, -0.075, -0.38);
+  legR.rotation.z = -0.22;
+  group.add(legR);
+
+  return group;
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();
