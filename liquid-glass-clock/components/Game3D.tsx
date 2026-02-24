@@ -488,24 +488,24 @@ export default function Game3D() {
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
     const starColors: number[] = [];
-    // Vary star sizes using size attribute
     const starSizes: number[] = [];
-    for (let i = 0; i < 3800; i++) {
+    for (let i = 0; i < 8000; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
-      // Only upper hemisphere + sides, avoid ground clipping
+      // THREE.js y=up: standard spherical → cartesian
       const r = 460;
       starPositions.push(
         r * Math.sin(phi) * Math.cos(theta),
-        r * Math.sin(phi) * Math.sin(theta),
-        r * Math.cos(phi)
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
       );
-      // Slight color variation: pure white, blue-white, warm white
+      // Color variation: blue-white, warm yellow, reddish, pure white
       const rnd = Math.random();
-      if (rnd < 0.15) { starColors.push(0.7, 0.8, 1.0); }       // blue-white
-      else if (rnd < 0.25) { starColors.push(1.0, 0.95, 0.8); } // warm
-      else { starColors.push(1.0, 1.0, 1.0); }                   // white
-      starSizes.push(0.8 + Math.random() * 2.8);
+      if (rnd < 0.12) { starColors.push(0.65, 0.75, 1.0); }      // blue-white
+      else if (rnd < 0.22) { starColors.push(1.0, 0.92, 0.75); } // warm yellow
+      else if (rnd < 0.28) { starColors.push(1.0, 0.7, 0.7); }   // reddish
+      else { starColors.push(1.0, 1.0, 1.0); }                    // pure white
+      starSizes.push(1.2 + Math.random() * 3.5);
     }
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPositions, 3));
@@ -513,8 +513,11 @@ export default function Game3D() {
     starGeo.setAttribute("size", new THREE.Float32BufferAttribute(starSizes, 1));
     const starMat = new THREE.PointsMaterial({
       vertexColors: true,
-      size: 1.8,
+      size: 2.4,
       sizeAttenuation: true,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
     });
     const stars = new THREE.Points(starGeo, starMat);
     stars.visible = false;
@@ -524,33 +527,42 @@ export default function Game3D() {
     // ── Milky Way galaxy band ────────────────────────────────────────────────
     const galaxyPositions: number[] = [];
     const galaxyColors: number[] = [];
-    // Band tilted ~50° from equatorial plane, simulating Milky Way
-    const bandTilt = 0.88;
-    for (let i = 0; i < 4200; i++) {
+    // Band tilted ~62° — realistic Milky Way arch crossing the sky
+    const bandTilt = 1.08;
+    for (let i = 0; i < 12000; i++) {
       const t = Math.random() * Math.PI * 2;
-      // Gaussian-spread across band width
-      const spread = (Math.random() + Math.random() - 1.0) * 0.35;
+      // Double-Gaussian: tight core + wide halo
+      const isCoreParticle = Math.random() < 0.45;
+      const spreadWidth = isCoreParticle ? 0.18 : 0.42;
+      const spread = (Math.random() + Math.random() - 1.0) * spreadWidth;
       const bx = Math.cos(t);
       const by = Math.sin(t) * Math.cos(bandTilt) + spread * Math.sin(bandTilt);
       const bz = Math.sin(t) * Math.sin(bandTilt) - spread * Math.cos(bandTilt);
-      const r = 458 + (Math.random() - 0.5) * 15;
+      const r = 455 + (Math.random() - 0.5) * 20;
       galaxyPositions.push(bx * r, by * r, bz * r);
-      // Colors: blue-white, pale lavender, faint warm for core
       const cr = Math.random();
-      if (cr < 0.4) { galaxyColors.push(0.72, 0.80, 1.0); }       // blue-white
-      else if (cr < 0.65) { galaxyColors.push(0.82, 0.78, 1.0); } // lavender
-      else if (cr < 0.85) { galaxyColors.push(1.0, 0.98, 0.88); } // warm white
-      else { galaxyColors.push(0.9, 0.85, 1.0); }                  // pale purple
+      if (isCoreParticle) {
+        // Core: warm yellowish-white, brighter
+        if (cr < 0.35) { galaxyColors.push(1.0, 0.97, 0.88); }       // warm white
+        else if (cr < 0.65) { galaxyColors.push(0.95, 0.90, 1.0); }  // pale lavender
+        else { galaxyColors.push(0.85, 0.88, 1.0); }                  // blue-white
+      } else {
+        // Halo: cooler, dimmer
+        if (cr < 0.5) { galaxyColors.push(0.70, 0.78, 1.0); }        // blue-white
+        else if (cr < 0.80) { galaxyColors.push(0.78, 0.74, 0.95); } // faint lavender
+        else { galaxyColors.push(0.85, 0.82, 1.0); }                  // pale purple
+      }
     }
     const galaxyGeo = new THREE.BufferGeometry();
     galaxyGeo.setAttribute("position", new THREE.Float32BufferAttribute(galaxyPositions, 3));
     galaxyGeo.setAttribute("color", new THREE.Float32BufferAttribute(galaxyColors, 3));
     const galaxyMat = new THREE.PointsMaterial({
       vertexColors: true,
-      size: 1.2,
+      size: 1.8,
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0,
+      depthWrite: false,
     });
     const galaxy = new THREE.Points(galaxyGeo, galaxyMat);
     galaxy.visible = false;
@@ -1279,12 +1291,30 @@ export default function Game3D() {
         ambientRef.current.intensity = getAmbientIntensity(dayFraction);
       }
 
+      // Sky dome, stars and galaxy follow the camera so they're always centered
+      if (cameraRef.current) {
+        const camPos = cameraRef.current.position;
+        if (skyMeshRef.current) skyMeshRef.current.position.copy(camPos);
+        if (starsRef.current) starsRef.current.position.copy(camPos);
+        if (galaxyRef.current) galaxyRef.current.position.copy(camPos);
+      }
+
+      // Stars & galaxy: smooth opacity fade tied to twilight transitions
+      let starOpacity = 0;
+      if (dayFraction < 0.18) {
+        starOpacity = smoothstep(0.18, 0.11, dayFraction);
+      } else if (dayFraction > 0.82) {
+        starOpacity = smoothstep(0.82, 0.89, dayFraction);
+      }
+
       if (starsRef.current) {
-        starsRef.current.visible = isNight;
+        starsRef.current.visible = starOpacity > 0.01;
+        (starsRef.current.material as THREE.PointsMaterial).opacity = starOpacity;
       }
 
       if (galaxyRef.current) {
-        galaxyRef.current.visible = isNight;
+        galaxyRef.current.visible = starOpacity > 0.01;
+        (galaxyRef.current.material as THREE.PointsMaterial).opacity = starOpacity * 0.92;
       }
 
       // ── Moving clouds ──────────────────────────────────────────────────────
