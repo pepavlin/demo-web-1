@@ -282,6 +282,36 @@ describe("SoundManager – sound effects don't throw", () => {
   it("playVictory()", () => {
     expect(() => soundManager.playVictory()).not.toThrow();
   });
+
+  it("playWaterAmbient() – default volume (1.0)", () => {
+    expect(() => soundManager.playWaterAmbient()).not.toThrow();
+  });
+
+  it("playWaterAmbient(0.5) – half volume", () => {
+    expect(() => soundManager.playWaterAmbient(0.5)).not.toThrow();
+  });
+
+  it("playWaterAmbient(0) – zero volume is silently skipped", () => {
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    soundManager.playWaterAmbient(0);
+    expect(mockCtx.createBufferSource.mock.calls.length).toBe(prevCalls);
+  });
+
+  it("playWaterAmbient(1.5) – volume > 1 is clamped", () => {
+    expect(() => soundManager.playWaterAmbient(1.5)).not.toThrow();
+  });
+
+  it("playWaterAmbient(-0.1) – negative volume is silently skipped", () => {
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    soundManager.playWaterAmbient(-0.1);
+    expect(mockCtx.createBufferSource.mock.calls.length).toBe(prevCalls);
+  });
+
+  it("playWaterAmbient() creates audio nodes", () => {
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    soundManager.playWaterAmbient(1.0);
+    expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(prevCalls);
+  });
 });
 
 describe("SoundManager – graceful no-ops before init", () => {
@@ -325,6 +355,10 @@ describe("SoundManager – graceful no-ops before init", () => {
 
   it("playVictory() before init does not throw", () => {
     expect(() => soundManager.playVictory()).not.toThrow();
+  });
+
+  it("playWaterAmbient() before init does not throw", () => {
+    expect(() => soundManager.playWaterAmbient()).not.toThrow();
   });
 });
 

@@ -442,6 +442,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // ─── Sound Refs ─────────────────────────────────────────────────────────────
   const footstepTimerRef = useRef(0);
   const foxGrowlCooldownRef = useRef(0);
+  /** Countdown (seconds) until the next water-ambient snippet plays. */
+  const waterAmbienceTimerRef = useRef(0);
 
   // ─── Pause Refs ──────────────────────────────────────────────────────────────
   /** True once the pointer has been locked at least once (game started). */
@@ -2848,6 +2850,39 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         } else {
           footstepTimerRef.current = 0;
+        }
+
+        // ── Water ambient sound (only near water) ───────────────────────────
+        {
+          const px = playerBodyPosRef.current.x;
+          const pz = playerBodyPosRef.current.z;
+          // Sample a coarse ring around the player to find the nearest water tile.
+          // Water is defined as terrain height < WATER_LEVEL (-0.5).
+          const WATER_HEAR_RADIUS = 30;
+          const checkOffsets: [number, number][] = [
+            [0, 0],
+            [12, 0], [-12, 0], [0, 12], [0, -12],
+            [24, 0], [-24, 0], [0, 24], [0, -24],
+          ];
+          let waterVolume = 0;
+          for (const [dx, dz] of checkOffsets) {
+            if (getTerrainHeightSampled(px + dx, pz + dz) < WATER_LEVEL) {
+              const d = Math.hypot(dx, dz);
+              waterVolume = Math.max(waterVolume, 1 - d / WATER_HEAR_RADIUS);
+              break;
+            }
+          }
+
+          if (waterVolume > 0) {
+            waterAmbienceTimerRef.current -= dt;
+            if (waterAmbienceTimerRef.current <= 0) {
+              soundManager.playWaterAmbient(waterVolume);
+              // Reschedule: more frequent when very close to water
+              waterAmbienceTimerRef.current = 1.2 + Math.random() * 0.8 * (1 - waterVolume * 0.7);
+            }
+          } else {
+            waterAmbienceTimerRef.current = 0;
+          }
         }
       }
 

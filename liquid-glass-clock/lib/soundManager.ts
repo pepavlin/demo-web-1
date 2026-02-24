@@ -212,25 +212,41 @@ class SoundManager {
     const duration = 2 + Math.random() * 2.5;
     const t = ctx.currentTime;
 
-    const src = ctx.createBufferSource();
-    src.buffer = this._noiseBuffer(duration);
+    // Low-frequency rumble: the "pressure" of a wind gust (60–160 Hz)
+    const src1 = ctx.createBufferSource();
+    src1.buffer = this._noiseBuffer(duration);
+    const flt1 = ctx.createBiquadFilter();
+    flt1.type = "lowpass";
+    flt1.frequency.value = 60 + Math.random() * 100;
+    flt1.Q.value = 0.5;
+    const env1 = ctx.createGain();
+    const peak1 = 0.06 + Math.random() * 0.03;
+    env1.gain.setValueAtTime(0.0001, t);
+    env1.gain.linearRampToValueAtTime(peak1, t + duration * 0.4);
+    env1.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src1.connect(flt1);
+    flt1.connect(env1);
+    env1.connect(this.sfxGain);
+    src1.start(t);
+    src1.stop(t + duration);
 
-    const flt = ctx.createBiquadFilter();
-    flt.type = "bandpass";
-    flt.frequency.value = 300 + Math.random() * 700;
-    flt.Q.value = 0.25 + Math.random() * 0.4;
-
-    const env = ctx.createGain();
-    const peak = 0.055 + Math.random() * 0.035;
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.linearRampToValueAtTime(peak, t + duration * 0.35);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-
-    src.connect(flt);
-    flt.connect(env);
-    env.connect(this.sfxGain);
-    src.start(t);
-    src.stop(t + duration);
+    // High-frequency hiss: air rushing past (2 500–4 000 Hz)
+    const src2 = ctx.createBufferSource();
+    src2.buffer = this._noiseBuffer(duration);
+    const flt2 = ctx.createBiquadFilter();
+    flt2.type = "highpass";
+    flt2.frequency.value = 2500 + Math.random() * 1500;
+    flt2.Q.value = 0.3;
+    const env2 = ctx.createGain();
+    const peak2 = 0.025 + Math.random() * 0.015;
+    env2.gain.setValueAtTime(0.0001, t);
+    env2.gain.linearRampToValueAtTime(peak2, t + duration * 0.25);
+    env2.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src2.connect(flt2);
+    flt2.connect(env2);
+    env2.connect(this.sfxGain);
+    src2.start(t);
+    src2.stop(t + duration);
   }
 
   // ── Public sound effects ─────────────────────────────────────────────────
@@ -660,6 +676,59 @@ class SoundManager {
     gain.connect(this.sfxGain);
     noise.start(t);
     noise.stop(t + 0.1);
+  }
+
+  /**
+   * Water ambient sound – gentle flowing/gurgling noise.
+   * Should only be called when the player is within hearing range of water.
+   * @param volume  Proximity-based volume in [0, 1] – 1 = right at the water edge.
+   */
+  playWaterAmbient(volume: number = 1): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const vol = Math.max(0, Math.min(1, volume));
+    if (vol < 0.01) return;
+
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const duration = 1.5 + Math.random() * 1.0;
+
+    // Main flow: bandpass noise in the "flowing water" range (250–450 Hz)
+    const src1 = ctx.createBufferSource();
+    src1.buffer = this._noiseBuffer(duration);
+    const flt1 = ctx.createBiquadFilter();
+    flt1.type = "bandpass";
+    flt1.frequency.value = 250 + Math.random() * 200;
+    flt1.Q.value = 0.8 + Math.random() * 0.6;
+    const peak1 = 0.12 * vol;
+    const env1 = ctx.createGain();
+    env1.gain.setValueAtTime(0.0001, t);
+    env1.gain.linearRampToValueAtTime(peak1, t + duration * 0.2);
+    env1.gain.setValueAtTime(peak1, t + duration * 0.7);
+    env1.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src1.connect(flt1);
+    flt1.connect(env1);
+    env1.connect(this.sfxGain);
+    src1.start(t);
+    src1.stop(t + duration);
+
+    // Surface sparkle: high-frequency ripple component (1 200–2 000 Hz)
+    const sparkDur = duration * 0.4;
+    const src2 = ctx.createBufferSource();
+    src2.buffer = this._noiseBuffer(sparkDur);
+    const flt2 = ctx.createBiquadFilter();
+    flt2.type = "bandpass";
+    flt2.frequency.value = 1200 + Math.random() * 800;
+    flt2.Q.value = 2 + Math.random() * 2;
+    const peak2 = 0.04 * vol;
+    const env2 = ctx.createGain();
+    env2.gain.setValueAtTime(0.0001, t);
+    env2.gain.linearRampToValueAtTime(peak2, t + 0.1);
+    env2.gain.exponentialRampToValueAtTime(0.0001, t + sparkDur);
+    src2.connect(flt2);
+    flt2.connect(env2);
+    env2.connect(this.sfxGain);
+    src2.start(t);
+    src2.stop(t + sparkDur);
   }
 
   // ── Day / night music adaptation ─────────────────────────────────────────
