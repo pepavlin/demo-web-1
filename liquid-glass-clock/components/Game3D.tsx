@@ -392,6 +392,12 @@ export default function Game3D() {
   const footstepTimerRef = useRef(0);
   const foxGrowlCooldownRef = useRef(0);
 
+  // ─── Pause Refs ──────────────────────────────────────────────────────────────
+  /** True once the pointer has been locked at least once (game started). */
+  const gameEverStartedRef = useRef(false);
+  /** Stored reference to restart the rAF loop after a pause. */
+  const restartAnimLoopRef = useRef<(() => void) | null>(null);
+
   // ─── Building / Terrain Sculpt Refs ──────────────────────────────────────────
   const buildModeRef = useRef<BuildMode>("explore");
   const selectedMaterialRef = useRef<BlockMaterial>("wood");
@@ -1884,7 +1890,20 @@ export default function Game3D() {
       if (locked) {
         setShowIntro(false);
         setGameStarted(true);
-        soundManager.init(); // Bootstrap audio on first user gesture
+        if (!gameEverStartedRef.current) {
+          // First lock – bootstrap audio and start the loop for the first time
+          gameEverStartedRef.current = true;
+          soundManager.init();
+        } else {
+          // Returning from pause – resume audio and restart the rAF loop
+          soundManager.resume();
+          prevTimeRef.current = performance.now();
+          restartAnimLoopRef.current?.();
+        }
+      } else if (gameEverStartedRef.current) {
+        // Game paused – stop the loop and silence all audio
+        cancelAnimationFrame(animFrameRef.current);
+        soundManager.pause();
       }
     };
     document.addEventListener("pointerlockchange", onLockChange);
@@ -2907,6 +2926,8 @@ export default function Game3D() {
         renderer.render(scene, cameraRef.current!);
       }
     };
+    // Store a reference so onLockChange can restart the loop after a pause
+    restartAnimLoopRef.current = () => animate();
     animate();
 
     // ── Resize ────────────────────────────────────────────────────────────────

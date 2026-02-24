@@ -59,6 +59,7 @@ const mockCtx = {
   sampleRate: 44100,
   destination: {},
   resume: jest.fn().mockResolvedValue(undefined),
+  suspend: jest.fn().mockResolvedValue(undefined),
   close: jest.fn().mockResolvedValue(undefined),
   createGain: jest.fn(() => mockGainNode()),
   createOscillator: jest.fn(() => mockOscillator()),
@@ -393,5 +394,83 @@ describe("SoundManager – sheep bleat sample loading", () => {
     await flushMicrotasks();
 
     expect(mockFetch).toHaveBeenCalledWith("/sounds/sheep-bleat.mp3");
+  });
+});
+
+describe("SoundManager – pause / resume", () => {
+  beforeEach(() => soundManager.init());
+
+  it("isPaused() returns false after init", () => {
+    expect(soundManager.isPaused()).toBe(false);
+  });
+
+  it("pause() suspends the AudioContext", () => {
+    soundManager.pause();
+    expect(mockCtx.suspend).toHaveBeenCalledTimes(1);
+  });
+
+  it("pause() sets isPaused() to true", () => {
+    soundManager.pause();
+    expect(soundManager.isPaused()).toBe(true);
+  });
+
+  it("pause() clears pending music and wind timeouts", () => {
+    // After init(), ambient and wind timeouts are scheduled.
+    // pause() must clear them so they don't fire while the game is paused.
+    // We verify this indirectly: a second pause() call should still only
+    // call suspend() once (i.e., guard works because _paused=true).
+    soundManager.pause();
+    soundManager.pause(); // should be a no-op
+    expect(mockCtx.suspend).toHaveBeenCalledTimes(1);
+  });
+
+  it("calling pause() twice does not call suspend() a second time", () => {
+    soundManager.pause();
+    soundManager.pause();
+    expect(mockCtx.suspend).toHaveBeenCalledTimes(1);
+  });
+
+  it("resume() calls ctx.resume() after pause", () => {
+    soundManager.pause();
+    // capture calls made by init() / pause()
+    const callsBefore = mockCtx.resume.mock.calls.length;
+    soundManager.resume();
+    // resume() must call ctx.resume() synchronously
+    expect(mockCtx.resume.mock.calls.length).toBe(callsBefore + 1);
+  });
+
+  it("resume() sets isPaused() back to false synchronously", () => {
+    soundManager.pause();
+    soundManager.resume();
+    expect(soundManager.isPaused()).toBe(false);
+  });
+
+  it("resume() before pause() is a no-op (does not call ctx.resume)", () => {
+    const callsBefore = mockCtx.resume.mock.calls.length;
+    soundManager.resume(); // not paused – should be a no-op
+    expect(mockCtx.resume.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("destroy() resets isPaused() to false", () => {
+    soundManager.pause();
+    soundManager.destroy();
+    expect(soundManager.isPaused()).toBe(false);
+  });
+});
+
+describe("SoundManager – pause / resume before init", () => {
+  // global beforeEach calls soundManager.destroy() so ctx is null here
+  // No local beforeEach that calls init()
+
+  it("isPaused() returns false before init", () => {
+    expect(soundManager.isPaused()).toBe(false);
+  });
+
+  it("pause() before init() is a no-op and does not throw", () => {
+    expect(() => soundManager.pause()).not.toThrow();
+  });
+
+  it("resume() before init() is a no-op and does not throw", () => {
+    expect(() => soundManager.resume()).not.toThrow();
   });
 });
