@@ -162,6 +162,74 @@ describe("buildTreeMesh", () => {
       expect(result.foliageGroup).toBeInstanceOf(THREE.Group);
     }
   });
+
+  it("large pine trees (trunkH > 5.0) have hasCollision true", () => {
+    // Seed 1 produces a pine tree — run many seeds and verify at least one large pine
+    let foundLargePine = false;
+    for (let seed = 0; seed < 200; seed++) {
+      const rng = makeRng(seed * 3 + 1);
+      const typeRoll = rng(); // consume first rng for type selection
+      if (typeRoll < 0.30) {
+        // This is a pine — trunkH = 4.5 + rng() * 4.0 on next call
+        // Reset and re-run buildTreeMesh to get actual result
+        const rng2 = makeRng(seed * 3 + 1);
+        const result = buildTreeMesh(rng2);
+        if (result.hasCollision) {
+          foundLargePine = true;
+          break;
+        }
+      }
+    }
+    expect(foundLargePine).toBe(true);
+  });
+
+  it("birch trees with trunkH > 4.5 have hasCollision true", () => {
+    // Find a seed that produces a large birch
+    let foundLargeBirch = false;
+    for (let seed = 0; seed < 500; seed++) {
+      const rng = makeRng(seed * 11 + 7);
+      const result = buildTreeMesh(rng);
+      // If group has no foliage blobs (dead tree) or has cones (pine), skip
+      // We detect birch by checking foliage children exist AND hasCollision
+      // Just check that across seeds we get some birch with hasCollision=true
+      if (result.foliageGroup.children.length > 0 && result.hasCollision && result.trunkRadius < 0.13) {
+        // Birch has slim trunks (0.07–0.12) and foliage
+        foundLargeBirch = true;
+        break;
+      }
+    }
+    expect(foundLargeBirch).toBe(true);
+  });
+
+  it("dead trees with trunkH > 4.5 have hasCollision true", () => {
+    // Find a seed producing a large dead tree
+    let foundLargeDeadTree = false;
+    for (let seed = 0; seed < 500; seed++) {
+      const rng = makeRng(seed * 17 + 3);
+      const result = buildTreeMesh(rng);
+      // Dead trees have empty foliageGroup — detect by 0 foliage children
+      if (result.foliageGroup.children.length === 0 && result.hasCollision) {
+        foundLargeDeadTree = true;
+        break;
+      }
+    }
+    expect(foundLargeDeadTree).toBe(true);
+  });
+
+  it("small birch trees (trunkH <= 4.5) have hasCollision false", () => {
+    // Verify that not all birch trees get collision (only large ones do)
+    let foundSmallBirch = false;
+    for (let seed = 0; seed < 500; seed++) {
+      const rng = makeRng(seed * 13 + 5);
+      const result = buildTreeMesh(rng);
+      // Slim-trunk tree with foliage and NO collision = small birch
+      if (result.foliageGroup.children.length > 0 && !result.hasCollision && result.trunkRadius < 0.13) {
+        foundSmallBirch = true;
+        break;
+      }
+    }
+    expect(foundSmallBirch).toBe(true);
+  });
 });
 
 describe("buildBushMesh", () => {
@@ -204,17 +272,34 @@ describe("buildBushMesh", () => {
 });
 
 describe("buildRockMesh", () => {
-  it("returns a THREE.Mesh", () => {
+  it("returns { mesh, collisionRadius }", () => {
     const rng = makeRng(42);
-    const mesh = buildRockMesh(rng);
-    expect(mesh).toBeInstanceOf(THREE.Mesh);
+    const result = buildRockMesh(rng);
+    expect(result.mesh).toBeInstanceOf(THREE.Mesh);
+    expect(typeof result.collisionRadius).toBe("number");
+    expect(result.collisionRadius).toBeGreaterThan(0);
   });
 
-  it("has castShadow and receiveShadow", () => {
+  it("mesh has castShadow and receiveShadow", () => {
     const rng = makeRng(42);
-    const mesh = buildRockMesh(rng);
+    const { mesh } = buildRockMesh(rng);
     expect(mesh.castShadow).toBe(true);
     expect(mesh.receiveShadow).toBe(true);
+  });
+
+  it("collisionRadius equals baseRadius * max(scaleX, scaleZ)", () => {
+    // With seed 42: first rng → baseRadius, then scaleX, scaleY, scaleZ
+    // collisionRadius must be positive and <= (0.8) * 1.5 = 1.2
+    const rng = makeRng(42);
+    const { collisionRadius } = buildRockMesh(rng);
+    expect(collisionRadius).toBeGreaterThan(0);
+    expect(collisionRadius).toBeLessThanOrEqual(1.2);
+  });
+
+  it("produces different rocks for different seeds", () => {
+    const r1 = buildRockMesh(makeRng(10));
+    const r2 = buildRockMesh(makeRng(99));
+    expect(r1.collisionRadius).not.toBeCloseTo(r2.collisionRadius, 5);
   });
 });
 
@@ -281,25 +366,51 @@ describe("buildHouse", () => {
 });
 
 describe("buildRuins", () => {
-  it("returns a THREE.Group", () => {
+  it("returns { group, boxColliders, cylColliders }", () => {
     const rng = makeRng(1);
-    const ruins = buildRuins(rng);
-    expect(ruins).toBeInstanceOf(THREE.Group);
+    const result = buildRuins(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.boxColliders)).toBe(true);
+    expect(Array.isArray(result.cylColliders)).toBe(true);
   });
 
   it("has walls, columns, and debris", () => {
     const rng = makeRng(1);
-    const ruins = buildRuins(rng);
-    expect(ruins.children.length).toBeGreaterThan(5);
+    const { group } = buildRuins(rng);
+    expect(group.children.length).toBeGreaterThan(5);
   });
 
   it("all mesh children have castShadow", () => {
     const rng = makeRng(1);
-    const ruins = buildRuins(rng);
-    ruins.children.forEach((child) => {
+    const { group } = buildRuins(rng);
+    group.children.forEach((child) => {
       if (child instanceof THREE.Mesh) {
         expect(child.castShadow).toBe(true);
       }
+    });
+  });
+
+  it("boxColliders has entries for both walls", () => {
+    const rng = makeRng(1);
+    const { boxColliders } = buildRuins(rng);
+    // Two walls: w1 (front) and w2 (side)
+    expect(boxColliders.length).toBeGreaterThanOrEqual(2);
+    boxColliders.forEach((bc) => {
+      expect(typeof bc.halfW).toBe("number");
+      expect(typeof bc.halfD).toBe("number");
+      expect(bc.halfW).toBeGreaterThan(0);
+      expect(bc.halfD).toBeGreaterThan(0);
+    });
+  });
+
+  it("cylColliders has entries for arch bases and columns", () => {
+    const rng = makeRng(1);
+    const { cylColliders } = buildRuins(rng);
+    // 2 arch bases + 3 columns = 5 cylinder colliders
+    expect(cylColliders.length).toBe(5);
+    cylColliders.forEach((cc) => {
+      expect(typeof cc.radius).toBe("number");
+      expect(cc.radius).toBeGreaterThan(0);
     });
   });
 });

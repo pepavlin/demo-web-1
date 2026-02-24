@@ -249,7 +249,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     // ── Pine / Conifer ──────────────────────────────────────────────────────
     const trunkH = 4.5 + rng() * 4.0;   // 4.5–8.5 — tall and narrow
     const trunkR = 0.11 + rng() * 0.08;
-    const isLarge = trunkH > 6.0;
+    const isLarge = trunkH > 5.0;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a2010 });
     const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.45, trunkR, trunkH, 7);
@@ -288,7 +288,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     // ── Oak / Deciduous ─────────────────────────────────────────────────────
     const trunkH = 2.8 + rng() * 2.5;   // 2.8–5.3
     const trunkR = 0.18 + rng() * 0.14; // 0.18–0.32
-    const isLarge = trunkH > 3.8;
+    const isLarge = trunkH > 3.2;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a2a10 });
     const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.65, trunkR * 1.1, trunkH, 8);
@@ -345,6 +345,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     // ── Birch ───────────────────────────────────────────────────────────────
     const trunkH = 3.2 + rng() * 2.5;   // 3.2–5.7  slender and tall
     const trunkR = 0.07 + rng() * 0.05; // slim trunk
+    const isLarge = trunkH > 4.5;
 
     // White/cream bark
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0xe0d8c8 });
@@ -392,12 +393,13 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       foliageGroup.add(blob);
     }
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: false };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
 
   } else {
     // ── Dead / Bare tree ────────────────────────────────────────────────────
     const trunkH = 3.0 + rng() * 3.5;
     const trunkR = 0.10 + rng() * 0.09;
+    const isLargeDead = trunkH > 4.5;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x252015 });
     const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.4, trunkR, trunkH, 6);
@@ -427,7 +429,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     }
     // Dead trees: no foliage — foliageGroup stays empty
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: false };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLargeDead };
   }
 }
 
@@ -492,16 +494,27 @@ export function buildBushMesh(rng: () => number): BushMeshResult {
 }
 
 // ─── Rock ─────────────────────────────────────────────────────────────────────
-export function buildRockMesh(rng: () => number): THREE.Mesh {
-  const geo = new THREE.DodecahedronGeometry(0.3 + rng() * 0.5, 0);
-  geo.scale(1 + rng() * 0.5, 0.6 + rng() * 0.5, 1 + rng() * 0.5);
+export interface RockMeshResult {
+  mesh: THREE.Mesh;
+  /** Maximum horizontal radius of this rock, for cylinder collision detection. */
+  collisionRadius: number;
+}
+
+export function buildRockMesh(rng: () => number): RockMeshResult {
+  const baseRadius = 0.3 + rng() * 0.5;
+  const scaleX = 1 + rng() * 0.5;
+  const scaleY = 0.6 + rng() * 0.5;
+  const scaleZ = 1 + rng() * 0.5;
+  const geo = new THREE.DodecahedronGeometry(baseRadius, 0);
+  geo.scale(scaleX, scaleY, scaleZ);
   const mat = new THREE.MeshLambertMaterial({
     color: new THREE.Color(0.45 + rng() * 0.1, 0.42 + rng() * 0.1, 0.4 + rng() * 0.1),
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return mesh;
+  const collisionRadius = baseRadius * Math.max(scaleX, scaleZ);
+  return { mesh, collisionRadius };
 }
 
 // ─── Coin ─────────────────────────────────────────────────────────────────────
@@ -624,10 +637,31 @@ export function buildHouse(rng: () => number): THREE.Group {
 }
 
 // ─── Ancient Ruins ────────────────────────────────────────────────────────────
-export function buildRuins(rng: () => number): THREE.Group {
+
+/** Local-space box collider (relative to ruins group origin). */
+export interface RuinsBoxCollider {
+  lx: number; lz: number;
+  halfW: number; halfD: number;
+  rotY: number;
+}
+/** Local-space cylinder collider (relative to ruins group origin). */
+export interface RuinsCylCollider {
+  lx: number; lz: number;
+  radius: number;
+}
+export interface RuinsResult {
+  group: THREE.Group;
+  boxColliders: RuinsBoxCollider[];
+  cylColliders: RuinsCylCollider[];
+}
+
+export function buildRuins(rng: () => number): RuinsResult {
   const group = new THREE.Group();
   const stoneMat = new THREE.MeshLambertMaterial({ color: 0x999088 });
   const darkStoneMat = new THREE.MeshLambertMaterial({ color: 0x6a6058 });
+
+  const boxColliders: RuinsBoxCollider[] = [];
+  const cylColliders: RuinsCylCollider[] = [];
 
   // Broken walls
   const w1H = 2.5 + rng() * 2;
@@ -636,6 +670,7 @@ export function buildRuins(rng: () => number): THREE.Group {
   w1.rotation.y = (rng() - 0.5) * 0.15;
   w1.castShadow = true;
   group.add(w1);
+  boxColliders.push({ lx: 0, lz: 0, halfW: 4, halfD: 0.35, rotY: w1.rotation.y });
 
   // Side wall (partial)
   const w2H = 1.8 + rng() * 1.5;
@@ -643,17 +678,20 @@ export function buildRuins(rng: () => number): THREE.Group {
   w2.position.set(4, w2H / 2, -3);
   w2.castShadow = true;
   group.add(w2);
+  boxColliders.push({ lx: 4, lz: -3, halfW: 0.35, halfD: 3, rotY: 0 });
 
   // Arch remnant
   const archBaseL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.8), darkStoneMat);
   archBaseL.position.set(-2, 1.75, 0.1);
   archBaseL.castShadow = true;
   group.add(archBaseL);
+  cylColliders.push({ lx: -2, lz: 0.1, radius: 0.6 });
 
   const archBaseR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.8), darkStoneMat);
   archBaseR.position.set(2, 1.75, 0.1);
   archBaseR.castShadow = true;
   group.add(archBaseR);
+  cylColliders.push({ lx: 2, lz: 0.1, radius: 0.6 });
 
   const archTop = new THREE.Mesh(new THREE.BoxGeometry(5, 0.8, 0.8), darkStoneMat);
   archTop.position.set(0, 3.9, 0.1);
@@ -665,10 +703,13 @@ export function buildRuins(rng: () => number): THREE.Group {
     const colH = 2 + rng() * 3;
     const colGeo = new THREE.CylinderGeometry(0.35, 0.4, colH, 8);
     const col = new THREE.Mesh(colGeo, stoneMat);
-    col.position.set(-6 + i * 3 + rng() * 0.5, colH / 2, 4 + (rng() - 0.5) * 2);
+    const colX = -6 + i * 3 + rng() * 0.5;
+    const colZ = 4 + (rng() - 0.5) * 2;
+    col.position.set(colX, colH / 2, colZ);
     col.rotation.z = (rng() - 0.5) * 0.12;
     col.castShadow = true;
     group.add(col);
+    cylColliders.push({ lx: colX, lz: colZ, radius: 0.5 });
     // Capital
     const capGeo = new THREE.BoxGeometry(0.9, 0.3, 0.9);
     const capMesh = new THREE.Mesh(capGeo, darkStoneMat);
@@ -692,7 +733,7 @@ export function buildRuins(rng: () => number): THREE.Group {
     group.add(debris);
   }
 
-  return group;
+  return { group, boxColliders, cylColliders };
 }
 
 // ─── Bullet ───────────────────────────────────────────────────────────────────
