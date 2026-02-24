@@ -641,11 +641,12 @@ export default function Game3D() {
       // Realistic grass: each blade uses a quadratic bezier curve baked into
       // vertex positions, 3 planes with random Y-rotation (120° apart) for
       // full volumetric appearance from all camera angles, true pointed tip,
-      // and 4 height bands for smooth curvature. Different cluster archetypes
-      // (short tuft / mixed meadow / tall reed) add habitat variety.
-      const GRASS_COUNT = 65000;
-      const BLADE_H_BASE = 0.72;
-      const BLADE_W_BASE = 0.092;
+      // and 9 height bands for ultra-smooth curvature. Different cluster archetypes
+      // (short tuft / mixed meadow / tall reed) add habitat variety. A 4th plane
+      // is added to tall blades for a richer silhouette from all camera angles.
+      const GRASS_COUNT = 70000;
+      const BLADE_H_BASE = 0.76;   // slightly taller for lush appearance
+      const BLADE_W_BASE = 0.086;  // narrower base for more realistic slender blades
       let gSeed = 7391;
       const gRng = () => {
         gSeed = (gSeed * 1664525 + 1013904223) & 0xffffffff;
@@ -666,12 +667,15 @@ export default function Game3D() {
       const gLeanDir: number[] = [];
       const gWindStr: number[] = [];
 
-      const CLUSTER_RADIUS = 0.60;
-      const BLADES_MIN = 4;
-      const BLADES_MAX = 9;
-      // Height band t-values: 5 bands give 4 regular quads + 1 tip triangle per plane
-      // Denser at the bottom for a more natural root/base curve
-      const H_LEVELS = [0, 0.18, 0.42, 0.70, 1.0];
+      const CLUSTER_RADIUS = 0.65;  // slightly bigger clusters for denser patches
+      const BLADES_MIN = 5;         // at least 5 blades per cluster
+      const BLADES_MAX = 11;        // up to 11 for dense tufts
+      // Height band t-values: 9 bands give 8 regular quads + 1 tip triangle per plane.
+      // Dense at base (short segments) for accurate root curvature, spaced wider
+      // toward tip where the bezier curve is more linear — maximises smoothness
+      // at the most visually prominent part (the bend). Extra bands add detail to
+      // the mid-blade curve which is where the natural drape is most visible.
+      const H_LEVELS = [0, 0.04, 0.11, 0.20, 0.31, 0.44, 0.58, 0.72, 0.85, 0.94, 1.0];
       let placed = 0;
       let tries = 0;
 
@@ -691,7 +695,10 @@ export default function Game3D() {
           BLADES_MIN + gRng() * (BLADES_MAX - BLADES_MIN + 1)
         );
         const clusterPhase = cx * 0.48 + cz * 0.73;
-        const pH = posHash(Math.floor(cx / 6), Math.floor(cz / 6));
+        // Larger grid cells (14 world units) → broader colour patches, more natural biome look
+        const pH = posHash(Math.floor(cx / 14), Math.floor(cz / 14));
+        // Secondary fine-grained hash for within-patch micro-variation
+        const pHFine = posHash(Math.floor(cx / 3.5), Math.floor(cz / 3.5));
 
         for (let b = 0; b < bladesInCluster && placed < GRASS_COUNT; b++) {
           const angle = gRng() * Math.PI * 2;
@@ -748,46 +755,52 @@ export default function Game3D() {
           const leanNZ = tiltZ / leanLen;
 
           // ── Colour: 6 archetypes with terrain-zone + patch-hash ──────────
+          // pH drives the dominant archetype across large 14u patches so you
+          // see coherent biome zones (meadow, dry hillside, lush valley).
+          // pHFine adds micro-variety within each patch so adjacent blades
+          // aren't identical — mimics real multi-species sward mixing.
           const colorRoll = gRng();
-          const lushBoost = isValley ? 0.15 : 0.0;
-          const dryBoost  = isHigh   ? 0.15 : 0.0;
+          const lushBoost = isValley ? 0.18 : 0.0;
+          const dryBoost  = isHigh   ? 0.18 : 0.0;
+          // Patch-level archetype bias: whole patches lean dry or lush
+          const patchBias = (pH - 0.5) * 0.16;
           let greenV: number, baseR: number, tipR: number, blueV: number;
-          if (colorRoll < 0.05 + dryBoost) {
-            // Straw / bleached dry
-            greenV = 0.38 + gRng() * 0.12 + pH * 0.06;
-            baseR  = 0.28 + gRng() * 0.10;
-            tipR   = 0.55 + gRng() * 0.14;
-            blueV  = 0.03;
-          } else if (colorRoll < 0.13 + dryBoost) {
-            // Autumn rust — reddish-orange tips
-            greenV = 0.32 + gRng() * 0.14 + pH * 0.04;
-            baseR  = 0.22 + gRng() * 0.08;
-            tipR   = 0.60 + gRng() * 0.16;
-            blueV  = 0.02;
-          } else if (colorRoll < 0.24 + dryBoost) {
-            // Yellowish / olive dry
-            greenV = 0.50 + gRng() * 0.13 + pH * 0.05;
+          if (colorRoll < 0.05 + dryBoost + patchBias) {
+            // Straw / bleached dry — completely sun-dried
+            greenV = 0.35 + gRng() * 0.12 + pHFine * 0.06;
+            baseR  = 0.30 + gRng() * 0.10;
+            tipR   = 0.58 + gRng() * 0.14;
+            blueV  = 0.02 + pHFine * 0.01;
+          } else if (colorRoll < 0.13 + dryBoost + patchBias) {
+            // Autumn rust — reddish-orange tips, warm dead-leaf base
+            greenV = 0.30 + gRng() * 0.14 + pHFine * 0.05;
+            baseR  = 0.24 + gRng() * 0.09;
+            tipR   = 0.62 + gRng() * 0.16;
+            blueV  = 0.01 + pHFine * 0.01;
+          } else if (colorRoll < 0.24 + dryBoost + patchBias) {
+            // Yellowish / olive — dry but still living
+            greenV = 0.50 + gRng() * 0.14 + pHFine * 0.06;
             baseR  = 0.18 + gRng() * 0.08;
-            tipR   = 0.38 + gRng() * 0.10;
-            blueV  = 0.04;
-          } else if (colorRoll < 0.55 + lushBoost) {
-            // Bright fresh green
-            greenV = 0.63 + gRng() * 0.16 + pH * 0.07;
-            baseR  = 0.06 + gRng() * 0.06;
-            tipR   = 0.15 + gRng() * 0.08;
-            blueV  = 0.04 + gRng() * 0.04;
-          } else if (colorRoll < 0.82 + lushBoost) {
-            // Lush dark green
-            greenV = 0.46 + gRng() * 0.12 + pH * 0.06;
-            baseR  = 0.05 + gRng() * 0.04;
-            tipR   = 0.13 + gRng() * 0.06;
-            blueV  = 0.05 + gRng() * 0.03;
-          } else {
-            // Blue-green — cool shaded/wet meadow
-            greenV = 0.52 + gRng() * 0.13 + pH * 0.05;
+            tipR   = 0.36 + gRng() * 0.12;
+            blueV  = 0.03 + pHFine * 0.02;
+          } else if (colorRoll < 0.55 + lushBoost - patchBias) {
+            // Bright fresh green — young vigorous growth
+            greenV = 0.65 + gRng() * 0.16 + pHFine * 0.07;
+            baseR  = 0.05 + gRng() * 0.06;
+            tipR   = 0.14 + gRng() * 0.09;
+            blueV  = 0.04 + gRng() * 0.04 + pHFine * 0.02;
+          } else if (colorRoll < 0.82 + lushBoost - patchBias) {
+            // Lush dark green — mature shaded grass
+            greenV = 0.46 + gRng() * 0.12 + pHFine * 0.06;
             baseR  = 0.04 + gRng() * 0.04;
-            tipR   = 0.10 + gRng() * 0.06;
-            blueV  = 0.14 + gRng() * 0.08;
+            tipR   = 0.12 + gRng() * 0.06;
+            blueV  = 0.06 + gRng() * 0.03 + pHFine * 0.02;
+          } else {
+            // Blue-green — cool shaded/wet meadow near water
+            greenV = 0.52 + gRng() * 0.13 + pHFine * 0.06;
+            baseR  = 0.03 + gRng() * 0.04;
+            tipR   = 0.09 + gRng() * 0.06;
+            blueV  = 0.16 + gRng() * 0.09 + pHFine * 0.03;
           }
 
           // ── Geometry: 3 planes at random Y-rotation (120° apart) ─────────
@@ -811,12 +824,14 @@ export default function Game3D() {
               const cx1 = 2 * (1 - t1) * t1 * bowX + t1 * t1 * tiltX;
               const cz1 = 2 * (1 - t1) * t1 * bowZ + t1 * t1 * tiltZ;
 
-              // Half-width: wide at base, tapers sharply near tip (power 0.65)
-              // Extra width at root for realistic thick-base appearance
-              const rootBoost = t0 < 0.2 ? (1.0 + (0.2 - t0) * 0.8) : 1.0;
-              const hw0 = (w / 2) * Math.pow(1 - t0, 0.65) * rootBoost;
-              const rootBoost1 = t1 < 0.2 ? (1.0 + (0.2 - t1) * 0.8) : 1.0;
-              const hw1 = (w / 2) * Math.pow(1 - t1, 0.65) * rootBoost1;
+              // Half-width: wide at base, tapers sharply toward tip.
+              // Power 0.58 gives a more concave taper (fast-then-slow) matching
+              // real grass blades that stay wide through mid-section then pinch at tip.
+              // Extra root boost (1.5× multiplier) creates thick realistic base.
+              const rootBoost = t0 < 0.22 ? (1.0 + (0.22 - t0) * 1.5) : 1.0;
+              const hw0 = (w / 2) * Math.pow(1 - t0, 0.58) * rootBoost;
+              const rootBoost1 = t1 < 0.22 ? (1.0 + (0.22 - t1) * 1.5) : 1.0;
+              const hw1 = (w / 2) * Math.pow(1 - t1, 0.58) * rootBoost1;
 
               // World-space vertex positions (perpendicular to plane direction)
               const lx0 = wx + cx0 - hw0 * ca, lz0 = wz + cz0 - hw0 * sa;
@@ -832,18 +847,24 @@ export default function Game3D() {
                 gWindPhase.push(phase);
                 gWindStr.push(windStr);
                 gLeanDir.push(leanNX, leanNZ);
-                // Root zone (hf < 0.18): dark soil-tinted, almost black-brown
-                // Mid blade: full green with slight AO variation
-                // Tip: lighter, slightly yellowed or bleached
-                const rootMask = Math.max(0, 1.0 - hf / 0.22); // 1 at root, 0 above
-                const tipMask  = Math.max(0, (hf - 0.65) / 0.35); // 0 below 0.65, 1 at tip
-                const midGreen = 0.25 + hf * 0.75; // ramp base→full green
-                const cr = baseR * (1.0 - rootMask * 0.7) + (tipR - baseR) * tipMask
-                          + rootMask * 0.04; // soil dark root
-                const cg = greenV * midGreen * (1.0 - rootMask * 0.85)
-                          + tipMask * greenV * 0.22; // tip brightens
-                // Base: dark/blue-shifted (cool ground shadow), tip: warmer, yellower
-                const cb = blueV * (1.0 - hf * 0.55) + hf * 0.04 + rootMask * 0.02;
+                // Root zone (hf < 0.20): very dark — soil moisture, deep AO, dead thatch.
+                //   The very base (hf < 0.05) goes almost black-brown matching real grass.
+                // Mid blade: full species color, slight brightening at mid height.
+                // Tip (hf > 0.68): lighter, yellowed, bleached by sun — chlorophyll breaks down.
+                const rootMask  = Math.max(0, 1.0 - hf / 0.20);          // 1 at root, 0 above 0.2
+                const deepRoot  = Math.max(0, 1.0 - hf / 0.06);           // strong only at soil line
+                const tipMask   = Math.max(0, (hf - 0.68) / 0.32);        // 0 below 0.68, 1 at tip
+                const midBright = Math.max(0, (hf - 0.30) * (1.0 - hf) * 2.8); // mid-blade highlight
+                const midGreen  = 0.22 + hf * 0.78;                       // ramp base→full green
+                // Red: suppressed at root (dark soil), rises at tip (dried tip)
+                const cr = baseR * (1.0 - rootMask * 0.72) + (tipR - baseR) * tipMask
+                          + rootMask * 0.03 + deepRoot * 0.02; // near-black soil tint
+                // Green: very dark at root (thatch/soil), full color mid-blade, tip fade
+                const cg = greenV * midGreen * (1.0 - rootMask * 0.88)
+                          + tipMask * greenV * 0.24    // tip bleach-yellow (losing green)
+                          + midBright * greenV * 0.08; // subtle mid-blade chlorophyll glow
+                // Blue: cool blue-grey at base (soil moisture + shade), warm at tip
+                const cb = blueV * (1.0 - hf * 0.60) + hf * 0.03 + rootMask * 0.015 + deepRoot * 0.01;
                 gColor.push(cr, cg, cb);
               };
 
@@ -865,10 +886,18 @@ export default function Game3D() {
             }
           };
 
-          // Three planes evenly spaced at 120° — full volumetric coverage
+          // Three planes spaced ~120° apart with slight asymmetric jitter —
+          // breaks the too-perfect star look and feels more organic.
+          // Tall blades (hScale > 1.25) get a 4th plane at ~90° offset so the
+          // silhouette looks full from all camera angles, not just head-on.
+          const planeJitter = (gRng() - 0.5) * 0.28;
           pushPlane(rotY);
-          pushPlane(rotY + Math.PI / 3 * 2);       // 120°
-          pushPlane(rotY + Math.PI / 3 * 4);        // 240°
+          pushPlane(rotY + Math.PI / 3 * 2 + planeJitter);
+          pushPlane(rotY + Math.PI / 3 * 4 - planeJitter * 0.5);
+          // 4th plane only for tall reeds/long grass — adds volumetric depth
+          if (hScale > 1.25) {
+            pushPlane(rotY + Math.PI / 2 + planeJitter * 0.3);
+          }
 
           placed++;
         }
@@ -912,11 +941,12 @@ export default function Game3D() {
             vec3 pos = position;
 
             // ── Wind: multi-layer physically-inspired model ──────────────────
-            // Power-4 curve: roots fully anchored, tip moves freely, with a
-            // non-linear mid-blade flex for a more realistic draping motion
+            // Power-5 curve: roots absolutely anchored, displacement increases
+            // steeply only above mid-blade — more realistic leaf drape physics.
             float hf2 = heightFactor * heightFactor;
-            float curve = hf2 * hf2;                      // power-4 for sharp root anchor
-            float curveMid = hf2 * (3.0 - 2.0 * heightFactor); // smooth-step flex
+            float hf3 = hf2 * heightFactor;
+            float curve    = hf2 * hf3;                         // power-5: very sharp root lock
+            float curveMid = hf2 * (3.0 - 2.0 * heightFactor); // smooth-step mid flex
 
             // Primary wave — gentle rhythmic sway along wind direction
             float windPrimary = sin(windPhase + time * 1.80) * 0.55
@@ -928,41 +958,74 @@ export default function Game3D() {
             float gustFront   = sin(time * 0.31 + windPhase * 0.035) * 0.68
                               + cos(time * 0.14 + windPhase * 0.018) * 0.36;
             // High-frequency tip flutter (leaf membrane vibration)
-            float windFlutter = sin(windPhase * 2.7 + time * 5.2) * 0.14
-                              + cos(windPhase * 1.9 + time * 6.8) * 0.09;
+            float windFlutter = sin(windPhase * 2.7 + time * 5.2) * 0.16
+                              + cos(windPhase * 1.9 + time * 6.8) * 0.10;
             // Micro-turbulence (air pocket churn)
-            float turbulence  = sin(windPhase * 6.1 + time * 8.4) * 0.06
+            float turbulence  = sin(windPhase * 6.1 + time * 8.4) * 0.07
                               + cos(windPhase * 4.3 + time * 10.7) * 0.04;
             // Gust impulse — sharp periodic surge (non-sinusoidal via squaring)
-            float gustImpulse = max(0.0, sin(time * 0.22 + windPhase * 0.008)) * 0.45;
-            gustImpulse *= gustImpulse; // sharpen the gust peak
+            float gustImpulse = max(0.0, sin(time * 0.22 + windPhase * 0.008)) * 0.50;
+            gustImpulse = gustImpulse * gustImpulse; // sharpen the gust peak
+
+            // ── Traveling gust wave (physically-correct spatial sweep) ───────
+            // Simulates a gust front that visibly moves across the field along
+            // the wind direction. Uses world-space XZ position so the phase is
+            // spatially coherent — blades near each other sway together.
+            float travelPhase = dot(position.xz, windDir) * 0.15 - time * 0.78;
+            float gustTravel  = pow(max(0.0, sin(travelPhase)), 1.3) * 0.85
+                              + pow(max(0.0, sin(travelPhase * 0.52 + 2.1)), 2.0) * 0.42;
+            // Second slower traveling wave for gentle background roll
+            float travelSlow  = sin(travelPhase * 0.38 - time * 0.18) * 0.32;
+
+            // ── Spatial wind intensity: calmer/gustier zones across the field ─
+            // Blades near each other share similar exposure — openings vs shelter.
+            float spatialGust = sin(position.x * 0.018 + time * 0.11) * 0.5 + 0.5
+                              + cos(position.z * 0.022 - time * 0.08) * 0.25;
+            spatialGust = 0.72 + spatialGust * 0.28; // range 0.72 – 1.0
 
             float totalWind = (windPrimary + windSecond * 0.6 + gustFront
-                              + windFlutter + turbulence + gustImpulse) * windStr;
+                              + windFlutter + turbulence + gustImpulse
+                              + gustTravel + travelSlow * 0.5) * windStr * spatialGust;
+
+            // ── Cross-wind: perpendicular oscillation for figure-8 motion ────
+            vec2 crossDir = vec2(-windDir.y, windDir.x);
+            float crossWind = sin(windPhase * 0.88 + time * 1.55) * 0.32
+                            + cos(windPhase * 0.59 + time * 2.20) * 0.18
+                            + sin(travelPhase * 0.71 + 1.4) * 0.20;
 
             // Wind displacement: main along wind dir, cross-component adds twist
             // curveMid: slight mid-blade pre-flex before the tip swings fully
-            float windMag = totalWind * curve * 0.20;
-            float preFlex = totalWind * curveMid * 0.05; // slight mid-blade bow
-            pos.x += (windMag + preFlex) * windDir.x + windMag * leanDir.x * 0.20;
-            pos.z += (windMag + preFlex) * windDir.y + windMag * leanDir.y * 0.20;
+            float windMag   = totalWind * curve * 0.22;
+            float preFlex   = totalWind * curveMid * 0.06; // slight mid-blade bow
+            float crossMag  = crossWind * curve * 0.24 * windStr;
+            pos.x += (windMag + preFlex) * windDir.x + windMag * leanDir.x * 0.22
+                   + crossMag * crossDir.x;
+            pos.z += (windMag + preFlex) * windDir.y + windMag * leanDir.y * 0.22
+                   + crossMag * crossDir.y;
             // Physical droop: blade compresses downward under wind load
-            pos.y -= abs(totalWind) * curve * 0.032 + abs(preFlex) * 0.012;
+            // More pronounced at the tip (power-5 curve) for realistic bending arc
+            pos.y -= abs(totalWind) * curve * 0.038 + abs(preFlex) * 0.014
+                   + abs(crossWind) * curve * 0.014 * windStr;
 
             // ── Lighting ────────────────────────────────────────────────────
-            // Layered AO: very dark near soil, brightens sharply through root zone
-            float ao = 0.14 + heightFactor * 0.86;
-            // Exponential contact shadow at very base (blades cluster, block light)
-            float contactShadow = smoothstep(0.0, 0.20, heightFactor);
-            ao *= 0.42 + 0.58 * contactShadow;
-            // Additional dark band right at the soil surface (root shadow)
-            ao *= 0.70 + 0.30 * smoothstep(0.0, 0.08, heightFactor);
+            // Three-layer AO: deepest at soil line, brightens steeply through
+            // root zone (thatch blocks light), smooth ramp into full exposure.
+            float ao = 0.10 + heightFactor * 0.90;
+            // Contact shadow: blades cluster densely near ground — strong occlusion
+            float contactShadow = smoothstep(0.0, 0.25, heightFactor);
+            ao *= 0.30 + 0.70 * contactShadow;
+            // Narrow dark band at soil surface (root moisture + thatch shadow)
+            ao *= 0.58 + 0.42 * smoothstep(0.0, 0.09, heightFactor);
+            // Deep root near-black (below 3 cm): dead thatch and soil
+            ao *= 0.65 + 0.35 * smoothstep(0.0, 0.04, heightFactor);
 
-            // Green bounce-light from ground (GI approximation, stronger in valley)
-            vec3 bounce = vec3(0.025, 0.075, 0.015) * (1.0 - heightFactor * 0.7) * 0.65;
+            // Green bounce-light from ground (GI approximation)
+            // Stronger at low heights; slight warm-green hue of live soil
+            vec3 bounce = vec3(0.018, 0.090, 0.010) * (1.0 - heightFactor * 0.72) * 0.85;
 
-            // Sun diffuse
-            float sunFace = max(0.0, sunDir.y) * 0.42 + 0.58;
+            // Sun diffuse — anisotropic wrap (blades are translucent, receive
+            // light from all directions with slight wrap-around term)
+            float sunFace = max(0.0, sunDir.y) * 0.35 + 0.65;
 
             // Time-of-day factors
             float goldenHour = smoothstep(0.18, 0.28, dayFraction)
@@ -972,33 +1035,41 @@ export default function Game3D() {
                                - smoothstep(0.25, 0.50, dayFraction)
                                * smoothstep(0.75, 0.50, dayFraction));
 
-            vec3 baseCol = grassColor * ao * sunFace * (sunIntensity * 0.88 + 0.12);
+            vec3 baseCol = grassColor * ao * sunFace * (sunIntensity * 0.86 + 0.14);
             baseCol += bounce;
 
-            // Tip brightening: thin edges catch glancing sunlight (specular-like)
-            float tipSpec = hf2 * heightFactor * 0.14 * sunIntensity;
-            baseCol += vec3(tipSpec * 0.30, tipSpec * 0.90, tipSpec * 0.18);
+            // Tip brightening: thin edges catch glancing sunlight (anisotropic)
+            // Stronger on taller blades; slight warm tint at tip
+            float tipSpec = hf3 * heightFactor * 0.20 * sunIntensity;
+            baseCol += vec3(tipSpec * 0.40, tipSpec * 0.94, tipSpec * 0.14);
 
             // Subsurface translucency: warm yellow-green glow at mid-blade
-            float sssVert = heightFactor * (1.0 - heightFactor) * 4.2 * 0.09 * sunIntensity;
-            baseCol += vec3(sssVert * 0.55, sssVert, sssVert * 0.08);
+            // Physically: sunlight transmits through thin chlorophyll-rich leaf membrane
+            float sssVert = heightFactor * (1.0 - heightFactor) * 5.0 * 0.12 * sunIntensity;
+            baseCol += vec3(sssVert * 0.55, sssVert * 1.10, sssVert * 0.05);
 
             // Fresnel-like rim brightening on blade edges at mid-to-upper height
-            float rimEdge = smoothstep(0.3, 0.8, heightFactor) * 0.05 * sunIntensity;
-            baseCol += vec3(rimEdge * 0.4, rimEdge, rimEdge * 0.2);
+            float rimEdge = smoothstep(0.28, 0.80, heightFactor) * 0.075 * sunIntensity;
+            baseCol += vec3(rimEdge * 0.32, rimEdge, rimEdge * 0.20);
+
+            // Specular glint: highlight on blade tips from direct sun (anisotropic approx)
+            float specGlint = pow(max(0.0, sunDir.y), 3.0)
+                            * pow(max(0.0, heightFactor), 7.0) * 0.11 * sunIntensity;
+            baseCol += vec3(specGlint * 0.82, specGlint, specGlint * 0.38);
 
             // Golden-hour warm shift
-            baseCol.r += goldenTint * heightFactor * 0.32 * sunIntensity;
-            baseCol.g += goldenTint * heightFactor * 0.14 * sunIntensity;
+            baseCol.r += goldenTint * heightFactor * 0.36 * sunIntensity;
+            baseCol.g += goldenTint * heightFactor * 0.16 * sunIntensity;
 
             // Night: cool, desaturated, slightly blue-purple
-            baseCol = mix(baseCol, vec3(0.06, 0.09, 0.16) * ao, nightFactor * 0.70);
-            // Moonlight silvery sheen
-            baseCol += vec3(0.04, 0.055, 0.09) * moonIntensity * (0.25 + heightFactor * 0.75);
+            baseCol = mix(baseCol, vec3(0.05, 0.08, 0.15) * ao, nightFactor * 0.72);
+            // Moonlight silvery sheen — slightly blue-white
+            baseCol += vec3(0.038, 0.052, 0.095) * moonIntensity * (0.20 + heightFactor * 0.80);
 
             vColor = baseCol;
             vHeightFactor = heightFactor;
-            vWindBend = abs(totalWind) * windStr * 0.15;
+            // Encode both longitudinal and cross-wind for richer hash variety in fragment
+            vWindBend = (abs(totalWind) + abs(crossWind) * 0.4) * windStr * 0.15;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
           }
         `,
@@ -1010,36 +1081,59 @@ export default function Game3D() {
           uniform float sunIntensity;
 
           void main() {
-            // Sharp alpha at the very tip for pointed blade silhouette
-            float tipFade = smoothstep(0.68, 1.0, vHeightFactor);
-            float alpha = 1.0 - tipFade * 0.90;
+            // Sharp alpha at the very tip for a convincing pointed silhouette.
+            // Narrowed upper range (0.98 vs 1.0) so tip doesn't fully disappear
+            // too early — keeps a visible point rather than a blunt end.
+            float tipFade = smoothstep(0.76, 0.98, vHeightFactor);
+            float alpha = 1.0 - tipFade * 0.94;
 
-            // Thin root mask: fade out the very base slightly (natural soil merge)
-            float rootFade = smoothstep(0.0, 0.04, vHeightFactor);
+            // Root fade: smooth soil-merge. Slightly wider (0.06) so blades
+            // aren't clipped too harshly at terrain intersections.
+            float rootFade = smoothstep(0.0, 0.06, vHeightFactor);
             alpha *= rootFade;
 
-            // Subsurface scattering: warm translucent glow when blade is backlit
-            // Also active at mid-blade where light transmits through the thin leaf
-            float sssBacklit = max(0.0, -sunDir.y + 0.25) * vHeightFactor * 0.35;
-            float sssMid = vHeightFactor * (1.0 - vHeightFactor) * 3.5 * 0.06;
+            // Subsurface scattering: warm translucent chlorophyll glow.
+            // sssBacklit: warm amber glow when blades are backlit (sun behind/below)
+            float sssBacklit = max(0.0, -sunDir.y + 0.35) * vHeightFactor * 0.62;
+            // sssMid: mid-blade internal glow — chlorophyll transmits strongly 530–580 nm
+            float sssMid = vHeightFactor * (1.0 - vHeightFactor) * 5.0 * 0.09;
             float sss = sssBacklit + sssMid * sunIntensity;
-            vec3 sssCol = vec3(sss * 1.15, sss * 0.90, sss * 0.08);
+            // Warm yellow-green SSS: slightly more amber (realistic chlorophyll colour)
+            vec3 sssCol = vec3(sss * 1.35, sss * 0.95, sss * 0.03);
 
-            // Sky rim light: bright sky picks out blade edges at the tip
-            // Stronger edge glow where blades are backlit by sun
-            float rimSky = pow(max(0.0, vHeightFactor), 3.0) * 0.08 * max(0.0, sunDir.y + 0.2);
-            // Additional warm rim from wind-bent blades catching sunlight
-            float rimWind = vWindBend * pow(max(0.0, vHeightFactor), 2.0) * 0.04 * sunIntensity;
-            vec3 col = vColor + sssCol
-                     + vec3(rimSky * 0.50, rimSky * 0.95, rimSky * 0.25)
-                     + vec3(rimWind * 0.60, rimWind * 1.0, rimWind * 0.20);
+            // Sky hemisphere light: blue sky contributes diffuse light to upper blade
+            float skyHemi = pow(max(0.0, vHeightFactor), 2.5) * 0.10 * max(0.0, sunDir.y + 0.3);
+            vec3 skyCol = vec3(skyHemi * 0.40, skyHemi * 0.88, skyHemi * 0.35);
+
+            // Wind-catch rim: blades bent by wind expose their edge to sunlight
+            float rimWind = vWindBend * pow(max(0.0, vHeightFactor), 2.2) * 0.055 * sunIntensity;
+
+            // Anisotropic surface highlight: thin leaf cuticle has directional gloss.
+            // The silky sheen is strongest on the upper half of sun-facing blades.
+            float gloss = smoothstep(0.42, 0.86, vHeightFactor)
+                        * pow(max(0.0, sunDir.y), 2.0)
+                        * sunIntensity * 0.07;
+            vec3 glossCol = vec3(gloss * 0.88, gloss, gloss * 0.52);
+
+            // Wet-dew micro specular: small bright sparkle at blade tips in sunlight.
+            // Two hash layers give different sparkle frequencies (near-tip vs mid).
+            float dewHash  = fract(vWindBend * 47.3 + vHeightFactor * 13.7);
+            float dewHash2 = fract(vWindBend * 29.1 + vHeightFactor * 37.4);
+            float dewSpec  = (step(0.962, dewHash) + step(0.978, dewHash2) * 0.5)
+                           * pow(max(0.0, vHeightFactor), 3.5)
+                           * max(0.0, sunDir.y) * sunIntensity * 0.22;
+            // Pure white sparkle with slight warm tint
+            vec3 dewCol = vec3(dewSpec * 0.96, dewSpec, dewSpec * 0.82);
+
+            vec3 col = vColor + sssCol + glossCol + dewCol + skyCol
+                     + vec3(rimWind * 0.52, rimWind * 1.0, rimWind * 0.20);
 
             gl_FragColor = vec4(col, alpha);
           }
         `,
         side: THREE.DoubleSide,
         transparent: true,
-        alphaTest: 0.04,
+        alphaTest: 0.05,  // slightly higher to clip tiny alpha fragments
         depthWrite: true,
       });
 
