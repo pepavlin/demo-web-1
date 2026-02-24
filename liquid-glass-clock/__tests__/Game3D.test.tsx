@@ -291,4 +291,40 @@ describe("Game3D component", () => {
     act(() => { jest.advanceTimersByTime(0); });
     expect(queryByText(/Opustit tělo/)).toBeNull();
   });
+
+  // ── Mouse hold auto-fire tests ────────────────────────────────────────────────
+
+  it("registers mouseup event listener on mount", () => {
+    const addSpy = jest.spyOn(document, "addEventListener");
+    render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const calls = addSpy.mock.calls.map(([event]) => event);
+    expect(calls).toContain("mouseup");
+    addSpy.mockRestore();
+  });
+
+  it("removes mouseup event listener on unmount", () => {
+    const removeSpy = jest.spyOn(document, "removeEventListener");
+    const { unmount } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    unmount();
+    const calls = removeSpy.mock.calls.map(([event]) => event);
+    expect(calls).toContain("mouseup");
+    removeSpy.mockRestore();
+  });
+
+  it("shows 'drž klik' hint in intro overlay for auto-fire", () => {
+    const { getAllByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const hints = getAllByText(/drž klik/i);
+    expect(hints.length).toBeGreaterThan(0);
+  });
+
+  it("shows 'Drž klik' attack hint in HUD controls bar", () => {
+    const { getAllByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // The HUD controls bar (shown when locked) has [F]/Drž klik
+    const hints = getAllByText(/\[F\]\/Drž klik/);
+    expect(hints.length).toBeGreaterThan(0);
+  });
 });

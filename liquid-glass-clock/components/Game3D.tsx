@@ -382,6 +382,7 @@ export default function Game3D() {
   const playerHpRef = useRef(PLAYER_MAX_HP);
   const playerAttackCooldownRef = useRef(0);
   const foxesDefeatedRef = useRef(0);
+  const isMouseHeldRef = useRef(false); // true while left mouse button is held down
 
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
   const bulletsRef = useRef<BulletData[]>([]);
@@ -1753,7 +1754,8 @@ export default function Game3D() {
             placeBlock(ghostMeshRef.current.position.clone());
           }
         } else if (buildModeRef.current === "explore") {
-          doAttack();
+          isMouseHeldRef.current = true; // start auto-fire loop
+          doAttack(); // fire immediately on first click
         }
         // sculpt mode: scroll wheel sculpts, left click does nothing extra
       } else if (e.button === 2 && buildModeRef.current !== "explore") {
@@ -1761,6 +1763,13 @@ export default function Game3D() {
       }
     };
     document.addEventListener("mousedown", onMouseDown);
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) {
+        isMouseHeldRef.current = false;
+      }
+    };
+    document.addEventListener("mouseup", onMouseUp);
 
     // Suppress context menu while pointer is locked (needed for right-click removal)
     const onContextMenu = (e: MouseEvent) => {
@@ -1872,6 +1881,7 @@ export default function Game3D() {
     const onLockChange = () => {
       const locked = document.pointerLockElement === mountRef.current;
       isLockedRef.current = locked;
+      if (!locked) isMouseHeldRef.current = false; // stop auto-fire when pointer lock is released
       setGameState((s) => ({ ...s, isLocked: locked }));
       if (locked) {
         setShowIntro(false);
@@ -2375,6 +2385,11 @@ export default function Game3D() {
       // ── Attack cooldown ────────────────────────────────────────────────────
       if (playerAttackCooldownRef.current > 0) {
         playerAttackCooldownRef.current = Math.max(0, playerAttackCooldownRef.current - dt);
+      }
+
+      // ── Auto-fire while left mouse button is held (explore mode only) ──────
+      if (isMouseHeldRef.current && buildModeRef.current === "explore") {
+        doAttack();
       }
 
       // ── Weapon sway & recoil animation ─────────────────────────────────────
@@ -2912,6 +2927,7 @@ export default function Game3D() {
       window.removeEventListener("keyup", onKey);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("pointerlockchange", onLockChange);
       window.removeEventListener("wheel", onWheel);
@@ -3380,7 +3396,7 @@ export default function Game3D() {
           >
             WASD – pohyb &nbsp;·&nbsp; Myš – pohled &nbsp;·&nbsp; Mezerník – skok &nbsp;·&nbsp;
             Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#f87171", opacity: 1 }}>[F]/Klik</span> – útok &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#f87171", opacity: 1 }}>[F]/Drž klik</span> – útok &nbsp;·&nbsp;{" "}
             <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
             <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
             <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
@@ -3548,7 +3564,7 @@ export default function Game3D() {
                 <div>🌅 Dynaminký <strong className="text-white">den/noc</strong></div>
                 <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
                 <div>🏚 Prozkoumej <strong className="text-white">ruiny</strong> a vesnici</div>
-                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo kliknutím</div>
+                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo drž klik</div>
                 <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
                 <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
                 <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
@@ -3576,7 +3592,7 @@ export default function Game3D() {
                 <span>💨 <strong className="text-gray-300">Shift</strong> – sprint</span>
               </div>
               <div className="flex gap-6 justify-center flex-wrap">
-                <span>⚔️ <strong className="text-gray-300">[F]/Klik</strong> – útok</span>
+                <span>⚔️ <strong className="text-gray-300">[F]/Drž klik</strong> – útok</span>
                 <span>🐑 <strong className="text-blue-300">[E]</strong> – vstoupit do ovce</span>
                 <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
                 <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
