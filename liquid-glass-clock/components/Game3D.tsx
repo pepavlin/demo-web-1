@@ -55,6 +55,7 @@ import {
   buildWeaponMesh,
   buildSwordMesh,
   buildSniperMesh,
+  buildBoatMesh,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
@@ -111,6 +112,11 @@ const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 // ─── Possession Constants ─────────────────────────────────────────────────────
 const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
 const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when possessed
+
+// ─── Boat Constants ───────────────────────────────────────────────────────────
+const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
+const BOAT_SPEED = 8;           // units/second when sailing
+const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
 
 // ─── Third-person Camera Constants ───────────────────────────────────────────
 const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
@@ -474,6 +480,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const nearestSheepForPossessRef = useRef<SheepData | null>(null);
   const highlightedSheepRef = useRef<SheepData | null>(null);
 
+  // ─── Boat Refs ───────────────────────────────────────────────────────────────
+  const boatRef = useRef<THREE.Group | null>(null);
+  const onBoatRef = useRef(false);
+  const nearBoatForBoardRef = useRef(false);
+
   // ─── Camera Mode Refs ────────────────────────────────────────────────────────
   const cameraModeRef = useRef<"first" | "third">("first");
   const [cameraMode, setCameraMode] = useState<"first" | "third">("first");
@@ -502,6 +513,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
   const [cameraMode, setCameraMode] = useState<'first' | 'third'>('first');
+  const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
+  const [onBoat, setOnBoat] = useState(false);
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -2236,6 +2249,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Cylinder collider for the lighthouse base (base radius 2.2)
     treeCollisionRef.current.push({ x: lhX, z: lhZ, radius: 2.2 + PLAYER_RADIUS });
 
+    // ── Boat (rowboat floating near the shore) ────────────────────────────────
+    // Scan outward from player spawn to find the nearest water tile deep enough
+    // for a boat to float, then place it just offshore.
+    let boatSpawnX = 0;
+    let boatSpawnZ = 0;
+    let boatFound = false;
+    for (let dist = 18; dist < 400 && !boatFound; dist += 6) {
+      for (let angleDeg = 0; angleDeg < 360 && !boatFound; angleDeg += 12) {
+        const a = (angleDeg * Math.PI) / 180;
+        const tx = Math.cos(a) * dist;
+        const tz = Math.sin(a) * dist;
+        if (getTerrainHeight(tx, tz) < WATER_LEVEL - 1.0) {
+          boatSpawnX = tx;
+          boatSpawnZ = tz;
+          boatFound = true;
+        }
+      }
+    }
+    const boat = buildBoatMesh();
+    boat.position.set(boatSpawnX, WATER_LEVEL + 0.5, boatSpawnZ);
+    scene.add(boat);
+    boatRef.current = boat;
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
@@ -2278,9 +2314,41 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         doAttack();
       }
 
-      // E key: possess / unpossess nearby sheep
+      // E key: board/exit boat, OR possess/unpossess nearby sheep
       if (e.type === "keydown" && e.code === "KeyE") {
-        if (possessedSheepRef.current) {
+        if (onBoatRef.current) {
+          // ── Exit boat: find nearest land to place the player ───────────────
+          const boat = boatRef.current;
+          if (boat && cameraRef.current) {
+            let landX = boat.position.x;
+            let landZ = boat.position.z;
+            let foundLand = false;
+            for (let d = 4; d < 40 && !foundLand; d += 2) {
+              for (let a = 0; a < Math.PI * 2 && !foundLand; a += 0.25) {
+                const tx = boat.position.x + Math.cos(a) * d;
+                const tz = boat.position.z + Math.sin(a) * d;
+                if (getTerrainHeightSampled(tx, tz) >= WATER_LEVEL) {
+                  landX = tx;
+                  landZ = tz;
+                  foundLand = true;
+                }
+              }
+            }
+            const landY = getTerrainHeightSampled(landX, landZ);
+            cameraRef.current.position.set(landX, landY + PLAYER_HEIGHT, landZ);
+            playerBodyPosRef.current.copy(cameraRef.current.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+          }
+          onBoatRef.current = false;
+          setOnBoat(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        } else if (nearBoatForBoardRef.current && !possessedSheepRef.current) {
+          // ── Board the boat ─────────────────────────────────────────────────
+          onBoatRef.current = true;
+          setOnBoat(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        } else if (possessedSheepRef.current) {
           // Exit possession — place player above the sheep's current position
           const sheep = possessedSheepRef.current;
           if (cameraRef.current) {
@@ -2751,8 +2819,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         lighthouseLightRef.current.intensity = 1.5 + nightFactor * 4.5;
       }
 
-      // ── Player movement (only when NOT possessing an entity) ───────────────
-      if (isLockedRef.current && !possessedSheepRef.current) {
+      // ── Player movement (only when NOT possessing an entity or on boat) ─────
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -2980,6 +3048,98 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           } else {
             waterAmbienceTimerRef.current = 0;
+          }
+        }
+      }
+
+      // ── Boat: bobbing, proximity prompt, and on-boat movement ────────────────
+      if (boatRef.current) {
+        const boat = boatRef.current;
+
+        if (!onBoatRef.current) {
+          // Gentle passive bobbing when nobody is on board
+          boat.position.y = WATER_LEVEL + 0.5 + 0.07 * Math.sin(elapsed * 1.3 + 0.5);
+          boat.rotation.x = 0.018 * Math.sin(elapsed * 1.1);
+          boat.rotation.z = 0.018 * Math.cos(elapsed * 0.9 + 1.0);
+
+          // Proximity check for boarding prompt
+          const playerPos2 = playerBodyPosRef.current;
+          const boatDx = boat.position.x - playerPos2.x;
+          const boatDz = boat.position.z - playerPos2.z;
+          const boatDist = Math.sqrt(boatDx * boatDx + boatDz * boatDz);
+          const isNear = boatDist < BOAT_BOARD_RADIUS && !possessedSheepRef.current;
+          nearBoatForBoardRef.current = isNear;
+          setNearBoatPrompt(isNear);
+        } else {
+          // ── On-boat movement ───────────────────────────────────────────────
+          nearBoatForBoardRef.current = false;
+          setNearBoatPrompt(false);
+
+          if (isLockedRef.current && cameraRef.current) {
+            const cam = cameraRef.current;
+            const keys = keysRef.current;
+
+            const fwd = new THREE.Vector3(
+              -Math.sin(yawRef.current), 0, -Math.cos(yawRef.current)
+            );
+            const right = new THREE.Vector3(
+              Math.cos(yawRef.current), 0, -Math.sin(yawRef.current)
+            );
+            const boatMove = new THREE.Vector3();
+
+            if (keys["KeyW"] || keys["ArrowUp"])    boatMove.addScaledVector(fwd, BOAT_SPEED * dt);
+            if (keys["KeyS"] || keys["ArrowDown"])  boatMove.addScaledVector(fwd, -BOAT_SPEED * dt);
+            if (keys["KeyA"] || keys["ArrowLeft"])  boatMove.addScaledVector(right, -BOAT_SPEED * dt);
+            if (keys["KeyD"] || keys["ArrowRight"]) boatMove.addScaledVector(right, BOAT_SPEED * dt);
+
+            const prevBoatX = boat.position.x;
+            const prevBoatZ = boat.position.z;
+
+            boat.position.x += boatMove.x;
+            boat.position.z += boatMove.z;
+
+            // World bounds
+            const half = WORLD_SIZE / 2 - 10;
+            boat.position.x = Math.max(-half, Math.min(half, boat.position.x));
+            boat.position.z = Math.max(-half, Math.min(half, boat.position.z));
+
+            // Boat must stay in water — revert if it would ground itself
+            if (getTerrainHeightSampled(boat.position.x, boat.position.z) >= WATER_LEVEL) {
+              boat.position.x = prevBoatX;
+              boat.position.z = prevBoatZ;
+            }
+
+            // Bobbing while occupied
+            boat.position.y = WATER_LEVEL + 0.5 + 0.06 * Math.sin(elapsed * 1.4);
+            boat.rotation.x = 0.015 * Math.sin(elapsed * 1.1);
+            boat.rotation.z = 0.015 * Math.cos(elapsed * 0.9);
+
+            // Turn boat to face movement direction (smooth)
+            if (boatMove.lengthSq() > 0.0001) {
+              const targetYaw = Math.atan2(boatMove.x, boatMove.z);
+              let diff = targetYaw - boat.rotation.y;
+              // Wrap to [-π, π]
+              while (diff > Math.PI)  diff -= 2 * Math.PI;
+              while (diff < -Math.PI) diff += 2 * Math.PI;
+              boat.rotation.y += diff * Math.min(1, dt * 4);
+            }
+
+            // Camera follows the boat at player eye-height
+            cam.position.set(boat.position.x, boat.position.y + BOAT_CAM_HEIGHT, boat.position.z);
+            playerBodyPosRef.current.copy(cam.position);
+
+            cam.rotation.order = "YXZ";
+            cam.rotation.y = yawRef.current;
+            cam.rotation.x = pitchRef.current;
+
+            // Broadcast position
+            sendUpdateRef.current?.({
+              x: playerBodyPosRef.current.x,
+              y: playerBodyPosRef.current.y,
+              z: playerBodyPosRef.current.z,
+              rotY: yawRef.current,
+              pitch: pitchRef.current,
+            });
           }
         }
       }
@@ -4133,8 +4293,44 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
+      {/* ═══════════════ CENTER — Boat boarding prompt ═══════════════ */}
+      {nearBoatPrompt && !onBoat && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(10,50,100,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(60,160,255,0.40)",
+              boxShadow: "0 0 20px rgba(30,120,255,0.35)",
+            }}
+          >
+            ⛵ [E] Nastoupit na loď
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — On-boat active banner ═══════════════ */}
+      {onBoat && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(10,40,80,0.90)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(60,160,255,0.30)",
+              boxShadow: "0 0 18px rgba(30,100,255,0.30)",
+            }}
+          >
+            ⛵ Na lodi &nbsp;·&nbsp; <span style={{ color: "#7dd3fc" }}>[E] Opustit loď</span>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER — Possession prompt ═══════════════ */}
-      {nearSheepPrompt && !isPossessed && gameState.isLocked && (
+      {nearSheepPrompt && !isPossessed && !onBoat && gameState.isLocked && (
         <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm animate-pulse"
