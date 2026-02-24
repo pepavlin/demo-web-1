@@ -2232,9 +2232,12 @@ export default function Game3D() {
           sheep.bleating = true;
           sheep.bleatTimer = 10 + Math.random() * 20;
           setTimeout(() => { sheep.bleating = false; }, 1500);
-          // Play bleat sound when sheep is close enough to hear
-          if (dist < 28) {
-            soundManager.playSheepBleat();
+          // Distance-based volume: 1.0 at the player, 0.0 at 28 units away.
+          // Multiple sheep can bleat simultaneously – each call creates independent audio nodes.
+          const BLEAT_RADIUS = 28;
+          if (dist < BLEAT_RADIUS) {
+            const bleatVolume = 1 - dist / BLEAT_RADIUS;
+            soundManager.playSheepBleat(bleatVolume);
           }
         }
 
