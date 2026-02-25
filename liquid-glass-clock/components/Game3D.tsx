@@ -1037,13 +1037,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     weaponMeshRef.current = weaponGroup;
     scene.add(camera); // camera must be in scene for its children to render
 
-    // ── Third-person player body mesh (visible only in 3rd-person mode) ───────
-    const playerBodyMesh = buildRemotePlayerMesh(0x4a9eff); // sky-blue avatar
-    playerBodyMesh.visible = false;
-    playerBodyMesh.castShadow = true;
-    scene.add(playerBodyMesh);
-    playerBodyMeshRef.current = playerBodyMesh;
-
     // Muzzle flash point light (parented to camera, at barrel tip)
     const muzzleFlash = new THREE.PointLight(0xffaa22, 0, 9);
     muzzleFlash.position.set(WEAPON_POS.x, WEAPON_POS.y + 0.01, WEAPON_POS.z - 0.25);
@@ -2529,6 +2522,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (playerBodyRef.current) {
           playerBodyRef.current.visible = newMode === "third";
         }
+        // Snap camera back to eye-level when returning to first-person
+        if (newMode === "first" && cameraRef.current) {
+          cameraRef.current.position.set(
+            playerBodyPosRef.current.x,
+            playerBodyPosRef.current.y + PLAYER_HEIGHT,
+            playerBodyPosRef.current.z
+          );
+        }
       }
 
       // B key — toggle build mode on/off
@@ -2555,24 +2556,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         document.exitPointerLock();
         setChatOpen(true);
         setTimeout(() => chatInputRef.current?.focus(), 50);
-      }
-
-      // V key — toggle first / third-person camera (not available during possession)
-      if (e.type === "keydown" && e.code === "KeyV" && !possessedSheepRef.current) {
-        const isThird = !thirdPersonRef.current;
-        thirdPersonRef.current = isThird;
-        setCameraMode(isThird ? 'third' : 'first');
-        if (weaponMeshRef.current) weaponMeshRef.current.visible = !isThird;
-        if (playerBodyMeshRef.current) playerBodyMeshRef.current.visible = isThird;
-        // When returning to first-person, snap camera back to the logical eye-level
-        // position so movement code starts from the correct player origin.
-        if (!isThird && cameraRef.current) {
-          cameraRef.current.position.set(
-            playerBodyPosRef.current.x,
-            playerBodyPosRef.current.y + PLAYER_HEIGHT,
-            playerBodyPosRef.current.z
-          );
-        }
       }
 
       // Digit keys 1–3 — select weapon in explore mode
