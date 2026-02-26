@@ -1296,10 +1296,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = new THREE.ShaderMaterial({
       uniforms: {
-        time:     { value: 0.0 },
-        sunDir:   { value: new THREE.Vector3(0, 1, 0) },
-        skyCol:   { value: new THREE.Color(0.45, 0.65, 0.90) },
-        sunColor: { value: new THREE.Color(1.0, 0.90, 0.75) },
+        time:         { value: 0.0 },
+        sunDir:       { value: new THREE.Vector3(0, 1, 0) },
+        skyCol:       { value: new THREE.Color(0.45, 0.65, 0.90) },
+        sunColor:     { value: new THREE.Color(1.0, 0.90, 0.75) },
+        sunIntensity: { value: 1.0 },
       },
       vertexShader: `
         uniform float time;
@@ -1370,6 +1371,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uniform vec3  sunDir;
         uniform vec3  skyCol;
         uniform vec3  sunColor;
+        uniform float sunIntensity;
         varying vec3  vWorldPos;
         varying vec3  vNormal;
         varying vec2  vUv;
@@ -1424,8 +1426,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           waterColor = mix(waterColor, reflColor, fresnel * 0.90);
 
           // ── Sub-surface scattering (turquoise light through wave crests) ───
+          // Gated by sunIntensity: SSS only occurs with actual sunlight, not at night.
           float sss = smoothstep(0.18, 0.80, vHeight * 1.5 + 0.28);
-          waterColor += vec3(0.0, 0.18, 0.26) * sss * 0.38;
+          waterColor += vec3(0.0, 0.18, 0.26) * sss * 0.38 * sunIntensity;
 
           // ── Specular: sharp sun glint + soft halo + animated micro-sparkle ─
           vec3  halfDir    = normalize(sunDir + viewDir);
@@ -1442,11 +1445,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           waterColor += sunColor * (specSharp + specSoft + sp3 + sp4);
 
           // ── Caustics (bright refracted-light lattice) ──────────────────────
+          // Gated by sunIntensity: caustics require direct sunlight to form.
           float c1 = sin(xz.x * 2.2 + time * 2.8) * sin(xz.y * 1.8 + time * 2.4);
           float c2 = sin(xz.x * 3.4 - time * 2.0) * sin(xz.y * 2.8 + time * 3.2);
           float c3 = sin(xz.x * 1.6 + xz.y * 1.4 + time * 1.7) * 0.5;
           float caustic = pow(max(mix(c1, c2 + c3, 0.4), 0.0), 6.0) * 0.18;
-          waterColor += vec3(0.60, 0.90, 1.0) * caustic * max(1.0 - fresnel, 0.15);
+          waterColor += vec3(0.60, 0.90, 1.0) * caustic * max(1.0 - fresnel, 0.15) * sunIntensity;
 
           // ── Foam at wave crests ────────────────────────────────────────────
           float foamNoise = 0.5 + 0.5 * sin(xz.x * 3.0 + time * 1.2) * sin(xz.y * 2.5 + time * 0.9);
@@ -1942,8 +1946,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             alpha *= rootFade;
 
             // Subsurface scattering: warm translucent chlorophyll glow.
-            // sssBacklit: warm amber glow when blades are backlit (sun behind/below)
-            float sssBacklit = max(0.0, -sunDir.y + 0.35) * vHeightFactor * 0.62;
+            // sssBacklit: warm amber glow when blades are backlit (sun near horizon).
+            // Gated by sunIntensity: no backlit glow when sun is below horizon at night.
+            float sssBacklit = max(0.0, -sunDir.y + 0.35) * vHeightFactor * 0.62 * sunIntensity;
             // sssMid: mid-blade internal glow — chlorophyll transmits strongly 530–580 nm
             float sssMid = vHeightFactor * (1.0 - vHeightFactor) * 5.0 * 0.09;
             float sss = sssBacklit + sssMid * sunIntensity;
@@ -2899,6 +2904,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Sun colour tints specular highlight (orange at golden hour, white at noon)
         const isGoldenHourWater = dayFraction < 0.32 || dayFraction > 0.68;
         const sunIntWater = getSunIntensity(dayFraction);
+        // Pass sunIntensity so the shader can gate SSS and caustics at night
+        waterMatRef.current.uniforms.sunIntensity.value = sunIntWater;
         if (sunIntWater > 0) {
           if (isGoldenHourWater) {
             waterMatRef.current.uniforms.sunColor.value.setRGB(1.0, 0.55, 0.12);
