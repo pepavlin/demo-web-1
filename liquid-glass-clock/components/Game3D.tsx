@@ -4156,7 +4156,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (canvas && cameraRef.current) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const W = 160;
+          const W = 53;
           const scale = W / WORLD_SIZE;
           const cx = W / 2;
           const cy = W / 2;
@@ -4219,20 +4219,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ctx.rotate(yawRef.current + Math.PI);
           ctx.fillStyle = "#00ff88";
           ctx.beginPath();
-          ctx.moveTo(0, -5);
-          ctx.lineTo(-3, 4);
-          ctx.lineTo(3, 4);
+          ctx.moveTo(0, -2);
+          ctx.lineTo(-1.5, 1.5);
+          ctx.lineTo(1.5, 1.5);
           ctx.closePath();
           ctx.fill();
           ctx.restore();
 
           // Compass labels
           ctx.fillStyle = "rgba(255,255,255,0.55)";
-          ctx.font = "bold 8px monospace";
-          ctx.fillText("N", 74, 9);
-          ctx.fillText("S", 74, W - 2);
-          ctx.fillText("W", 2, 83);
-          ctx.fillText("E", W - 8, 83);
+          ctx.font = "bold 5px monospace";
+          ctx.fillText("N", W / 2 - 2, 7);
+          ctx.fillText("S", W / 2 - 2, W - 1);
+          ctx.fillText("W", 1, W / 2 + 2);
+          ctx.fillText("E", W - 6, W / 2 + 2);
 
           // Border
           ctx.strokeStyle = "rgba(255,255,255,0.2)";
@@ -4574,13 +4574,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           {/* Minimap with glass frame */}
           <div
             style={{
-              borderRadius: 16,
+              borderRadius: 6,
               overflow: "hidden",
               border: "1px solid rgba(255,255,255,0.14)",
               boxShadow: "0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
             }}
           >
-            <canvas ref={minimapRef} width={160} height={160} />
+            <canvas ref={minimapRef} width={53} height={53} />
           </div>
 
           {/* Time + compass */}
