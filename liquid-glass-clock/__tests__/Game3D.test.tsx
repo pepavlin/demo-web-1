@@ -31,25 +31,7 @@ jest.mock("socket.io-client", () => ({
   })),
 }));
 
-// Mock EffectComposer and postprocessing passes (require WebGL context)
-const mockComposer = {
-  addPass: jest.fn(),
-  render: jest.fn(),
-  dispose: jest.fn(),
-  setSize: jest.fn(),
-};
-jest.mock("three/examples/jsm/postprocessing/EffectComposer.js", () => ({
-  EffectComposer: jest.fn().mockImplementation(() => mockComposer),
-}));
-jest.mock("three/examples/jsm/postprocessing/RenderPass.js", () => ({
-  RenderPass: jest.fn().mockImplementation(() => ({})),
-}));
-jest.mock("three/examples/jsm/postprocessing/UnrealBloomPass.js", () => ({
-  UnrealBloomPass: jest.fn().mockImplementation(() => ({})),
-}));
-jest.mock("three/examples/jsm/postprocessing/OutputPass.js", () => ({
-  OutputPass: jest.fn().mockImplementation(() => ({})),
-}));
+// Post-processing pipeline removed — no EffectComposer needed.
 
 // Minimal pointer lock mock
 Object.defineProperty(document, "pointerLockElement", {
@@ -199,36 +181,19 @@ describe("Game3D component", () => {
     expect(getByText(/maják/i)).toBeInTheDocument();
   });
 
-  it("initialises EffectComposer for volumetric bloom", async () => {
-    const { EffectComposer } = await import("three/examples/jsm/postprocessing/EffectComposer.js");
+  it("uses direct WebGL renderer without EffectComposer (optimised rendering)", () => {
+    // Post-processing pipeline removed for performance — direct renderer.render() is used.
+    const THREE = jest.requireMock("three");
     render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    expect(EffectComposer).toHaveBeenCalled();
+    // Renderer must be created
+    expect(THREE.WebGLRenderer).toHaveBeenCalled();
   });
 
-  it("attaches UnrealBloomPass to the composer for god-ray effect", async () => {
-    const { UnrealBloomPass } = await import("three/examples/jsm/postprocessing/UnrealBloomPass.js");
-    render(<Game3D />);
-    act(() => { jest.advanceTimersByTime(0); });
-    expect(UnrealBloomPass).toHaveBeenCalled();
-    // Verify the bloom pass was configured (addPass called with it)
-    expect(mockComposer.addPass).toHaveBeenCalled();
-  });
-
-  it("adds RenderPass and OutputPass to the postprocessing pipeline", async () => {
-    const { RenderPass } = await import("three/examples/jsm/postprocessing/RenderPass.js");
-    const { OutputPass } = await import("three/examples/jsm/postprocessing/OutputPass.js");
-    render(<Game3D />);
-    act(() => { jest.advanceTimersByTime(0); });
-    expect(RenderPass).toHaveBeenCalled();
-    expect(OutputPass).toHaveBeenCalled();
-  });
-
-  it("calls composer.dispose on unmount", () => {
+  it("unmounts without throwing (no composer to dispose)", () => {
     const { unmount } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    unmount();
-    expect(mockComposer.dispose).toHaveBeenCalled();
+    expect(() => unmount()).not.toThrow();
   });
 
   it("renders scene setup without throwing (no volumetric scattering pass)", () => {
@@ -237,13 +202,10 @@ describe("Game3D component", () => {
     act(() => { jest.advanceTimersByTime(0); });
   });
 
-  it("stores bloomPass reference for dynamic strength updates", async () => {
-    const { UnrealBloomPass } = await import("three/examples/jsm/postprocessing/UnrealBloomPass.js");
-    render(<Game3D />);
+  it("renders scene setup without crashing (no post-processing pipeline)", () => {
+    // Post-processing removed for performance — verify setup still completes correctly.
+    expect(() => render(<Game3D />)).not.toThrow();
     act(() => { jest.advanceTimersByTime(0); });
-    // Bloom pass must have been constructed and added to the composer
-    expect(UnrealBloomPass).toHaveBeenCalled();
-    expect(mockComposer.addPass).toHaveBeenCalled();
   });
 
   // ── Possession feature tests ──────────────────────────────────────────────────
