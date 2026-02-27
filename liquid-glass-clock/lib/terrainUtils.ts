@@ -1,7 +1,7 @@
 import { createNoise2D } from "simplex-noise";
 import * as THREE from "three";
 
-export const WORLD_SIZE = 800;
+export const WORLD_SIZE = 267;
 export const TERRAIN_SEGMENTS = 120;
 /** Terrain height below this value is considered water */
 export const WATER_LEVEL = -0.5;
@@ -45,9 +45,9 @@ export function initNoise(seed = 42) {
 
 export function getTerrainHeight(x: number, z: number): number {
   if (!noise2D) initNoise();
-  const scale1 = 0.003;
-  const scale2 = 0.01;
-  const scale3 = 0.04;
+  const scale1 = 0.009;
+  const scale2 = 0.03;
+  const scale3 = 0.12;
 
   const h1 = noise2D(x * scale1, z * scale1) * 30;
   const h2 = noise2D(x * scale2, z * scale2) * 10;
@@ -55,7 +55,7 @@ export function getTerrainHeight(x: number, z: number): number {
 
   // Flatten the center area (spawn zone)
   const distFromCenter = Math.sqrt(x * x + z * z);
-  const flattenFactor = Math.min(1, distFromCenter / 80);
+  const flattenFactor = Math.min(1, distFromCenter / 27);
 
   return (h1 + h2 + h3) * flattenFactor;
 }
