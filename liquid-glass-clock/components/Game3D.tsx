@@ -2,11 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import {
   getTerrainHeight,
   getTerrainHeightSampled,
@@ -200,162 +195,6 @@ function getAmbientIntensity(t: number): number {
   return 0.08 + smoothstep(0.18, 0.35, t) * 0.45;
 }
 
-// ─── Volumetric Scattering Shader (Screen-Space Crepuscular Rays) ─────────────
-// Based on NVIDIA GPU Gems 3 Ch.13 with the following physical improvements:
-//
-// 1. IGN JITTER (Jorge Jimenez, CoD:AW 2014): Per-pixel offset at ray start
-//    eliminates the repeating "stripe" banding caused by uniform step sizes.
-//
-// 2. FBM FOG DENSITY: Fractal Brownian Motion noise sampled along the march
-//    path simulates atmospheric density variation. Result: rays appear to
-//    penetrate through shifting fog patches — brighter where fog is dense
-//    (more scattering) and thinner where fog is sparse.
-//
-// 3. MIE PHASE FUNCTION (Henyey-Greenstein): Physical model for particle
-//    forward-scattering. Rays near the sun (forward scatter, g≈0.76) are
-//    significantly brighter, matching real crepuscular ray behaviour.
-//    Screen-space approximation: distance from pixel to sun UV position.
-//
-// 4. ANIMATED DRIFT: FBM coordinate offset shifts slowly over time so fog
-//    density variation evolves, giving rays a living, breathing quality.
-const VolumetricScatteringShader = {
-  uniforms: {
-    tDiffuse:      { value: null as THREE.Texture | null },
-    lightPosition: { value: new THREE.Vector2(0.5, 0.5) }, // sun UV [0..1]
-    exposure:      { value: 0.12 },   // subtle base brightness (much lower than before)
-    decay:         { value: 0.962 },  // slightly slower falloff for longer reach
-    density:       { value: 0.85 },   // march span toward the light
-    weight:        { value: 0.38 },   // per-sample weight
-    enabled:       { value: 1.0 },    // 0 = pass-through (night / sun below horizon)
-    time:          { value: 0.0 },    // elapsed time for animated fog drift
-    mieG:          { value: 0.76 },   // Henyey-Greenstein anisotropy (0.76 = realistic Mie)
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform vec2  lightPosition;
-    uniform float exposure;
-    uniform float decay;
-    uniform float density;
-    uniform float weight;
-    uniform float enabled;
-    uniform float time;
-    uniform float mieG;
-    varying vec2 vUv;
-
-    const int NUM_SAMPLES = 28;
-
-    // ── Interleaved Gradient Noise (Jorge Jimenez, 2014) ──────────────────────
-    // Produces a spatially-uniform noise pattern with no texture lookup.
-    // Applied once at ray start to offset the first sample, breaking up banding.
-    float gradientNoise(vec2 pos) {
-      return fract(52.9829189 * fract(dot(pos, vec2(0.06711056, 0.00583715))));
-    }
-
-    // ── 2-D value noise base function ─────────────────────────────────────────
-    float hash21(vec2 p) {
-      p = fract(p * vec2(127.1, 311.7));
-      return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
-    }
-    float valueNoise(vec2 p) {
-      vec2 i = floor(p);
-      vec2 f = fract(p);
-      f = f * f * (3.0 - 2.0 * f); // Hermite smoothing
-      return mix(
-        mix(hash21(i),              hash21(i + vec2(1.0, 0.0)), f.x),
-        mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x),
-        f.y
-      );
-    }
-
-    // ── 2-octave FBM fog density (animated) ───────────────────────────────────
-    // Reduced from 3 octaves to 2 for better performance.
-    float fogFBM(vec2 p) {
-      vec2 q = p + time * vec2(0.007, -0.004); // gentle wind drift
-      float f  = 0.600 * valueNoise(q * 2.8);
-      f       += 0.400 * valueNoise(q * 5.9 + vec2(5.2, 1.3));
-      return clamp(f, 0.0, 1.0);
-    }
-
-    // ── Henyey-Greenstein Mie phase function ──────────────────────────────────
-    // mu  = cos(scatter angle) = dot(viewDir, lightDir)
-    // g   = anisotropy factor  (0.76 → strong forward scattering, like water droplets)
-    // Returns scattering probability relative to isotropic (1/(4π)).
-    float miePhase(float mu) {
-      float g  = mieG;
-      float gg = g * g;
-      float denom = max(1.0 + gg - 2.0 * g * mu, 0.0001);
-      return (1.0 - gg) / (4.0 * 3.14159265 * pow(denom, 1.5));
-    }
-
-    void main() {
-      vec4 baseColor = texture2D(tDiffuse, vUv);
-
-      if (enabled < 0.5) {
-        gl_FragColor = baseColor;
-        return;
-      }
-
-      // Step vector: from current pixel toward the light source
-      vec2 texCoord     = vUv;
-      vec2 deltaTexCoord = (vUv - lightPosition) * (density / float(NUM_SAMPLES));
-
-      // ── IGN jitter: offset the first sample by a random fraction ──────────
-      // Every pixel gets a different starting offset, eliminating the repeating
-      // uniform stripes produced by fixed-step marching.
-      float jitter = gradientNoise(gl_FragCoord.xy);
-      texCoord -= deltaTexCoord * jitter;
-
-      // ── Mie phase weight ──────────────────────────────────────────────────
-      // Screen-space approximation: pixels near the sun disc (small dist)
-      // correspond to forward-scatter geometry → higher Mie contribution.
-      // Pixels far from the sun are side/back-scatter → lower contribution.
-      float distToLight = length(lightPosition - vUv);
-      // mu ranges from ~1.0 (at sun) to ~-0.5 (opposite side of screen)
-      float mu = clamp(1.0 - distToLight * 1.8, -1.0, 1.0);
-      float mieNorm    = miePhase(1.0); // peak value at mu=1 for normalisation
-      float mieFactor  = clamp(miePhase(mu) / mieNorm, 0.08, 2.5);
-
-      float illuminationDecay = 1.0;
-      vec4  accumulated       = vec4(0.0);
-
-      for (int i = 0; i < NUM_SAMPLES; i++) {
-        texCoord -= deltaTexCoord;
-        vec2 clampedCoord = clamp(texCoord, vec2(0.01), vec2(0.99));
-        vec4 samp = texture2D(tDiffuse, clampedCoord);
-
-        // ── Strict sun-disc threshold ───────────────────────────────────────
-        // Only HDR-bright pixels (the sun disc and its bloom glow) contribute.
-        // Normal sky, terrain, objects are excluded → produces thin shafts
-        // rather than uniform broad illumination.
-        float lum = dot(samp.rgb, vec3(0.299, 0.587, 0.114));
-        float sunContrib = smoothstep(0.74, 0.94, lum);
-
-        // ── FBM fog density modulation ──────────────────────────────────────
-        // Atmospheric fog patches scatter the light differently:
-        // dense fog → more scattering → ray appears locally brighter.
-        // thin/gap  → less scattering → ray fades naturally.
-        float fog     = fogFBM(texCoord * 1.8);
-        float scatter = mix(0.18, 1.0, fog); // minimum scatter even in thin fog
-
-        samp.rgb *= sunContrib * scatter;
-        samp.a   *= sunContrib;
-
-        accumulated += samp * (illuminationDecay * weight);
-        illuminationDecay *= decay;
-      }
-
-      // Additive blend: rays on top of scene with Mie directional weighting
-      gl_FragColor = baseColor + accumulated * exposure * mieFactor;
-    }
-  `,
-};
 
 // ─── Remote player mesh builder ───────────────────────────────────────────────
 function buildRemotePlayerMesh(color: number): THREE.Group {
@@ -428,12 +267,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const starsRef = useRef<THREE.Points | null>(null);
   const galaxyRef = useRef<THREE.Points | null>(null);
   const skyMeshRef = useRef<THREE.Mesh | null>(null);
-  // Volumetric lighting
-  const composerRef = useRef<EffectComposer | null>(null);
+  // Sun visuals
   const sunDiscRef = useRef<THREE.Mesh | null>(null);
   const sunCoronaRef = useRef<THREE.Mesh | null>(null);
-  const volScatterPassRef = useRef<ShaderPass | null>(null);
-  const bloomPassRef = useRef<UnrealBloomPass | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
   const waterMatRef = useRef<THREE.ShaderMaterial | null>(null);
@@ -979,22 +815,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
     mountNode.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // ── EffectComposer for volumetric bloom / god-ray effect ────────────────
-    const composer = new EffectComposer(renderer);
-
     // Scene
     const scene = new THREE.Scene();
-    // Exponential fog: more realistic atmospheric haze than linear fog.
-    // Density 0.0095 ≈ 50 % opacity at ~73 m — slightly denser than the old 0.007.
-    // The extra atmospheric haze makes volumetric light shafts look like they are
-    // genuinely penetrating through fog/mist rather than drawing on clear air.
-    scene.fog = new THREE.FogExp2(0x87ceeb, 0.0095);
+    // Light exponential fog for depth perception without heavy mist.
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.006);
     scene.background = new THREE.Color(0x87ceeb);
     sceneRef.current = scene;
 
@@ -1051,7 +881,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.4);
     sun.position.set(100, 150, 80);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(512, 512);
     sun.shadow.camera.near = 0.5;
     sun.shadow.camera.far = 700;
     sun.shadow.camera.left = -250;
@@ -1080,21 +910,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(skyMesh);
     skyMeshRef.current = skyMesh;
 
-    // ── Visible sun disc (emissive sphere on sky for volumetric bloom) ───────
-    const sunDiscGeo = new THREE.SphereGeometry(9, 24, 24);
+    // ── Visible sun disc ─────────────────────────────────────────────────────
+    const sunDiscGeo = new THREE.SphereGeometry(9, 16, 16);
     const sunDiscMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(2.0, 1.6, 1.0), // HDR value > 1 triggers bloom threshold
-      toneMapped: false,
+      color: new THREE.Color(1.0, 0.95, 0.8),
     });
     const sunDisc = new THREE.Mesh(sunDiscGeo, sunDiscMat);
     scene.add(sunDisc);
     sunDiscRef.current = sunDisc;
 
     // Corona halo — slightly larger, softer glow ring around sun disc
-    const coronaGeo = new THREE.SphereGeometry(20, 24, 24);
+    const coronaGeo = new THREE.SphereGeometry(20, 12, 12);
     const coronaMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(1.0, 0.75, 0.35),
-      toneMapped: false,
       transparent: true,
       opacity: 0.10,
       depthWrite: false,
@@ -1103,31 +931,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(sunCorona);
     sunCoronaRef.current = sunCorona;
 
-    // Finish composing render pipeline — needs scene + camera ready
-    // Pipeline: RenderPass → BloomPass → VolumetricScatteringPass → OutputPass
-    composer.addPass(new RenderPass(scene, camera));
-
-    // Bloom: amplifies the sun disc to near-white so it feeds the ray shader cleanly
-    const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      /* strength */ 0.60,
-      /* radius   */ 0.55,
-      /* threshold*/ 0.90   // only objects with luminance > 0.90 get bloomed
-    );
-    composer.addPass(bloomPass);
-    bloomPassRef.current = bloomPass;
-
-    // ── Screen-space volumetric scattering (crepuscular / god rays) ──────────
-    // Replaces the old 3-D cone shafts with a post-process shader that marches
-    // from each pixel toward the sun's UV position, accumulating only the bright
-    // sun disc+bloom contribution. Result: thin, fog-piercing shafts that look
-    // like sunlight scattering through haze — much more realistic than geometry.
-    const volScatterPass = new ShaderPass(VolumetricScatteringShader);
-    composer.addPass(volScatterPass);
-    volScatterPassRef.current = volScatterPass;
-
-    composer.addPass(new OutputPass());
-    composerRef.current = composer;
 
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
@@ -1291,8 +1094,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Water ───────────────────────────────────────────────────────────────
-    // Higher segment count gives smoother vertex-displaced waves
-    const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 256, 256);
+    // Reduced segment count for better performance while keeping smooth waves
+    const waterGeo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 64, 64);
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -1344,17 +1147,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           vec3 d = vec3(0.0);
           d += gerstnerWave(normalize(vec2( 1.0,  0.7)), 34.0, 0.26, 0.38, 0.50, 0.00, xz, dNx, dNz);
           d += gerstnerWave(normalize(vec2(-0.7,  1.0)), 26.0, 0.20, 0.35, 0.44, 1.70, xz, dNx, dNz);
-          d += gerstnerWave(normalize(vec2( 0.5, -0.9)), 20.0, 0.14, 0.40, 0.57, 3.00, xz, dNx, dNz);
           d += gerstnerWave(normalize(vec2(-0.9, -0.4)), 42.0, 0.28, 0.28, 0.35, 0.90, xz, dNx, dNz);
 
           // ── Secondary chop (faster, shorter cross-waves) ───────────────────
           d += gerstnerWave(normalize(vec2( 1.5,  0.6)),  9.0, 0.065, 0.55, 0.84, 2.30, xz, dNx, dNz);
           d += gerstnerWave(normalize(vec2(-0.5,  0.8)),  7.0, 0.050, 0.60, 1.04, 4.10, xz, dNx, dNz);
-          d += gerstnerWave(normalize(vec2( 0.9, -0.6)), 11.0, 0.070, 0.50, 0.77, 1.20, xz, dNx, dNz);
-
-          // ── Micro-chop (surface texture detail) ────────────────────────────
-          d += gerstnerWave(normalize(vec2(-1.2,  0.4)),  4.5, 0.022, 0.70, 1.34, 5.50, xz, dNx, dNz);
-          d += gerstnerWave(normalize(vec2( 0.6,  1.3)),  3.5, 0.018, 0.70, 1.64, 2.80, xz, dNx, dNz);
 
           pos.x   += d.x;
           pos.z   += d.z;
@@ -1381,24 +1178,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           vec3 viewDir = normalize(cameraPosition - vWorldPos);
           vec2 xz      = vWorldPos.xz;
 
-          // ── Multi-octave detail normals (4 layers of animated ripples) ─────
-          // Each layer scrolls at a different speed/direction for complex turbulence
+          // ── Detail normals (2 layers of animated ripples) ─────────────────
           vec2 uv1 = xz * 0.16 + vec2( time * 0.07,  time * 0.05);
           vec2 uv2 = xz * 0.34 + vec2(-time * 0.06,  time * 0.09);
-          vec2 uv3 = xz * 0.75 + vec2( time * 0.13, -time * 0.10);
-          vec2 uv4 = xz * 1.55 + vec2(-time * 0.16,  time * 0.12);
 
           float dn1x = cos(uv1.x * 2.0 + uv1.y * 0.4) * 0.070;
           float dn1z = cos(uv1.y * 2.0 - uv1.x * 0.4) * 0.070;
           float dn2x = cos(uv2.x * 2.0 + uv2.y * 0.6) * 0.048;
           float dn2z = cos(uv2.y * 2.0 + uv2.x * 0.6) * 0.048;
-          float dn3x = sin(uv3.x * 2.0 + uv3.y * 0.8) * 0.028;
-          float dn3z = sin(uv3.y * 2.0 - uv3.x * 0.8) * 0.028;
-          float dn4x = sin(uv4.x * 2.0) * 0.014;
-          float dn4z = sin(uv4.y * 2.0) * 0.014;
 
-          float dnX = dn1x + dn2x + dn3x + dn4x;
-          float dnZ = dn1z + dn2z + dn3z + dn4z;
+          float dnX = dn1x + dn2x;
+          float dnZ = dn1z + dn2z;
           vec3  n   = normalize(vNormal + vec3(-dnX, 0.0, -dnZ));
 
           // ── Schlick Fresnel ────────────────────────────────────────────────
@@ -1430,27 +1220,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           float sss = smoothstep(0.18, 0.80, vHeight * 1.5 + 0.28);
           waterColor += vec3(0.0, 0.18, 0.26) * sss * 0.38 * sunIntensity;
 
-          // ── Specular: sharp sun glint + soft halo + animated micro-sparkle ─
+          // ── Specular: sharp sun glint + soft halo ─────────────────────────
           vec3  halfDir    = normalize(sunDir + viewDir);
           float NdotH      = max(dot(n, halfDir), 0.0);
           float specSharp  = pow(NdotH, 512.0) * 7.0;
           float specSoft   = pow(NdotH,  48.0) * 0.32;
 
-          // Micro-sparkle from high-frequency detail normals catching the sun
-          vec3  n3 = normalize(vNormal + vec3(-dn3x * 3.0, 0.0, -dn3z * 3.0));
-          vec3  n4 = normalize(vNormal + vec3(-dn4x * 6.0, 0.0, -dn4z * 6.0));
-          float sp3 = pow(max(dot(n3, halfDir), 0.0), 320.0) * 2.5;
-          float sp4 = pow(max(dot(n4, halfDir), 0.0), 320.0) * 2.5;
-
-          waterColor += sunColor * (specSharp + specSoft + sp3 + sp4);
-
-          // ── Caustics (bright refracted-light lattice) ──────────────────────
-          // Gated by sunIntensity: caustics require direct sunlight to form.
-          float c1 = sin(xz.x * 2.2 + time * 2.8) * sin(xz.y * 1.8 + time * 2.4);
-          float c2 = sin(xz.x * 3.4 - time * 2.0) * sin(xz.y * 2.8 + time * 3.2);
-          float c3 = sin(xz.x * 1.6 + xz.y * 1.4 + time * 1.7) * 0.5;
-          float caustic = pow(max(mix(c1, c2 + c3, 0.4), 0.0), 6.0) * 0.18;
-          waterColor += vec3(0.60, 0.90, 1.0) * caustic * max(1.0 - fresnel, 0.15) * sunIntensity;
+          waterColor += sunColor * (specSharp + specSoft);
 
           // ── Foam at wave crests ────────────────────────────────────────────
           float foamNoise = 0.5 + 0.5 * sin(xz.x * 3.0 + time * 1.2) * sin(xz.y * 2.5 + time * 0.9);
@@ -1486,7 +1262,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // (short tuft / mixed meadow / tall reed) add habitat variety. A 4th plane
       // is added to tall blades for a richer silhouette from all camera angles.
       // Use a reduced count in test environments to keep memory within limits.
-      const GRASS_COUNT = process.env.NODE_ENV === "test" ? 2000 : 180000;
+      const GRASS_COUNT = process.env.NODE_ENV === "test" ? 2000 : 60000;
       const BLADE_H_BASE = 0.76;   // slightly taller for lush appearance
       const BLADE_W_BASE = 0.086;  // narrower base for more realistic slender blades
       let gSeed = 7391;
@@ -2761,60 +2537,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             // Pulse corona opacity subtly over time
             coronaMat.opacity = 0.07 + Math.sin(elapsed * 0.4) * 0.025;
           }
-        }
-      }
-
-      // ── Screen-space volumetric scattering uniforms ────────────────────────
-      // Project the sun disc's world position into screen UV space [0..1] and
-      // feed it to the ShaderPass every frame so the rays always track the sun.
-      if (volScatterPassRef.current && sunDiscRef.current && cameraRef.current) {
-        const cam    = cameraRef.current;
-        const sunInt = getSunIntensity(dayFraction);
-        // Grab the sun disc world position and project it to NDC then to UV
-        const sunNDC = sunDiscRef.current.position.clone().project(cam);
-
-        // UV coords: NDC [-1,1] → [0,1], Y is flipped (WebGL Y-up vs UV Y-down)
-        const sunUVx = (sunNDC.x + 1.0) * 0.5;
-        const sunUVy = (sunNDC.y + 1.0) * 0.5;
-
-        // The sun disc is visible when in front of camera (z < 1 in NDC) and daytime
-        const sunInView = sunNDC.z < 1.0 && sunInt > 0;
-
-        const uniforms = volScatterPassRef.current.material.uniforms;
-        uniforms.lightPosition.value.set(sunUVx, sunUVy);
-        uniforms.enabled.value = sunInView ? 1.0 : 0.0;
-        // Always update time so animated fog drift runs continuously
-        uniforms.time.value = elapsed;
-
-        if (sunInView) {
-          const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
-          // Golden hour: vivid warm rays; midday: subtle pale haze shafts
-          // Exposure kept low so rays feel like light through mist, not searchlights
-          uniforms.exposure.value = isGoldenHour
-            ? 0.18 * sunInt                // warm golden dawn/dusk shafts
-            : 0.09 * sunInt;               // pale diffuse midday haze
-          // Weight variation: slow sine gives gentle, breathing turbulence
-          uniforms.weight.value = 0.35 + Math.sin(elapsed * 0.14) * 0.04;
-          // Mie anisotropy: slightly stronger forward-scattering at golden hour
-          uniforms.mieG.value = isGoldenHour ? 0.80 : 0.76;
-        }
-      }
-
-      // ── Dynamic bloom strength (stronger at golden hour) ──────────────────
-      if (bloomPassRef.current) {
-        const bp = bloomPassRef.current as UnrealBloomPass;
-        const sunIntBloom = getSunIntensity(dayFraction);
-        const isGoldenHourBloom = dayFraction < 0.32 || dayFraction > 0.68;
-        if (isGoldenHourBloom && sunIntBloom > 0) {
-          bp.strength = 0.65;
-          bp.radius = 0.55;
-        } else if (sunIntBloom > 0) {
-          bp.strength = 0.45;
-          bp.radius = 0.4;
-        } else {
-          // Night: dim star glow only
-          bp.strength = 0.28;
-          bp.radius = 0.35;
         }
       }
 
@@ -4280,11 +4002,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setPlayerLabels([]);
       }
 
-      if (composerRef.current) {
-        composerRef.current.render();
-      } else {
-        renderer.render(scene, cameraRef.current!);
-      }
+      renderer.render(scene, cameraRef.current!);
     };
     // Store a reference so onLockChange can restart the loop after a pause
     restartAnimLoopRef.current = () => animate();
@@ -4296,7 +4014,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       cameraRef.current.aspect = window.innerWidth / window.innerHeight;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(window.innerWidth, window.innerHeight);
-      composerRef.current?.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -4324,8 +4041,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
       if (mpNotifTimerRef.current) clearTimeout(mpNotifTimerRef.current);
-      composerRef.current?.dispose();
-      composerRef.current = null;
       soundManager.destroy();
       renderer.dispose();
       if (mountNode) {
