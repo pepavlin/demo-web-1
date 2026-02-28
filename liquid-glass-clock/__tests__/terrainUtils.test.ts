@@ -219,6 +219,33 @@ describe("terrainUtils", () => {
       const pts = generateSpawnPoints(0, 20, 100, 1);
       expect(pts.length).toBe(0);
     });
+
+    it("never returns points outside world bounds even when maxDist exceeds world size", () => {
+      // maxDist of 380 used to push objects outside WORLD_SIZE=267 boundary (±133.5 units)
+      const pts = generateSpawnPoints(30, 10, 380, 42);
+      const halfWorld = WORLD_SIZE / 2;
+      pts.forEach((p) => {
+        expect(Math.abs(p.x)).toBeLessThanOrEqual(halfWorld);
+        expect(Math.abs(p.z)).toBeLessThanOrEqual(halfWorld);
+      });
+    });
+
+    it("never returns points outside world bounds for large radial maxDist values", () => {
+      // Simulates the original bush/coin/rock spawn calls that had maxDist > world half-size
+      const testCases = [
+        { count: 20, min: 20, max: 350, seed: 555 }, // coins
+        { count: 15, min: 8,  max: 340, seed: 7391 }, // bushes
+        { count: 10, min: 15, max: 380, seed: 456 }, // rocks
+      ];
+      const halfWorld = WORLD_SIZE / 2;
+      testCases.forEach(({ count, min, max, seed }) => {
+        const pts = generateSpawnPoints(count, min, max, seed);
+        pts.forEach((p) => {
+          expect(Math.abs(p.x)).toBeLessThanOrEqual(halfWorld);
+          expect(Math.abs(p.z)).toBeLessThanOrEqual(halfWorld);
+        });
+      });
+    });
   });
 
   describe("modifyTerrainHeight", () => {
