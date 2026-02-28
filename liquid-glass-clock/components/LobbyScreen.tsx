@@ -12,19 +12,32 @@ interface OnlinePlayer {
   color: number;
 }
 
+const STORAGE_KEY = "playerName";
+
 export default function LobbyScreen({ onJoin }: Props) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEY) ?? "";
+    }
+    return "";
+  });
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleJoin = useCallback(() => {
     const trimmed = name.trim();
-    onJoin(trimmed || "Hráč");
+    const finalName = trimmed || "Hráč";
+    localStorage.setItem(STORAGE_KEY, finalName);
+    onJoin(finalName);
   }, [name, onJoin]);
 
-  // Focus input on mount
+  // Focus input on mount and select all text so pre-filled name is easy to confirm or replace
   useEffect(() => {
-    inputRef.current?.focus();
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      input.select();
+    }
   }, []);
 
   // Poll online player list every 4 seconds
