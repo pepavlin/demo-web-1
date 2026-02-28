@@ -223,6 +223,10 @@ export function generateSpawnPoints(
     return (rng >>> 0) / 0xffffffff;
   };
 
+  // Keep objects at least this many units away from the world edge
+  const BOUNDARY_MARGIN = 8;
+  const halfWorld = WORLD_SIZE / 2 - BOUNDARY_MARGIN;
+
   let attempts = 0;
   while (points.length < count && attempts < count * 20) {
     attempts++;
@@ -230,6 +234,10 @@ export function generateSpawnPoints(
     const dist = minDist + rand() * (maxDist - minDist);
     const x = Math.cos(angle) * dist;
     const z = Math.sin(angle) * dist;
+
+    // Skip points outside the world square — they would float above the void
+    if (Math.abs(x) > halfWorld || Math.abs(z) > halfWorld) continue;
+
     const y = getTerrainHeight(x, z);
 
     // Don't spawn in water
