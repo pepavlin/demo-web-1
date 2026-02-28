@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import MotherShip from "./MotherShip";
 
 interface Props {
   onJoin: (name: string) => void;
@@ -83,38 +84,21 @@ export default function LobbyScreen({ onJoin }: Props) {
       className="fixed inset-0 flex items-center justify-center"
       style={{ background: "rgb(4, 9, 31)" }}
     >
-      {/* Animated stars background — deterministic pseudo-random based on index */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-        {Array.from({ length: 80 }, (_, i) => {
-          const r = (n: number) => (((i + n) * 1664525 + 1013904223) & 0x7fffffff) / 0x7fffffff;
-          return (
-          <div
-            key={i}
-            className="absolute rounded-full"
-            style={{
-              width: r(0) * 2 + 1,
-              height: r(37) * 2 + 1,
-              left: `${r(73) * 100}%`,
-              top: `${r(117) * 100}%`,
-              background: "white",
-              opacity: r(153) * 0.7 + 0.2,
-              animation: `pulse ${2 + r(199) * 4}s ease-in-out infinite`,
-              animationDelay: `${r(241) * 4}s`,
-            }}
-          />
-          );
-        })}
-      </div>
+      {/* District 9-style alien mothership filling the sky */}
+      <MotherShip />
 
-      {/* Main card */}
+      {/* Main card – elevated z-index above the mothership canvas */}
       <div
         className="relative rounded-2xl text-center text-white max-w-md w-full mx-4"
         style={{
+          position: "relative",
+          zIndex: 10,
           padding: "48px 40px 44px",
-          background: "rgba(8, 16, 36, 0.95)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 8px 64px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.06)",
-          backdropFilter: "blur(20px)",
+          background: "rgba(6, 12, 28, 0.92)",
+          border: "1px solid rgba(255,160,80,0.18)",
+          boxShadow:
+            "0 8px 64px rgba(0,0,0,0.9), 0 0 40px rgba(255,100,30,0.06), inset 0 1px 0 rgba(255,255,255,0.06)",
+          backdropFilter: "blur(24px)",
         }}
       >
         {/* Globe icon */}

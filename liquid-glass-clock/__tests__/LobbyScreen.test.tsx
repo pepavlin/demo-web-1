@@ -1,6 +1,17 @@
 /**
  * @jest-environment jsdom
  */
+
+// MotherShip uses Three.js WebGLRenderer which requires a real GPU context.
+// Replace it with a lightweight stub for lobby-focused tests.
+jest.mock("../components/MotherShip", () => {
+  const React = jest.requireActual("react");
+  const MockMotherShip = () =>
+    React.createElement("canvas", { "data-testid": "mothership-canvas" });
+  MockMotherShip.displayName = "MotherShip";
+  return { __esModule: true, default: MockMotherShip };
+});
+
 import React from "react";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
