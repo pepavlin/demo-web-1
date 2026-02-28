@@ -10,6 +10,10 @@ describe("terrainUtils", () => {
       expect(WORLD_SIZE).toBeGreaterThan(0);
     });
 
+    it("world size is 267 (3x smaller than original 800)", () => {
+      expect(WORLD_SIZE).toBe(267);
+    });
+
     it("exports terrain segments > 0", () => {
       expect(TERRAIN_SEGMENTS).toBeGreaterThan(0);
     });
