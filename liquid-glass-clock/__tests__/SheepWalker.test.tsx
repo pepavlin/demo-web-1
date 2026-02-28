@@ -187,4 +187,66 @@ describe("SheepWalker component", () => {
     expect(events).toContain("mouseup");
     removeSpy.mockRestore();
   });
+
+  // ── Dynamic animation tests ────────────────────────────────────────────────
+
+  it("renders four leg groups inside the SVG for diagonal gait", () => {
+    const { getByLabelText } = render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const svg = getByLabelText("Ovečka");
+    // b1, b2 (back), f1, f2 (front) — each wraps a rect + ellipse
+    const b1 = svg.querySelector(".sheep-leg-b1");
+    const b2 = svg.querySelector(".sheep-leg-b2");
+    const f1 = svg.querySelector(".sheep-leg-f1");
+    const f2 = svg.querySelector(".sheep-leg-f2");
+    expect(b1).not.toBeNull();
+    expect(b2).not.toBeNull();
+    expect(f1).not.toBeNull();
+    expect(f2).not.toBeNull();
+  });
+
+  it("RAF loop updates position without throwing over multiple frames", () => {
+    render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+
+    // Simulate several animation frames advancing time
+    expect(() => {
+      act(() => {
+        const now = performance.now();
+        if (lastRafCallback) lastRafCallback(now);
+        if (lastRafCallback) lastRafCallback(now + 16);
+        if (lastRafCallback) lastRafCallback(now + 32);
+      });
+    }).not.toThrow();
+  });
+
+  it("SVG has terrain-lean wrapper group for foot-planting effect", () => {
+    const { getByLabelText } = render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const svg = getByLabelText("Ovečka");
+    // The terrain-lean <g> has a transform attribute containing "rotate"
+    const groups = svg.querySelectorAll("g[transform]");
+    const leanGroup = Array.from(groups).find((g) =>
+      g.getAttribute("transform")?.includes("rotate")
+    );
+    expect(leanGroup).not.toBeUndefined();
+  });
+
+  it("tail wag group exists inside SVG", () => {
+    const { getByLabelText } = render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const svg = getByLabelText("Ovečka");
+    expect(svg.querySelector(".sheep-tail-wag")).not.toBeNull();
+  });
+
+  it("head animation group is rendered inside SVG", () => {
+    const { getByLabelText } = render(<SheepWalker />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const svg = getByLabelText("Ovečka");
+    // Either head-anim (walking) or head-graze should be present
+    const headGroup =
+      svg.querySelector(".sheep-head-anim") ||
+      svg.querySelector(".sheep-head-graze");
+    expect(headGroup).not.toBeNull();
+  });
 });

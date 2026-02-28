@@ -311,35 +311,51 @@ body {
 }
 
 /* ── Sheep running animations (used by Sheep.tsx) ─────────────────────────── */
+
+/*
+ * Running trot: asymmetric easing that creates a clear ground-push and
+ * airborne phase.  The leg spends 55 % of the cycle pushing back (stance)
+ * and 45 % swinging forward (flight).  A subtle rotational overshoot at the
+ * end of the swing gives the hoof a natural "snapping" ground contact.
+ */
 @keyframes sheep-leg-a {
-  0%   { transform: rotate(-22deg); }
-  45%  { transform: rotate(22deg);  }
-  100% { transform: rotate(-22deg); }
+  0%   { transform: rotate(-26deg); }           /* hoof back — pushing off  */
+  20%  { transform: rotate(-28deg); }           /* full push extension       */
+  55%  { transform: rotate(26deg) scaleY(0.96); } /* hoof forward — peak swing */
+  75%  { transform: rotate(24deg); }            /* settling for contact       */
+  100% { transform: rotate(-26deg); }           /* hoof back again            */
 }
 
 @keyframes sheep-leg-b {
-  0%   { transform: rotate(22deg);  }
-  45%  { transform: rotate(-22deg); }
-  100% { transform: rotate(22deg);  }
+  0%   { transform: rotate(26deg) scaleY(0.96); } /* hoof forward — peak swing */
+  25%  { transform: rotate(24deg); }              /* settling for contact       */
+  45%  { transform: rotate(-26deg); }             /* hoof back — pushing off    */
+  65%  { transform: rotate(-28deg); }             /* full push extension        */
+  100% { transform: rotate(26deg) scaleY(0.96); }
 }
 
 /* Applied to <g> elements wrapping each leg rect */
 .sheep-leg-a {
   transform-box: fill-box;
   transform-origin: 50% 0%;
-  animation: sheep-leg-a 0.42s ease-in-out infinite;
+  animation: sheep-leg-a 0.42s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 .sheep-leg-b {
   transform-box: fill-box;
   transform-origin: 50% 0%;
-  animation: sheep-leg-b 0.42s ease-in-out infinite;
+  animation: sheep-leg-b 0.42s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
-/* Bounce while trotting */
+/*
+ * Running bounce: slight stretch-squash so the body "lands" with impact.
+ * Body compresses on ground contact and stretches at peak of bound.
+ */
 @keyframes sheep-bounce {
-  0%, 100% { transform: translateY(0px);  }
-  50%       { transform: translateY(-4px); }
+  0%         { transform: translateY(0px)   scaleY(1)    scaleX(1);    }
+  15%        { transform: translateY(-6px)  scaleY(1.04) scaleX(0.97); } /* peak bound    */
+  40%        { transform: translateY(-2px)  scaleY(1.01) scaleX(0.99); }
+  55%, 100%  { transform: translateY(0px)   scaleY(0.97) scaleX(1.02); } /* ground impact */
 }
 
 .sheep-running-bounce {
@@ -349,34 +365,48 @@ body {
 /* ── Sheep walking animation (used by SheepWalker.tsx) ──────────────────── */
 
 /*
- * Natural quadruped walk: asymmetric timing — the leg spends more time on the
- * ground (stance phase) than in the air (swing phase).  The forward reach peak
- * at ~30 % of the cycle and the backward push trails until ~75 %.
+ * Natural quadruped walk with terrain-contact emphasis.
+ *
+ * Phase A (sheep-walk-a):
+ *   0 %  — hoof just placed on ground, leg angled forward
+ *   10 % — leg vertical (weight on foot, ground-contact peak)
+ *   55 % — leg sweeps back to push-off position
+ *   75 % — beginning of swing phase (leg starting to come forward)
+ *   100% — hoof placed again
+ *
+ * The brief pause near 10 % mimics the "dwell" period in a real walk where
+ * the foot is planted and bearing weight.  This makes the foot look glued to
+ * the ground rather than continuously swinging.
  */
 @keyframes sheep-walk-a {
-  0%   { transform: rotate(24deg); }
-  30%  { transform: rotate(-19deg); }
-  75%  { transform: rotate(-10deg); }
-  100% { transform: rotate(24deg); }
+  0%   { transform: rotate(26deg);  }            /* foot forward, touching ground */
+  10%  { transform: rotate(14deg);  }            /* weight on foot, leg near vert */
+  52%  { transform: rotate(-22deg); }            /* push-off: leg swept back       */
+  70%  { transform: rotate(-18deg); }            /* swing phase starts             */
+  100% { transform: rotate(26deg);  }            /* foot forward again             */
 }
 
 @keyframes sheep-walk-b {
-  0%   { transform: rotate(-19deg); }
-  30%  { transform: rotate(24deg);  }
-  75%  { transform: rotate(10deg);  }
-  100% { transform: rotate(-19deg); }
+  0%   { transform: rotate(-22deg); }            /* push-off: leg swept back       */
+  18%  { transform: rotate(-18deg); }            /* swing phase starts             */
+  52%  { transform: rotate(26deg);  }            /* foot forward, touching ground  */
+  62%  { transform: rotate(14deg);  }            /* weight on foot                 */
+  100% { transform: rotate(-22deg); }
 }
 
 /*
- * Body bounce: two gentle lifts per stride — once when each diagonal pair
- * lifts off.  A tiny roll is folded in so the body rocks side-to-side.
+ * Body bounce: two weight-bearing dips per stride + subtle lateral roll.
+ * The body dips DOWN when a diagonal pair contacts the ground (not up),
+ * then rises slightly during the swing phase — mimics real quadruped gait.
  */
 @keyframes sheep-body-bounce {
-  0%   { transform: translateY(0px)   rotate(0.4deg);  }
-  22%  { transform: translateY(-3px)  rotate(-0.6deg); }
-  50%  { transform: translateY(0px)   rotate(0.4deg);  }
-  72%  { transform: translateY(-3px)  rotate(0.6deg);  }
-  100% { transform: translateY(0px)   rotate(0.4deg);  }
+  0%   { transform: translateY(0px)  rotate(0.5deg)  translateX(0px);   }
+  12%  { transform: translateY(2px)  rotate(-1.0deg) translateX(-1.5px); } /* L pair strikes  */
+  25%  { transform: translateY(-2px) rotate(-0.3deg) translateX(-0.5px); } /* float phase      */
+  50%  { transform: translateY(0px)  rotate(0.5deg)  translateX(0px);   }
+  62%  { transform: translateY(2px)  rotate(1.0deg)  translateX(1.5px);  } /* R pair strikes  */
+  75%  { transform: translateY(-2px) rotate(0.3deg)  translateX(0.5px);  } /* float phase      */
+  100% { transform: translateY(0px)  rotate(0.5deg)  translateX(0px);   }
 }
 
 /*
@@ -412,7 +442,10 @@ body {
   70%        { transform: translateY(-1px) rotate(0.4deg);  }
 }
 
-/* Common leg setup — pivot from top-center of the leg's own bounding box */
+/*
+ * Common leg setup — pivot from top-center of the leg's own bounding box
+ * so rotation simulates rotation from the hip joint.
+ */
 .sheep-leg-b1,
 .sheep-leg-b2,
 .sheep-leg-f1,
@@ -425,12 +458,16 @@ body {
  * Diagonal gait pairing:
  *   back-left  (b1) + front-right (f2) → phase A
  *   back-right (b2) + front-left  (f1) → phase B  (180° offset)
- * Cycle duration: 0.90 s — slow, peaceful walk.
+ *
+ * Cycle duration defaults to 0.90 s (slow walk).  The JS animation loop
+ * overrides animationDuration via inline style to match actual speed.
+ *
+ * Easing: cubic-bezier with a slight hold at foot-strike for planted feel.
  */
-.sheep-leg-b1 { animation: sheep-walk-a 0.90s ease-in-out infinite; }
-.sheep-leg-b2 { animation: sheep-walk-b 0.90s ease-in-out infinite; }
-.sheep-leg-f1 { animation: sheep-walk-b 0.90s ease-in-out infinite; }
-.sheep-leg-f2 { animation: sheep-walk-a 0.90s ease-in-out infinite; }
+.sheep-leg-b1 { animation: sheep-walk-a 0.90s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.sheep-leg-b2 { animation: sheep-walk-b 0.90s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.sheep-leg-f1 { animation: sheep-walk-b 0.90s cubic-bezier(0.4, 0, 0.6, 1) infinite; animation-delay: -0.05s; }
+.sheep-leg-f2 { animation: sheep-walk-a 0.90s cubic-bezier(0.4, 0, 0.6, 1) infinite; animation-delay: -0.05s; }
 
 /* Body bob wrapper */
 .sheep-body-bob {

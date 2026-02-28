@@ -14,6 +14,13 @@ const MIN_BLEAT_DELAY = 8000; // ms
 const MAX_BLEAT_DELAY = 22000; // ms
 const CORNER_TURN_PROB = 0.5;
 
+// Leg-cycle animation durations (seconds)
+const ANIM_DUR_WALK = 0.42; // normal trot
+const ANIM_DUR_FLEE = 0.22; // full-speed sprint
+// Terrain-lean (degrees) when on vertical screen edges
+const LEAN_SIDE_WALL = 4;
+const LEAN_SPEED_FWD = 7;
+
 type Side = "bottom" | "right" | "top" | "left";
 const SIDES: Side[] = ["bottom", "right", "top", "left"];
 
@@ -53,8 +60,37 @@ function dirTowardMouse(
 function nextSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 1) % 4]; }
 function prevSide(s: Side): Side { return SIDES[(SIDES.indexOf(s) + 3) % 4]; }
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/**
+ * Compute terrain-lean angle (degrees).  Applied on the body before the
+ * container rotation so it is always relative to direction-of-travel.
+ *  - Side walls: lean into surface so feet look planted.
+ *  - Speed: extra forward pitch when sprinting.
+ */
+function computeTargetLean(side: Side, dir: 1 | -1, normalizedSpeed: number): number {
+  const wallLean  = (side === "right" || side === "left") ? LEAN_SIDE_WALL * dir : 0;
+  const speedLean = -normalizedSpeed * LEAN_SPEED_FWD;
+  return wallLean + speedLean;
+}
+
+function speedToAnimDuration(speed: number): number {
+  const t = Math.min(speed / FLEE_SPEED, 1);
+  return ANIM_DUR_WALK - t * t * (ANIM_DUR_WALK - ANIM_DUR_FLEE);
+}
+
 // ── SVG with subtle 3-D depth using gradient fills ────────────────────────────
-function SheepSVG({ running }: { running: boolean }) {
+interface SheepSVGProps {
+  running: boolean;
+  /** Duration (s) for one leg-swing cycle */
+  animDuration: number;
+  /** Body lean in degrees (terrain adaptation) */
+  bodyLean: number;
+}
+
+function SheepSVG({ running, animDuration, bodyLean }: SheepSVGProps) {
   const legA = running ? "sheep-leg-a" : "";
   const legB = running ? "sheep-leg-b" : "";
 
@@ -100,52 +136,70 @@ function SheepSVG({ running }: { running: boolean }) {
       {/* Drop shadow beneath sheep (ground contact) */}
       <ellipse cx="45" cy="88" rx="36" ry="4" fill="rgba(0,0,0,0.25)" style={{ filter: "blur(3px)" }} />
 
-      {/* Back legs */}
-      <g className={legB}>
-        <rect x="52" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
-        {/* Hoof */}
-        <rect x="51" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
-      </g>
-      <g className={legA}>
-        <rect x="64" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
-        <rect x="63" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
-      </g>
+      {/*
+        * Terrain-lean wrapper: pivots from foot-level centre so the lean
+        * keeps the hooves visually planted on the surface.
+        */}
+      <g transform={`translate(45 82) rotate(${bodyLean}) translate(-45 -82)`}>
+        {/* Back legs */}
+        <g
+          className={legB}
+          style={running ? { animationDuration: `${animDuration}s` } : undefined}
+        >
+          <rect x="52" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+          {/* Hoof */}
+          <rect x="51" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
+        </g>
+        <g
+          className={legA}
+          style={running ? { animationDuration: `${animDuration}s` } : undefined}
+        >
+          <rect x="64" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+          <rect x="63" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
+        </g>
 
-      {/* Wool body — base with 3-D gradient */}
-      <ellipse cx="45" cy="48" rx="35" ry="22" fill="url(#woolGrad)" />
-      <circle cx="22" cy="35" r="16" fill="url(#woolGrad)" />
-      <circle cx="36" cy="27" r="18" fill="url(#woolGrad)" />
-      <circle cx="53" cy="25" r="18" fill="url(#woolGrad)" />
-      <circle cx="68" cy="31" r="15" fill="url(#woolGrad)" />
+        {/* Wool body — base with 3-D gradient */}
+        <ellipse cx="45" cy="48" rx="35" ry="22" fill="url(#woolGrad)" />
+        <circle cx="22" cy="35" r="16" fill="url(#woolGrad)" />
+        <circle cx="36" cy="27" r="18" fill="url(#woolGrad)" />
+        <circle cx="53" cy="25" r="18" fill="url(#woolGrad)" />
+        <circle cx="68" cy="31" r="15" fill="url(#woolGrad)" />
 
-      {/* Wool specular highlight */}
-      <ellipse cx="35" cy="28" rx="30" ry="18" fill="url(#woolHighlight)" />
+        {/* Wool specular highlight */}
+        <ellipse cx="35" cy="28" rx="30" ry="18" fill="url(#woolHighlight)" />
 
-      {/* Head */}
-      <ellipse cx="81" cy="43" rx="13" ry="12" fill="url(#headGrad)" />
+        {/* Head */}
+        <ellipse cx="81" cy="43" rx="13" ry="12" fill="url(#headGrad)" />
 
-      {/* Eye white */}
-      <circle cx="85" cy="39" r="2.8" fill="white" />
-      {/* Pupil */}
-      <circle cx="85.5" cy="39" r="1.4" fill="#0a0a0a" />
-      {/* Eye highlight */}
-      <circle cx="84.8" cy="38.4" r="0.6" fill="rgba(255,255,255,0.9)" />
+        {/* Eye white */}
+        <circle cx="85" cy="39" r="2.8" fill="white" />
+        {/* Pupil */}
+        <circle cx="85.5" cy="39" r="1.4" fill="#0a0a0a" />
+        {/* Eye highlight */}
+        <circle cx="84.8" cy="38.4" r="0.6" fill="rgba(255,255,255,0.9)" />
 
-      {/* Ear */}
-      <ellipse cx="75" cy="32" rx="5" ry="3" fill="url(#earGrad)" transform="rotate(-15 75 32)" />
+        {/* Ear */}
+        <ellipse cx="75" cy="32" rx="5" ry="3" fill="url(#earGrad)" transform="rotate(-15 75 32)" />
 
-      {/* Nostrils */}
-      <circle cx="86" cy="48" r="1.2" fill="#555" />
-      <circle cx="89" cy="47" r="1.2" fill="#555" />
+        {/* Nostrils */}
+        <circle cx="86" cy="48" r="1.2" fill="#555" />
+        <circle cx="89" cy="47" r="1.2" fill="#555" />
 
-      {/* Front legs */}
-      <g className={legA}>
-        <rect x="18" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
-        <rect x="17" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
-      </g>
-      <g className={legB}>
-        <rect x="30" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
-        <rect x="29" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
+        {/* Front legs */}
+        <g
+          className={legA}
+          style={running ? { animationDuration: `${animDuration}s` } : undefined}
+        >
+          <rect x="18" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+          <rect x="17" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
+        </g>
+        <g
+          className={legB}
+          style={running ? { animationDuration: `${animDuration}s` } : undefined}
+        >
+          <rect x="30" y="60" width="8" height="26" rx="4" fill="url(#legGrad)" />
+          <rect x="29" y="82" width="10" height="5" rx="2.5" fill="#0d0d0d" />
+        </g>
       </g>
     </svg>
   );
@@ -161,8 +215,12 @@ export default function Sheep() {
     transform: string;
   }>({ left: -SHEEP_W - 20, top: 0, transform: "none" });
 
-  /* Extra 3-D tilt state: slight perspective lean driven by speed/direction */
+  /** Smoothed 3-D perspective lean driven by speed/direction */
   const [tilt3d, setTilt3d] = useState(0);
+  /** Dynamic leg animation duration */
+  const [animDuration, setAnimDuration] = useState(ANIM_DUR_WALK);
+  /** Terrain-lean angle for foot-planting effect */
+  const [bodyLean, setBodyLean] = useState(0);
 
   const sideRef     = useRef<Side>("bottom");
   const progressRef = useRef<number>(-SHEEP_W - 20);
@@ -173,6 +231,10 @@ export default function Sheep() {
   const mouseRef    = useRef<{ x: number; y: number } | null>(null);
   const isClickingRef = useRef(false);
   const prevProgressRef = useRef<number>(-SHEEP_W - 20);
+
+  // Smoothed state kept in refs for the RAF loop
+  const animDurRef  = useRef(ANIM_DUR_WALK);
+  const bodyLeanRef = useRef(0);
 
   // Sets mounted flag on client after SSR hydration to gate browser-only effects
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -265,13 +327,25 @@ export default function Sheep() {
 
         progressRef.current = newProgress;
 
-        /* Compute lean angle based on current speed */
+        /* ── Dynamic animation state ─────────────────────────────────────── */
+        const normalizedSpeed = Math.min(speed / FLEE_SPEED, 1);
+
+        // 3-D perspective lean (existing feature, kept + improved)
         const velocity = Math.abs(newProgress - prevProgressRef.current) / dt;
         prevProgressRef.current = newProgress;
-        /* Lean forward slightly when running (positive = lean forward) */
-        const maxLean = 8; // degrees
+        const maxLean = 8;
         const lean = Math.min(velocity / FLEE_SPEED, 1) * maxLean * dirRef.current;
         setTilt3d(lean);
+
+        // Dynamic leg speed
+        const targetDur = speedToAnimDuration(speed);
+        animDurRef.current = lerp(animDurRef.current, targetDur, Math.min(dt * 10, 1));
+        setAnimDuration(animDurRef.current);
+
+        // Terrain lean for foot planting
+        const targetLean = computeTargetLean(sideRef.current, dirRef.current, normalizedSpeed);
+        bodyLeanRef.current = lerp(bodyLeanRef.current, targetLean, Math.min(dt * 6, 1));
+        setBodyLean(bodyLeanRef.current);
 
         const { cx: ncx, cy: ncy } = toScreenCenter(sideRef.current, newProgress);
         const t = sheepTransform(sideRef.current, dirRef.current);
@@ -399,9 +473,14 @@ export default function Sheep() {
             transform: `rotateY(${tilt3d}deg)`,
             transition: "transform 0.15s ease-out",
             transformStyle: "preserve-3d",
+            animationDuration: bleating ? undefined : `${animDuration}s`,
           }}
         >
-          <SheepSVG running={!bleating} />
+          <SheepSVG
+            running={!bleating}
+            animDuration={animDuration}
+            bodyLean={bodyLean}
+          />
         </div>
       </div>
     </div>
