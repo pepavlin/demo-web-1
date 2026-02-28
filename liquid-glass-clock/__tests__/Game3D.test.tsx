@@ -426,4 +426,31 @@ describe("Game3D component", () => {
     // The catapult objective starts with the 💣 emoji
     expect(getByText(/💣/)).toBeInTheDocument();
   });
+
+  // ── Swimming and boat tests ────────────────────────────────────────────────────
+
+  it("shows swimming hint in intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/Plav ve vodě/i)).toBeInTheDocument();
+  });
+
+  it("shows boat hint in intro overlay", () => {
+    const { getByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(getByText(/loď/i)).toBeInTheDocument();
+  });
+
+  it("does not show boat boarding prompt when game is not locked", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // The 'Nastoupit na loď' prompt only appears near the boat when locked
+    expect(queryByText(/Nastoupit na loď/)).toBeNull();
+  });
+
+  it("does not show on-boat banner when game is not locked", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Na lodi/)).toBeNull();
+  });
 });

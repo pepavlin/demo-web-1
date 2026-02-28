@@ -130,6 +130,9 @@ const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this d
 const BOAT_SPEED = 8;           // units/second when sailing
 const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
 
+// ─── Swim Constants ───────────────────────────────────────────────────────────
+const SWIM_SPEED = 5.5;         // units/second when swimming in water
+
 // ─── Third-person Camera Constants ───────────────────────────────────────────
 const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
 const TP_HEIGHT   = 2.5; // camera height above player in 3rd-person view
@@ -2168,7 +2171,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     let boatSpawnX = 0;
     let boatSpawnZ = 0;
     let boatFound = false;
-    for (let dist = 18; dist < 400 && !boatFound; dist += 6) {
+    for (let dist = 18; dist < 130 && !boatFound; dist += 6) {
       for (let angleDeg = 0; angleDeg < 360 && !boatFound; angleDeg += 12) {
         const a = (angleDeg * Math.PI) / 180;
         const tx = Math.cos(a) * dist;
@@ -2694,7 +2697,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           );
         }
 
-        const speed = sprinting ? SPRINT_SPEED : MOVE_SPEED;
+        const inWater = getTerrainHeightSampled(cam.position.x, cam.position.z) < WATER_LEVEL;
+        const speed = inWater ? SWIM_SPEED : (sprinting ? SPRINT_SPEED : MOVE_SPEED);
         const forward = new THREE.Vector3(
           -Math.sin(yawRef.current),
           0,
@@ -2725,11 +2729,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           Math.min(WORLD_SIZE / 2 - 10, cam.position.z)
         );
 
-        // Water boundary: player cannot enter water
-        if (getTerrainHeightSampled(cam.position.x, cam.position.z) < WATER_LEVEL) {
-          cam.position.x = playerPrevX;
-          cam.position.z = playerPrevZ;
-        }
+        // Swimming: allow entry into water but clamp terrain height lookup
 
         // Tree trunk collision: push player out of large tree trunks
         for (const tree of treeCollisionRef.current) {
@@ -2806,7 +2806,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         cam.position.y += player.velY * dt;
 
         // Ground detection: terrain height or top of placed blocks
-        let groundY = getTerrainHeightSampled(cam.position.x, cam.position.z) + PLAYER_HEIGHT;
+        // When swimming, float at water surface instead of sinking to terrain floor
+        const terrainY = getTerrainHeightSampled(cam.position.x, cam.position.z);
+        const isOverWater = terrainY < WATER_LEVEL;
+        let groundY = (isOverWater ? WATER_LEVEL : terrainY) + PLAYER_HEIGHT;
+        if (isOverWater) {
+          playerRef.current.velY = Math.max(playerRef.current.velY, 0); // cancel sinking
+        }
         for (const block of placedBlocksDataRef.current) {
           const bdx = Math.abs(cam.position.x - block.x);
           const bdz = Math.abs(cam.position.z - block.z);
@@ -3878,7 +3884,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (canvas && cameraRef.current) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const W = 53;
+          const W = 160;
           const scale = W / WORLD_SIZE;
           const cx = W / 2;
           const cy = W / 2;
@@ -3892,7 +3898,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           // Pen
           ctx.strokeStyle = "#c8a050";
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 2.5;
           const penPx = 30 * scale * 2;
           ctx.strokeRect(cx - penPx / 2, cy - penPx / 2, penPx, penPx);
 
@@ -3941,20 +3947,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ctx.rotate(yawRef.current + Math.PI);
           ctx.fillStyle = "#00ff88";
           ctx.beginPath();
-          ctx.moveTo(0, -2);
-          ctx.lineTo(-1.5, 1.5);
-          ctx.lineTo(1.5, 1.5);
+          ctx.moveTo(0, -5);
+          ctx.lineTo(-4, 4);
+          ctx.lineTo(4, 4);
           ctx.closePath();
           ctx.fill();
           ctx.restore();
 
           // Compass labels
           ctx.fillStyle = "rgba(255,255,255,0.55)";
-          ctx.font = "bold 5px monospace";
-          ctx.fillText("N", W / 2 - 2, 7);
-          ctx.fillText("S", W / 2 - 2, W - 1);
-          ctx.fillText("W", 1, W / 2 + 2);
-          ctx.fillText("E", W - 6, W / 2 + 2);
+          ctx.font = "bold 10px monospace";
+          ctx.fillText("N", W / 2 - 4, 13);
+          ctx.fillText("S", W / 2 - 4, W - 3);
+          ctx.fillText("W", 3, W / 2 + 4);
+          ctx.fillText("E", W - 12, W / 2 + 4);
 
           // Border
           ctx.strokeStyle = "rgba(255,255,255,0.2)";
@@ -4295,7 +4301,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               boxShadow: "0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
             }}
           >
-            <canvas ref={minimapRef} width={53} height={53} />
+            <canvas ref={minimapRef} width={160} height={160} />
           </div>
 
           {/* Time + compass */}
@@ -5082,6 +5088,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
                 <div>🐑 <strong className="text-blue-300">[E]</strong> vstoupit do těla ovce</div>
                 <div>📷 <strong className="text-yellow-300">[V]</strong> přepnout 1./3. osobu</div>
+                <div>🏊 <strong className="text-blue-400">Plav ve vodě</strong> — zpomaluje pohyb</div>
+                <div>⛵ Najdi <strong className="text-sky-300">loď</strong> na pobřeží [E] nastoupit</div>
               </div>
             </div>
 
