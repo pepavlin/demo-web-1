@@ -586,15 +586,39 @@ describe("buildBoatMesh", () => {
     expect(boat).toBeInstanceOf(THREE.Group);
   });
 
-  it("has multiple child meshes (hull, deck, bench, oars, etc.)", () => {
+  it("has an orientation pivot group as sole direct child", () => {
+    // Meshes are placed inside a pivot group (rotation.y = -π/2) so that
+    // boat.rotation.y = Math.atan2(moveX, moveZ) makes the bow face movement direction.
     const boat = buildBoatMesh();
-    expect(boat.children.length).toBeGreaterThanOrEqual(10);
+    expect(boat.children.length).toBe(1);
+    expect(boat.children[0]).toBeInstanceOf(THREE.Group);
   });
 
-  it("all children are THREE.Mesh instances", () => {
+  it("pivot group has rotation.y = -π/2 (orientation correction)", () => {
+    // ORIENTATION VERIFICATION: boat bow is at local +X in the pivot.
+    // pivot.rotation.y = -π/2 maps local +X → outer +Z.
+    // When boat.rotation.y = π (W key), outer +Z → world -Z = forward ✓
     const boat = buildBoatMesh();
-    boat.children.forEach((child) => {
-      expect(child).toBeInstanceOf(THREE.Mesh);
+    const pivot = boat.children[0] as THREE.Group;
+    expect(pivot.rotation.y).toBeCloseTo(-Math.PI / 2, 5);
+  });
+
+  it("has multiple mesh descendants (hull, deck, bench, oars, etc.)", () => {
+    const boat = buildBoatMesh();
+    let meshCount = 0;
+    boat.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThanOrEqual(10);
+  });
+
+  it("all mesh descendants use MeshLambertMaterial", () => {
+    const boat = buildBoatMesh();
+    boat.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+      }
     });
   });
 
@@ -603,19 +627,13 @@ describe("buildBoatMesh", () => {
     expect(boat.castShadow).toBe(true);
   });
 
-  it("uses MeshLambertMaterial on all mesh children", () => {
-    const boat = buildBoatMesh();
-    boat.children.forEach((child) => {
-      const mesh = child as THREE.Mesh;
-      expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
-    });
-  });
-
   it("includes a red-painted stripe piece", () => {
     const boat = buildBoatMesh();
     let hasRed = false;
-    boat.children.forEach((child) => {
-      const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
+    boat.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshLambertMaterial;
       // Red stripe material has red channel dominant over green and blue
       if (mat.color.r > mat.color.g && mat.color.r > mat.color.b && mat.color.g < mat.color.r * 0.4) {
         hasRed = true;
@@ -629,6 +647,19 @@ describe("buildBoatMesh", () => {
     expect(boat.position.x).toBe(0);
     expect(boat.position.y).toBe(0);
     expect(boat.position.z).toBe(0);
+  });
+
+  it("bow (front) in pivot local space faces +X (length along X axis)", () => {
+    // The bow mesh is centered at x=2.37, so the front of the boat in pivot
+    // local space is the +X direction.
+    const boat = buildBoatMesh();
+    const pivot = boat.children[0] as THREE.Group;
+    let maxX = -Infinity;
+    pivot.children.forEach((child) => {
+      if (child.position.x > maxX) maxX = child.position.x;
+    });
+    // Bow is at x=2.37 (front cap)
+    expect(maxX).toBeGreaterThan(2.0);
   });
 });
 
