@@ -76,6 +76,14 @@ Keys `[1]` `[2]` `[3]` select a weapon; `[Enter]` or the confirm button starts t
 - **Sky colour palette** — smooth dawn → day → dusk → night transitions
 - **Dynamic lighting** — ambient and sun intensity track the time of day
 
+### Dynamic Weather
+- **5 weather states**: Sunny, Cloudy, Rainy, Stormy, Clearing — each with a realistic transition graph
+- **Rain particles** — 4 500 falling drops that track the camera, intensity scales with state
+- **Thunderstorms with lightning** — procedurally generated jagged bolt geometry, white screen flash, ambient light spike, and synthesised thunder rumble delayed after the flash
+- **Adaptive sky & fog** — sky tints toward storm grey and fog density increases during heavy weather
+- **Cloud darkening** — cloud colour shifts from white to dark grey; sun disc fades behind overcast
+- **HUD weather label** — current weather shown in Czech (☀️ Jasno → ☁️ Zataženo → 🌧️ Déšť → ⛈️ Bouřka → 🌤️ Vyčasuje se)
+
 ### Entities
 - **20 sheep** with wander AI, flee-from-player behaviour, and random bleating
 - **4 foxes** that stalk the nearest sheep; scare sheep into frantic retreat
