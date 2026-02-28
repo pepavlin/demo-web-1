@@ -58,6 +58,14 @@ import {
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
+import {
+  type WeatherState,
+  WEATHER_CONFIGS,
+  nextWeatherState,
+  randomDuration,
+  lerpWeatherConfig,
+  generateLightningPath,
+} from "@/lib/weatherSystem";
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
 import WeaponSelect from "./WeaponSelect";
 
@@ -139,6 +147,15 @@ const SWIM_BUOYANCY = 5.0;      // upward drift speed per second (natural buoyan
 // ─── Third-person Camera Constants ───────────────────────────────────────────
 const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
 const TP_HEIGHT   = 2.5; // camera height above player in 3rd-person view
+
+// ─── Weather Constants ────────────────────────────────────────────────────────
+const RAIN_DROP_COUNT = 4500;       // number of rain particles in the scene
+const RAIN_SPEED = 55;              // units/sec fall speed
+const RAIN_SPREAD = 280;            // horizontal spread radius
+const RAIN_HEIGHT_RANGE = 90;       // rain spawns between RAIN_Y_MIN and +HEIGHT_RANGE
+const RAIN_Y_MIN = -5;              // rain resets to top when below this Y
+const LIGHTNING_FLASH_DURATION = 0.18; // seconds the white flash lasts
+const WEATHER_TRANSITION_SPEED = 0.35; // lerp speed for weather blending (per second)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
@@ -345,6 +362,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const nearestSheepForPossessRef = useRef<SheepData | null>(null);
   const highlightedSheepRef = useRef<SheepData | null>(null);
 
+  // ─── Weather Refs ────────────────────────────────────────────────────────────
+  const rainRef = useRef<THREE.Points | null>(null);
+  const lightningBoltRef = useRef<THREE.Line | null>(null);
+  /** Current active weather state */
+  const weatherStateRef = useRef<WeatherState>("sunny");
+  /** Previous weather state (used for lerping) */
+  const weatherPrevStateRef = useRef<WeatherState>("sunny");
+  /** Blend factor: 0 = previous state, 1 = current state */
+  const weatherBlendRef = useRef(1);
+  /** Countdown in seconds until next weather transition */
+  const weatherTimerRef = useRef(randomDuration("sunny"));
+  /** Countdown until next lightning strike (only during storms) */
+  const lightningTimerRef = useRef(0);
+  /** Flash opacity 0–1; decays to 0 quickly after lightning */
+  const lightningFlashRef = useRef(0);
+
   // ─── Boat Refs ───────────────────────────────────────────────────────────────
   const boatRef = useRef<THREE.Group | null>(null);
   const onBoatRef = useRef(false);
@@ -369,6 +402,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const playerBodyMeshRef = useRef<THREE.Group | null>(null);
 
   const [isMuted, setIsMuted] = useState(false);
+  const [lightningFlash, setLightningFlash] = useState(0); // 0–1 opacity
+  const [weatherLabel, setWeatherLabel] = useState<string>("☀️ Jasno");
   const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
     mode: "explore",
     selectedMaterial: "wood",
@@ -924,6 +959,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const sunDiscGeo = new THREE.SphereGeometry(9, 16, 16);
     const sunDiscMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(1.0, 0.95, 0.8),
+      transparent: true,
+      opacity: 1.0,
     });
     const sunDisc = new THREE.Mesh(sunDiscGeo, sunDiscMat);
     scene.add(sunDisc);
@@ -1894,6 +1931,50 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
+    // ── Rain Particles ───────────────────────────────────────────────────────
+    {
+      const rainGeo = new THREE.BufferGeometry();
+      const positions = new Float32Array(RAIN_DROP_COUNT * 3);
+      for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+        positions[i * 3]     = (Math.random() - 0.5) * RAIN_SPREAD * 2;
+        positions[i * 3 + 1] = RAIN_Y_MIN + Math.random() * RAIN_HEIGHT_RANGE;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD * 2;
+      }
+      rainGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const rainMat = new THREE.PointsMaterial({
+        color: 0xaaddff,
+        size: 0.18,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        sizeAttenuation: true,
+      });
+      const rain = new THREE.Points(rainGeo, rainMat);
+      rain.visible = false;
+      scene.add(rain);
+      rainRef.current = rain;
+    }
+
+    // ── Lightning bolt ───────────────────────────────────────────────────────
+    {
+      const boltGeo = new THREE.BufferGeometry();
+      // Placeholder flat line; will be rebuilt each time lightning strikes
+      boltGeo.setAttribute(
+        "position",
+        new THREE.BufferAttribute(new Float32Array(6), 3)
+      );
+      const boltMat = new THREE.LineBasicMaterial({
+        color: 0xddeeff,
+        linewidth: 2,
+        transparent: true,
+        opacity: 0,
+      });
+      const bolt = new THREE.Line(boltGeo, boltMat);
+      bolt.visible = false;
+      scene.add(bolt);
+      lightningBoltRef.current = bolt;
+    }
+
     // ── Trees ───────────────────────────────────────────────────────────────
     let treeSeed = 123;
     const treeRng = () => {
@@ -2504,7 +2585,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         : 1.0;
       soundManager.updateDaytime(dayFraction);
 
-      const skyColor = getSkyColor(dayFraction);
+      const baseSkyColor = getSkyColor(dayFraction);
+      // Tint sky toward storm grey based on current weather cloud darkness
+      const stormBlend =
+        weatherBlendRef.current < 1
+          ? lerpWeatherConfig(
+              WEATHER_CONFIGS[weatherPrevStateRef.current],
+              WEATHER_CONFIGS[weatherStateRef.current],
+              weatherBlendRef.current
+            ).cloudDarkness
+          : WEATHER_CONFIGS[weatherStateRef.current].cloudDarkness;
+      const stormGrey = new THREE.Color(0.38, 0.40, 0.45);
+      const skyColor = baseSkyColor.clone().lerp(stormGrey, stormBlend * 0.7);
       scene.background = skyColor;
       (scene.fog as THREE.FogExp2).color = skyColor;
       if (skyMeshRef.current) {
@@ -2608,6 +2700,156 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (c.mesh.position.z > cloudBound) c.mesh.position.z = -cloudBound + 10;
         else if (c.mesh.position.z < -cloudBound) c.mesh.position.z = cloudBound - 10;
       });
+
+      // ── Weather system ────────────────────────────────────────────────────
+      {
+        // Advance state timer
+        weatherTimerRef.current -= dt;
+        if (weatherTimerRef.current <= 0) {
+          const prev = weatherStateRef.current;
+          const next = nextWeatherState(prev);
+          weatherPrevStateRef.current = prev;
+          weatherStateRef.current = next;
+          weatherBlendRef.current = 0;
+          weatherTimerRef.current = randomDuration(next);
+          setWeatherLabel(WEATHER_CONFIGS[next].label);
+        }
+
+        // Blend toward current config
+        weatherBlendRef.current = Math.min(
+          1,
+          weatherBlendRef.current + dt * WEATHER_TRANSITION_SPEED
+        );
+        const blendT = weatherBlendRef.current;
+        const prevCfg = WEATHER_CONFIGS[weatherPrevStateRef.current];
+        const curCfg = WEATHER_CONFIGS[weatherStateRef.current];
+        const wCfg = lerpWeatherConfig(prevCfg, curCfg, blendT);
+
+        // Apply ambient / sun multipliers on top of day/night values
+        if (ambientRef.current) {
+          ambientRef.current.intensity = getAmbientIntensity(dayFraction) * wCfg.ambientMult;
+        }
+        if (sunRef.current) {
+          sunRef.current.intensity = getSunIntensity(dayFraction) * wCfg.sunMult;
+        }
+
+        // Dim / hide sun disc during cloud cover
+        if (sunDiscRef.current) {
+          (sunDiscRef.current.material as THREE.MeshBasicMaterial).opacity =
+            Math.max(0, 1 - wCfg.cloudDarkness * 1.4);
+        }
+        if (sunCoronaRef.current) {
+          (sunCoronaRef.current.material as THREE.MeshBasicMaterial).opacity =
+            Math.max(0, (0.07 + Math.sin(elapsed * 0.4) * 0.025) * (1 - wCfg.cloudDarkness));
+        }
+
+        // Fog density (unless underwater which overrides separately)
+        if (!isUnderwaterRef.current) {
+          (scene.fog as THREE.FogExp2).density = wCfg.fogDensity;
+        }
+
+        // Cloud colour darkening during storms
+        const cloudColor = new THREE.Color(1, 1, 1).lerp(
+          new THREE.Color(0.28, 0.28, 0.32),
+          wCfg.cloudDarkness
+        );
+        cloudsRef.current.forEach((c) => {
+          c.mesh.traverse((obj) => {
+            if (obj instanceof THREE.Mesh) {
+              (obj.material as THREE.MeshLambertMaterial).color.copy(cloudColor);
+            }
+          });
+        });
+
+        // Rain particles
+        if (rainRef.current) {
+          const rainIntensity = wCfg.rainIntensity;
+          rainRef.current.visible = rainIntensity > 0.01;
+          const rainMat = rainRef.current.material as THREE.PointsMaterial;
+          rainMat.opacity = Math.min(0.65, rainIntensity * 0.65);
+
+          if (rainIntensity > 0.01 && cameraRef.current) {
+            // Move rain with the camera so it always surrounds the player
+            const camPos = cameraRef.current.position;
+            const pos = rainRef.current.geometry.attributes.position as THREE.BufferAttribute;
+            const arr = pos.array as Float32Array;
+            for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+              // Fall downward
+              arr[i * 3 + 1] -= RAIN_SPEED * dt;
+              // Reset to top when below ground level
+              if (arr[i * 3 + 1] < RAIN_Y_MIN) {
+                arr[i * 3]     = camPos.x + (Math.random() - 0.5) * RAIN_SPREAD * 2;
+                arr[i * 3 + 1] = camPos.y + RAIN_HEIGHT_RANGE * 0.5 + Math.random() * RAIN_HEIGHT_RANGE * 0.5;
+                arr[i * 3 + 2] = camPos.z + (Math.random() - 0.5) * RAIN_SPREAD * 2;
+              }
+            }
+            pos.needsUpdate = true;
+            // Keep rain cloud centered on camera
+            rainRef.current.position.set(0, 0, 0);
+          }
+        }
+
+        // Lightning
+        const isStormy = wCfg.lightningInterval > 0.5;
+        if (isStormy) {
+          lightningTimerRef.current -= dt;
+          if (lightningTimerRef.current <= 0) {
+            // Schedule next lightning with randomness around the interval
+            lightningTimerRef.current =
+              wCfg.lightningInterval * (0.4 + Math.random() * 1.2);
+
+            // Trigger a lightning flash
+            lightningFlashRef.current = 1.0;
+            setLightningFlash(1);
+
+            // Rebuild the lightning bolt geometry near the player
+            if (lightningBoltRef.current && cameraRef.current) {
+              const camPos = cameraRef.current.position;
+              const boltX = camPos.x + (Math.random() - 0.5) * 160;
+              const boltZ = camPos.z + (Math.random() - 0.5) * 160;
+              const boltPath = generateLightningPath(boltX, boltZ, camPos.y + 90, camPos.y - 5);
+              lightningBoltRef.current.geometry.setAttribute(
+                "position",
+                new THREE.BufferAttribute(boltPath, 3)
+              );
+              lightningBoltRef.current.geometry.attributes.position.needsUpdate = true;
+              lightningBoltRef.current.visible = true;
+              (lightningBoltRef.current.material as THREE.LineBasicMaterial).opacity = 0.95;
+            }
+
+            // Play thunder via Web Audio after 1–4 second delay
+            const thunderDelay = 1000 + Math.random() * 3000;
+            setTimeout(() => {
+              soundManager.playThunder?.();
+            }, thunderDelay);
+          }
+        }
+
+        // Decay the lightning flash
+        if (lightningFlashRef.current > 0) {
+          lightningFlashRef.current = Math.max(
+            0,
+            lightningFlashRef.current - dt / LIGHTNING_FLASH_DURATION
+          );
+          setLightningFlash(lightningFlashRef.current);
+
+          // Spike ambient during flash for dramatic effect
+          if (ambientRef.current && lightningFlashRef.current > 0.05) {
+            ambientRef.current.intensity = Math.max(
+              ambientRef.current.intensity,
+              lightningFlashRef.current * 3.5
+            );
+          }
+
+          // Hide bolt when flash fades
+          if (lightningFlashRef.current < 0.05 && lightningBoltRef.current) {
+            lightningBoltRef.current.visible = false;
+          } else if (lightningBoltRef.current) {
+            (lightningBoltRef.current.material as THREE.LineBasicMaterial).opacity =
+              lightningFlashRef.current * 0.9;
+          }
+        }
+      }
 
       // ── Grass wind & lighting ─────────────────────────────────────────────
       if (grassMatRef.current && sunRef.current) {
@@ -4146,6 +4388,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
       if (mpNotifTimerRef.current) clearTimeout(mpNotifTimerRef.current);
+      // Clean up weather objects
+      if (rainRef.current) { scene.remove(rainRef.current); rainRef.current = null; }
+      if (lightningBoltRef.current) { scene.remove(lightningBoltRef.current); lightningBoltRef.current = null; }
       soundManager.destroy();
       renderer.dispose();
       if (mountNode) {
@@ -4165,6 +4410,42 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black">
+      {/* Lightning flash overlay */}
+      {lightningFlash > 0.01 && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background: `rgba(220,235,255,${(lightningFlash * 0.82).toFixed(3)})`,
+            zIndex: 52,
+            transition: "opacity 0.04s",
+          }}
+        />
+      )}
+
+      {/* Weather label */}
+      {gameStarted && (
+        <div
+          className="fixed pointer-events-none"
+          style={{
+            top: 16,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 55,
+            background: "rgba(5,8,20,0.55)",
+            backdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            padding: "4px 14px",
+            color: "rgba(255,255,255,0.85)",
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {weatherLabel}
+        </div>
+      )}
+
       {/* Hit flash overlay */}
       {hitFlash && (
         <div

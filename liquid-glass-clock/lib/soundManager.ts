@@ -798,6 +798,56 @@ class SoundManager {
     return this._paused;
   }
 
+  // ── Thunder & Rain ───────────────────────────────────────────────────────
+
+  /**
+   * Synthesises a low-frequency thunder rumble.
+   * Sharp transient crack followed by a long filtered-noise roll-off.
+   */
+  playThunder(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const out = this.sfxGain;
+    const t = ctx.currentTime;
+
+    // 1. Sharp crack: short high-amplitude noise burst
+    const crackDur = 0.18;
+    const crackSrc = ctx.createBufferSource();
+    crackSrc.buffer = this._noiseBuffer(crackDur);
+    const crackFlt = ctx.createBiquadFilter();
+    crackFlt.type = "bandpass";
+    crackFlt.frequency.value = 180;
+    crackFlt.Q.value = 0.6;
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0.0001, t);
+    crackEnv.gain.linearRampToValueAtTime(0.55, t + 0.02);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, t + crackDur);
+    crackSrc.connect(crackFlt);
+    crackFlt.connect(crackEnv);
+    crackEnv.connect(out);
+    crackSrc.start(t);
+    crackSrc.stop(t + crackDur);
+
+    // 2. Deep rumble: long low-pass noise
+    const rumbleDur = 4.5 + Math.random() * 2;
+    const rumbleSrc = ctx.createBufferSource();
+    rumbleSrc.buffer = this._noiseBuffer(rumbleDur);
+    const rumbleFlt = ctx.createBiquadFilter();
+    rumbleFlt.type = "lowpass";
+    rumbleFlt.frequency.value = 90 + Math.random() * 50;
+    rumbleFlt.Q.value = 0.4;
+    const rumbleEnv = ctx.createGain();
+    rumbleEnv.gain.setValueAtTime(0.0001, t);
+    rumbleEnv.gain.linearRampToValueAtTime(0.32, t + 0.15);
+    rumbleEnv.gain.setValueAtTime(0.28, t + 0.6);
+    rumbleEnv.gain.exponentialRampToValueAtTime(0.0001, t + rumbleDur);
+    rumbleSrc.connect(rumbleFlt);
+    rumbleFlt.connect(rumbleEnv);
+    rumbleEnv.connect(out);
+    rumbleSrc.start(t + 0.05); // slight delay — rumble lags crack
+    rumbleSrc.stop(t + rumbleDur + 0.1);
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   destroy(): void {
