@@ -187,4 +187,38 @@ describe("Sheep component", () => {
     // The bounce div itself also must not carry a scaleX flip
     expect(bounceDiv).not.toHaveStyle({ transform: "scaleX(-1)" });
   });
+
+  // ── Dynamic animation tests ──────────────────────────────────────────────
+
+  it("SVG has terrain-lean wrapper group for foot-planting effect", () => {
+    render(<Sheep />);
+    flushMount();
+    const svgs = document.querySelectorAll("svg");
+    // Find any SVG that contains a group with a translate+rotate transform
+    // (the terrain-lean wrapper)
+    let hasLeanGroup = false;
+    svgs.forEach((svg) => {
+      const groups = svg.querySelectorAll("g[transform]");
+      groups.forEach((g) => {
+        const t = g.getAttribute("transform") ?? "";
+        if (t.includes("rotate")) hasLeanGroup = true;
+      });
+    });
+    expect(hasLeanGroup).toBe(true);
+  });
+
+  it("SVG contains back and front leg groups with correct classes", () => {
+    render(<Sheep />);
+    flushMount();
+    const svgs = document.querySelectorAll("svg");
+    // The Sheep.tsx SVG uses sheep-leg-a / sheep-leg-b classes
+    let hasLegA = false;
+    let hasLegB = false;
+    svgs.forEach((svg) => {
+      if (svg.querySelector(".sheep-leg-a")) hasLegA = true;
+      if (svg.querySelector(".sheep-leg-b")) hasLegB = true;
+    });
+    expect(hasLegA).toBe(true);
+    expect(hasLegB).toBe(true);
+  });
 });
