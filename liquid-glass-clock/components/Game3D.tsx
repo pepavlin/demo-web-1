@@ -2295,19 +2295,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // V key — toggle first/third-person camera (only in explore mode, not while possessed)
-      if (e.type === "keydown" && e.code === "KeyV" && !possessedSheepRef.current) {
+      // V key — toggle first/third-person camera (works in explore mode AND while possessing a sheep)
+      if (e.type === "keydown" && e.code === "KeyV") {
         const newMode = cameraModeRef.current === "first" ? "third" : "first";
         cameraModeRef.current = newMode;
         setCameraMode(newMode);
         if (weaponMeshRef.current) {
-          weaponMeshRef.current.visible = newMode === "first";
+          // Weapon hidden while possessed regardless of camera mode
+          weaponMeshRef.current.visible = newMode === "first" && !possessedSheepRef.current;
         }
         if (playerBodyRef.current) {
-          playerBodyRef.current.visible = newMode === "third";
+          // Player body only shown in 3rd-person when NOT possessing a sheep
+          playerBodyRef.current.visible = newMode === "third" && !possessedSheepRef.current;
         }
-        // Snap camera back to eye-level when returning to first-person
-        if (newMode === "first" && cameraRef.current) {
+        // Snap camera back to eye-level when returning to first-person (explore mode only)
+        if (newMode === "first" && cameraRef.current && !possessedSheepRef.current) {
           cameraRef.current.position.set(
             playerBodyPosRef.current.x,
             playerBodyPosRef.current.y + PLAYER_HEIGHT,
@@ -3080,9 +3082,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Snap to terrain
         s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
 
-        // Sheep body faces the camera yaw direction
-        s.rotation.y = -yawRef.current;
-        sheep.currentAngle = -yawRef.current;
+        // Sheep body faces the direction of movement; stays put when idle
+        // Formula: sheep face is at local +X, so to face world direction (dx, dz):
+        //   s.rotation.y = Math.atan2(-dz, dx)
+        // Verified: W(yaw=0)→(-Z)✓, A→(-X)✓, D→(+X)✓, S→(+Z)✓
+        if (sheepMove.lengthSq() > 0.0001) {
+          const targetAngle = Math.atan2(-sheepMove.z, sheepMove.x);
+          let diff = targetAngle - sheep.currentAngle;
+          while (diff > Math.PI)  diff -= 2 * Math.PI;
+          while (diff < -Math.PI) diff += 2 * Math.PI;
+          sheep.currentAngle += diff * Math.min(1, dt * 8);
+        }
+        s.rotation.y = sheep.currentAngle;
 
         // Walk animation
         const isSheepMoving =
@@ -3115,11 +3126,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Tail wag
         sheep.tailGroup.rotation.y = 0.6 * Math.sin(elapsed * 4.5 + sheep.phaseOffset);
 
-        // Position camera at sheep head level
-        cam.position.set(s.position.x, s.position.y + POSSESS_CAM_HEIGHT, s.position.z);
-        cam.rotation.order = "YXZ";
-        cam.rotation.y = yawRef.current;
-        cam.rotation.x = pitchRef.current;
+        // Position camera based on current mode
+        if (cameraModeRef.current === "third") {
+          // 3rd-person: orbit camera behind and above the sheep
+          const behindX = Math.sin(yawRef.current) * TP_DISTANCE;
+          const behindZ = Math.cos(yawRef.current) * TP_DISTANCE;
+          const pitchOffset = Math.sin(pitchRef.current) * TP_DISTANCE * 0.5;
+          cam.position.set(
+            s.position.x + behindX,
+            s.position.y + TP_HEIGHT + pitchOffset,
+            s.position.z + behindZ
+          );
+          cam.lookAt(s.position.x, s.position.y + 0.7, s.position.z);
+        } else {
+          // 1st-person: camera at sheep head level
+          cam.position.set(s.position.x, s.position.y + POSSESS_CAM_HEIGHT, s.position.z);
+          cam.rotation.order = "YXZ";
+          cam.rotation.y = yawRef.current;
+          cam.rotation.x = pitchRef.current;
+        }
       }
 
       // ── Third-person player body mesh: position, rotation, walk animation ────

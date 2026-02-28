@@ -1059,6 +1059,23 @@ export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group;
 export function buildBoatMesh(): THREE.Group {
   const group = new THREE.Group();
 
+  // ── ORIENTATION PIVOT ─────────────────────────────────────────────────────────
+  // The boat geometry is built with its bow at local +X (length along X axis).
+  // The rotation formula in Game3D uses Math.atan2(moveX, moveZ) for boat.rotation.y,
+  // which assumes the boat's "forward" is local +Z when rotation.y = 0.
+  //
+  // VERIFICATION TECHNIQUE (rotation.y = -π/2 correction):
+  //   Bow is at inner local +X. With pivot.rotation.y = -π/2:
+  //     inner +X → outer +Z  (Rotation_Y(-π/2) × (1,0,0) = (0,0,1))
+  //   When outer rotation.y = π (W key, yaw=0 → targetYaw=π):
+  //     outer +Z → world -Z  (Rotation_Y(π) × (0,0,1) = (0,0,-1))
+  //   That matches the -Z movement direction ✓
+  //
+  // All boat meshes go into this pivot, not directly into group.
+  const pivot = new THREE.Group();
+  pivot.rotation.y = -Math.PI / 2;
+  group.add(pivot);
+
   const darkWood  = new THREE.MeshLambertMaterial({ color: 0x5C3317 }); // dark hull planks
   const lightWood = new THREE.MeshLambertMaterial({ color: 0xC8894A }); // deck & bench
   const redPaint  = new THREE.MeshLambertMaterial({ color: 0xAA2200 }); // decorative stripe
@@ -1069,7 +1086,7 @@ export function buildBoatMesh(): THREE.Group {
   floorMesh.position.y = 0.11;
   floorMesh.castShadow = true;
   floorMesh.receiveShadow = true;
-  group.add(floorMesh);
+  pivot.add(floorMesh);
 
   // ── Hull sides (port & starboard) ─────────────────────────────────────────────
   const wallGeo = new THREE.BoxGeometry(4.8, 0.65, 0.18);
@@ -1077,27 +1094,27 @@ export function buildBoatMesh(): THREE.Group {
     const wall = new THREE.Mesh(wallGeo, darkWood);
     wall.position.set(0, 0.55, s * 0.91);
     wall.castShadow = true;
-    group.add(wall);
+    pivot.add(wall);
   });
 
   // ── Bow (front cap) ───────────────────────────────────────────────────────────
   const bowMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.65, 2.0), darkWood);
   bowMesh.position.set(2.37, 0.55, 0);
   bowMesh.castShadow = true;
-  group.add(bowMesh);
+  pivot.add(bowMesh);
 
   // ── Stern (rear cap) ──────────────────────────────────────────────────────────
   const sternMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.65, 2.0), darkWood);
   sternMesh.position.set(-2.37, 0.55, 0);
   sternMesh.castShadow = true;
-  group.add(sternMesh);
+  pivot.add(sternMesh);
 
   // ── Red waterline stripe ──────────────────────────────────────────────────────
   const stripeGeo = new THREE.BoxGeometry(4.6, 0.09, 0.05);
   ([-1, 1] as const).forEach((s) => {
     const stripe = new THREE.Mesh(stripeGeo, redPaint);
     stripe.position.set(0, 0.82, s * 0.95);
-    group.add(stripe);
+    pivot.add(stripe);
   });
 
   // ── Deck planks ───────────────────────────────────────────────────────────────
@@ -1105,21 +1122,21 @@ export function buildBoatMesh(): THREE.Group {
   PLANK_Z_POSITIONS.forEach((z) => {
     const plank = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 0.30), lightWood);
     plank.position.set(0, 0.26, z);
-    group.add(plank);
+    pivot.add(plank);
   });
 
   // ── Bench (centre seat) ───────────────────────────────────────────────────────
   const benchTop = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.10, 1.50), lightWood);
   benchTop.position.set(0, 0.44, 0);
   benchTop.castShadow = true;
-  group.add(benchTop);
+  pivot.add(benchTop);
 
   // Bench legs
   const benchLegGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.18, 6);
   ([-0.58, 0.58] as const).forEach((z) => {
     const leg = new THREE.Mesh(benchLegGeo, lightWood);
     leg.position.set(0, 0.30, z);
-    group.add(leg);
+    pivot.add(leg);
   });
 
   // ── Oarlocks ─────────────────────────────────────────────────────────────────
@@ -1127,7 +1144,7 @@ export function buildBoatMesh(): THREE.Group {
   ([-1, 1] as const).forEach((s) => {
     const lock = new THREE.Mesh(lockGeo, metalMat);
     lock.position.set(0.4, 0.97, s * 0.93);
-    group.add(lock);
+    pivot.add(lock);
   });
 
   // ── Oars (resting along hull sides) ──────────────────────────────────────────
@@ -1137,13 +1154,13 @@ export function buildBoatMesh(): THREE.Group {
     const handle = new THREE.Mesh(handleGeo, lightWood);
     handle.rotation.z = Math.PI / 2;            // lay along X
     handle.position.set(-0.1, 0.90, s * 1.04);
-    group.add(handle);
+    pivot.add(handle);
 
     // Paddle blade at the bow end
     const bladeGeo = new THREE.BoxGeometry(0.55, 0.10, 0.16);
     const blade = new THREE.Mesh(bladeGeo, lightWood);
     blade.position.set(1.9, 0.90, s * 1.04);
-    group.add(blade);
+    pivot.add(blade);
   });
 
   group.castShadow = true;
