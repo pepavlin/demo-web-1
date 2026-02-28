@@ -132,6 +132,9 @@ const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
 
 // ─── Swim Constants ───────────────────────────────────────────────────────────
 const SWIM_SPEED = 5.5;         // units/second when swimming in water
+const DIVE_SPEED = 5.0;         // units/second when actively diving down (Ctrl)
+const SWIM_RISE_SPEED = 6.0;    // units/second when actively swimming up (Space)
+const SWIM_BUOYANCY = 5.0;      // upward drift speed per second (natural buoyancy when submerged)
 
 // ─── Third-person Camera Constants ───────────────────────────────────────────
 const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
@@ -398,6 +401,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [bleatingLabel, setBleatingLabel] = useState<string | null>(null);
   const [foxWarning, setFoxWarning] = useState(false);
   const [hitFlash, setHitFlash] = useState(false);
+  const [isUnderwater, setIsUnderwater] = useState(false);
+  const isUnderwaterRef = useRef(false);
+  const [isSwimming, setIsSwimming] = useState(false);
+  const isSwimmingRef = useRef(false);
   const [attackEffect, setAttackEffect] = useState<string | null>(null);
   const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
   const [gameOver, setGameOver] = useState(false);
@@ -2034,14 +2041,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       { x:  38, z:  32 },   // closer to spawn — encountered early
       { x: -34, z: -38 },   // closer to spawn — encountered early
     ];
-    catapultListRef.current = catapultPositions.slice(0, CATAPULT_COUNT).map((p) => {
-      const { group, armGroup } = buildCatapultMesh();
+    catapultListRef.current = catapultPositions.slice(0, CATAPULT_COUNT).reduce<CatapultData[]>((acc, p) => {
       const ty = getTerrainHeightSampled(p.x, p.z);
+      // Skip positions that would place the catapult in water
+      if (ty < WATER_LEVEL) return acc;
+      const { group, armGroup } = buildCatapultMesh();
       group.position.set(p.x, ty, p.z);
       // Face toward the map centre (player spawn area)
       group.rotation.y = Math.atan2(-p.x, -p.z);
       scene.add(group);
-      return {
+      acc.push({
         mesh: group,
         armGroup,
         hp: CATAPULT_MAX_HP,
@@ -2050,8 +2059,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         fireCooldown: 1 + Math.random() * 3, // stagger initial shots
         hitFlashTimer: 0,
         firingAnimation: 0,
-      };
-    });
+      });
+      return acc;
+    }, []);
 
     // ── Coins / Gems ─────────────────────────────────────────────────────────
     const coinPoints = generateSpawnPoints(COIN_COUNT, 20, 350, 555);
@@ -2799,38 +2809,102 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         const player = playerRef.current;
-        if (keys["Space"] && player.onGround) {
-          player.velY = JUMP_FORCE;
-          player.onGround = false;
-          soundManager.playJump();
-        }
-        player.velY += GRAVITY * dt;
-        cam.position.y += player.velY * dt;
-
-        // Ground detection: terrain height or top of placed blocks
-        // When swimming, float at water surface instead of sinking to terrain floor
         const terrainY = getTerrainHeightSampled(cam.position.x, cam.position.z);
         const isOverWater = terrainY < WATER_LEVEL;
-        let groundY = (isOverWater ? WATER_LEVEL : terrainY) + PLAYER_HEIGHT;
+
         if (isOverWater) {
-          playerRef.current.velY = Math.max(playerRef.current.velY, 0); // cancel sinking
-        }
-        for (const block of placedBlocksDataRef.current) {
-          const bdx = Math.abs(cam.position.x - block.x);
-          const bdz = Math.abs(cam.position.z - block.z);
-          if (bdx <= 0.5 && bdz <= 0.5) {
-            const blockGroundY = block.y + 0.5 + PLAYER_HEIGHT;
-            if (blockGroundY > groundY) groundY = blockGroundY;
+          // ── Aquatic physics: buoyancy + free vertical movement ───────────
+          // Ctrl = dive down, Space = swim up, default = drift to surface
+          const waterSurfaceY = WATER_LEVEL + PLAYER_HEIGHT;
+          const diving = keys["ControlLeft"] || keys["ControlRight"];
+          const submerged = cam.position.y < waterSurfaceY - 0.05;
+
+          if (diving) {
+            // Active dive: pull player downward
+            player.velY = -DIVE_SPEED;
+            player.onGround = false;
+          } else if (keys["Space"] && submerged) {
+            // Active swim upward while submerged
+            player.velY = SWIM_RISE_SPEED;
+            player.onGround = false;
+          } else if (submerged) {
+            // Natural buoyancy: gradually drift back to surface
+            player.velY += SWIM_BUOYANCY * dt;
+            player.velY = Math.min(player.velY, 2.0); // cap gentle rise speed
+            player.onGround = false;
+          } else {
+            // At or above surface: float still
+            player.velY = 0;
+            cam.position.y = waterSurfaceY;
+            player.onGround = true;
           }
-        }
-        if (cam.position.y <= groundY) {
-          cam.position.y = groundY;
-          player.velY = 0;
-          player.onGround = true;
+
+          cam.position.y += player.velY * dt;
+
+          // Cannot go below the ocean / lake floor
+          const floorY = terrainY + PLAYER_HEIGHT;
+          if (cam.position.y < floorY) {
+            cam.position.y = floorY;
+            player.velY = 0;
+            player.onGround = true;
+          }
+
+          // Cap at surface when buoyancy brings player back up
+          if (!diving && cam.position.y > waterSurfaceY) {
+            cam.position.y = waterSurfaceY;
+            player.velY = 0;
+            player.onGround = true;
+          }
+        } else {
+          // ── Land physics: gravity, jump, ground detection ────────────────
+          if (keys["Space"] && player.onGround) {
+            player.velY = JUMP_FORCE;
+            player.onGround = false;
+            soundManager.playJump();
+          }
+          player.velY += GRAVITY * dt;
+          cam.position.y += player.velY * dt;
+
+          // Ground detection: terrain height or top of placed blocks
+          let groundY = terrainY + PLAYER_HEIGHT;
+          for (const block of placedBlocksDataRef.current) {
+            const bdx = Math.abs(cam.position.x - block.x);
+            const bdz = Math.abs(cam.position.z - block.z);
+            if (bdx <= 0.5 && bdz <= 0.5) {
+              const blockGroundY = block.y + 0.5 + PLAYER_HEIGHT;
+              if (blockGroundY > groundY) groundY = blockGroundY;
+            }
+          }
+          if (cam.position.y <= groundY) {
+            cam.position.y = groundY;
+            player.velY = 0;
+            player.onGround = true;
+          }
         }
 
         // Save player body position (same in both modes at this point)
         playerBodyPosRef.current.copy(cam.position);
+
+        // ── Underwater visual state + fog ────────────────────────────────
+        // Camera eye is below water surface when player Y - PLAYER_HEIGHT < WATER_LEVEL
+        const nowUnderwater = cam.position.y - PLAYER_HEIGHT < WATER_LEVEL;
+        const nowSwimming = isOverWater; // player is in / on water (terrain below WATER_LEVEL)
+        if (nowUnderwater !== isUnderwaterRef.current) {
+          isUnderwaterRef.current = nowUnderwater;
+          setIsUnderwater(nowUnderwater);
+        }
+        if (nowSwimming !== isSwimmingRef.current) {
+          isSwimmingRef.current = nowSwimming;
+          setIsSwimming(nowSwimming);
+        }
+        if (nowUnderwater) {
+          // Override fog to deep blue-green while submerged
+          (scene.fog as THREE.FogExp2).color.setRGB(0.04, 0.18, 0.32);
+          (scene.fog as THREE.FogExp2).density = 0.08;
+        } else {
+          // Restore normal fog density (colour is set each frame by day/night cycle)
+          (scene.fog as THREE.FogExp2).density = 0.006;
+        }
 
         if (cameraModeRef.current === "third") {
           // ── 3rd-person: orbit camera behind and above the player ─────────
@@ -4099,6 +4173,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         />
       )}
 
+      {/* Underwater tint overlay */}
+      {isUnderwater && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background: "linear-gradient(180deg, rgba(0,40,90,0.55) 0%, rgba(0,70,130,0.38) 100%)",
+            zIndex: 48,
+          }}
+        />
+      )}
+
       {/* Three.js canvas */}
       <div
         ref={mountRef}
@@ -4420,6 +4505,45 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — Underwater active banner ═══════════════ */}
+      {isUnderwater && !onBoat && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(0,30,70,0.90)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(30,120,220,0.40)",
+              boxShadow: "0 0 18px rgba(10,80,200,0.35)",
+            }}
+          >
+            🌊 Pod vodou &nbsp;·&nbsp;
+            <span style={{ color: "#7dd3fc" }}>[Mezerník] Vyplout</span>
+            &nbsp;·&nbsp;
+            <span style={{ color: "#93c5fd" }}>[Ctrl] Hlouběji</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Dive hint (at water surface) ═══════════════ */}
+      {isSwimming && !isUnderwater && !onBoat && !nearBoatPrompt && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(0,40,90,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(40,140,255,0.40)",
+              boxShadow: "0 0 20px rgba(20,100,255,0.30)",
+            }}
+          >
+            🌊 [Ctrl] Potápět se
+          </div>
         </div>
       )}
 

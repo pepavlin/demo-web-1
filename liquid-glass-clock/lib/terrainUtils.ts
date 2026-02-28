@@ -240,8 +240,8 @@ export function generateSpawnPoints(
 
     const y = getTerrainHeight(x, z);
 
-    // Don't spawn in water
-    if (y < -1) continue;
+    // Don't spawn in water (terrain must be above the visual water surface)
+    if (y < WATER_LEVEL) continue;
 
     // Avoid too-steep slopes
     const slopeCheck = getTerrainHeight(x + 2, z) - y;
