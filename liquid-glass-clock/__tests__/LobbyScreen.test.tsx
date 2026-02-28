@@ -16,12 +16,14 @@ beforeEach(() => {
     ok: true,
     json: async () => ({ players: [] }),
   });
+  localStorage.clear();
 });
 
 afterEach(() => {
   jest.runOnlyPendingTimers();
   jest.useRealTimers();
   mockFetch.mockReset();
+  localStorage.clear();
 });
 
 describe("LobbyScreen component", () => {
@@ -223,5 +225,42 @@ describe("LobbyScreen component", () => {
     await expect(
       act(async () => { render(<LobbyScreen onJoin={() => {}} />); })
     ).resolves.not.toThrow();
+  });
+
+  it("pre-fills name input from localStorage if a name was previously saved", () => {
+    localStorage.setItem("playerName", "Franta");
+    render(<LobbyScreen onJoin={() => {}} />);
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.value).toBe("Franta");
+  });
+
+  it("input starts empty when localStorage has no saved name", () => {
+    render(<LobbyScreen onJoin={() => {}} />);
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+
+  it("saves name to localStorage when joining", () => {
+    const onJoin = jest.fn();
+    render(<LobbyScreen onJoin={onJoin} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Pepik" } });
+    fireEvent.click(screen.getByRole("button", { name: /vstoupit/i }));
+    expect(localStorage.getItem("playerName")).toBe("Pepik");
+  });
+
+  it("saves default name 'Hráč' to localStorage when joining with empty input", () => {
+    const onJoin = jest.fn();
+    render(<LobbyScreen onJoin={onJoin} />);
+    fireEvent.click(screen.getByRole("button", { name: /vstoupit/i }));
+    expect(localStorage.getItem("playerName")).toBe("Hráč");
+  });
+
+  it("uses pre-filled name from localStorage when joining without typing", () => {
+    localStorage.setItem("playerName", "Honza");
+    const onJoin = jest.fn();
+    render(<LobbyScreen onJoin={onJoin} />);
+    fireEvent.click(screen.getByRole("button", { name: /vstoupit/i }));
+    expect(onJoin).toHaveBeenCalledWith("Honza");
   });
 });
