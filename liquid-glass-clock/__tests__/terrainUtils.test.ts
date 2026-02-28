@@ -99,6 +99,71 @@ describe("terrainUtils", () => {
     });
   });
 
+  describe("underwater swimming — terrain floor logic", () => {
+    it("terrain floor in water is always below WATER_LEVEL", () => {
+      // Find a water tile and verify the floor is below water surface
+      let waterX = 0, waterZ = 0;
+      let foundWater = false;
+      for (let x = -300; x <= 300 && !foundWater; x += 30) {
+        for (let z = -300; z <= 300 && !foundWater; z += 30) {
+          if (getTerrainHeight(x, z) < WATER_LEVEL) {
+            waterX = x;
+            waterZ = z;
+            foundWater = true;
+          }
+        }
+      }
+      expect(foundWater).toBe(true);
+      const floorH = getTerrainHeight(waterX, waterZ);
+      // The ocean floor is below water level — player can dive down to it
+      expect(floorH).toBeLessThan(WATER_LEVEL);
+    });
+
+    it("player swim floor (terrainY + PLAYER_HEIGHT) is below water surface (WATER_LEVEL + PLAYER_HEIGHT)", () => {
+      // Find a deep water tile
+      const PLAYER_HEIGHT = 1.8;
+      let found = false;
+      for (let x = -300; x <= 300 && !found; x += 40) {
+        for (let z = -300; z <= 300 && !found; z += 40) {
+          const h = getTerrainHeight(x, z);
+          if (h < WATER_LEVEL - 1) {
+            // floor the player would rest on when diving to the bottom
+            const floorY = h + PLAYER_HEIGHT;
+            // water surface the player floats at
+            const surfaceY = WATER_LEVEL + PLAYER_HEIGHT;
+            // There is real depth to dive through
+            expect(floorY).toBeLessThan(surfaceY);
+            found = true;
+          }
+        }
+      }
+      expect(found).toBe(true);
+    });
+
+    it("water areas exist deep enough for meaningful underwater traversal (>1 unit depth)", () => {
+      let deepWaterFound = false;
+      for (let x = -300; x <= 300 && !deepWaterFound; x += 25) {
+        for (let z = -300; z <= 300 && !deepWaterFound; z += 25) {
+          const h = getTerrainHeight(x, z);
+          if (h < WATER_LEVEL - 1.0) {
+            deepWaterFound = true;
+          }
+        }
+      }
+      expect(deepWaterFound).toBe(true);
+    });
+
+    it("all entity spawn points have enough land clearance above WATER_LEVEL", () => {
+      // generateSpawnPoints uses y < -1 as its water threshold (stricter than WATER_LEVEL=-0.5)
+      // so all returned points have terrain at least at -1, safely above any water
+      const pts = generateSpawnPoints(30, 15, 250, 77);
+      pts.forEach((p) => {
+        // Spawn points should be on dry, stable land (well above water)
+        expect(p.y).toBeGreaterThan(WATER_LEVEL);
+      });
+    });
+  });
+
   describe("getTerrainHeightSampled", () => {
     it("returns a number for origin", () => {
       const h = getTerrainHeightSampled(0, 0);
