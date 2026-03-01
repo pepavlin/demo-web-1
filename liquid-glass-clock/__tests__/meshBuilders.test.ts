@@ -38,6 +38,7 @@ import {
   buildCrossbowMesh,
   buildBoatMesh,
   buildCatapultMesh,
+  buildMotherShipMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -718,5 +719,71 @@ describe("buildCatapultMesh", () => {
         expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
       }
     });
+  });
+});
+
+// ─── buildMotherShipMesh ──────────────────────────────────────────────────────
+describe("buildMotherShipMesh", () => {
+  it("returns an object with group and lights array", () => {
+    const { group, lights } = buildMotherShipMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(lights)).toBe(true);
+  });
+
+  it("group has multiple child objects (ring, hub, arms, panels, lights, debris)", () => {
+    const { group } = buildMotherShipMesh();
+    expect(group.children.length).toBeGreaterThan(5);
+  });
+
+  it("lights array contains THREE.PointLight instances", () => {
+    const { lights } = buildMotherShipMesh();
+    expect(lights.length).toBeGreaterThan(0);
+    lights.forEach((light) => {
+      expect(light).toBeInstanceOf(THREE.PointLight);
+    });
+  });
+
+  it("all point lights have a warm orange/amber color (r > b)", () => {
+    const { lights } = buildMotherShipMesh();
+    lights.forEach((light) => {
+      // All mothership lights are orange/amber: red channel > blue channel
+      expect(light.color.r).toBeGreaterThan(light.color.b);
+    });
+  });
+
+  it("each point light has a _base property for flicker animation", () => {
+    const { lights } = buildMotherShipMesh();
+    lights.forEach((light) => {
+      const extended = light as THREE.PointLight & { _base?: number };
+      expect(typeof extended._base).toBe("number");
+      expect(extended._base).toBeGreaterThan(0);
+    });
+  });
+
+  it("group contains mesh descendants for the outer ring (TorusGeometry)", () => {
+    const { group } = buildMotherShipMesh();
+    let hasTorus = false;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh && (child as THREE.Mesh).geometry instanceof THREE.TorusGeometry) {
+        hasTorus = true;
+      }
+    });
+    expect(hasTorus).toBe(true);
+  });
+
+  it("group contains a Points object (debris particles)", () => {
+    const { group } = buildMotherShipMesh();
+    let hasPoints = false;
+    group.traverse((child) => {
+      if (child instanceof THREE.Points) hasPoints = true;
+    });
+    expect(hasPoints).toBe(true);
+  });
+
+  it("group is positioned at origin by default (caller controls placement)", () => {
+    const { group } = buildMotherShipMesh();
+    expect(group.position.x).toBe(0);
+    expect(group.position.y).toBe(0);
+    expect(group.position.z).toBe(0);
   });
 });
