@@ -62,11 +62,14 @@ export function useMultiplayer({
   const onUpdatedRef = useRef(onPlayerUpdated);
   const onChatRef = useRef(onChatMessage);
 
-  useEffect(() => { onInitRef.current = onInit; });
-  useEffect(() => { onJoinedRef.current = onPlayerJoined; });
-  useEffect(() => { onLeftRef.current = onPlayerLeft; });
-  useEffect(() => { onUpdatedRef.current = onPlayerUpdated; });
-  useEffect(() => { onChatRef.current = onChatMessage; });
+  // Update all callback refs in a single effect — avoids 5 separate render-phase effects
+  useEffect(() => {
+    onInitRef.current    = onInit;
+    onJoinedRef.current  = onPlayerJoined;
+    onLeftRef.current    = onPlayerLeft;
+    onUpdatedRef.current = onPlayerUpdated;
+    onChatRef.current    = onChatMessage;
+  });
 
   useEffect(() => {
     const socket = io({ path: "/socket.io", transports: ["websocket", "polling"] });

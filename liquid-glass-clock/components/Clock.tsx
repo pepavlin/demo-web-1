@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import {
   motion,
   AnimatePresence,
@@ -45,7 +45,7 @@ interface DigitProps {
   label?: string;
 }
 
-function AnimatedDigit({ value, label }: DigitProps) {
+const AnimatedDigit = memo(function AnimatedDigit({ value, label }: DigitProps) {
   return (
     <div className="flex flex-col items-center gap-2">
       <div
@@ -102,10 +102,10 @@ function AnimatedDigit({ value, label }: DigitProps) {
       )}
     </div>
   );
-}
+});
 
 /** 3-D sphere colon dots */
-function Colon() {
+const Colon = memo(function Colon() {
   return (
     <div
       className="colon-blink flex flex-col justify-center gap-3 pb-6 md:pb-10 self-center"
@@ -133,9 +133,9 @@ function Colon() {
       ))}
     </div>
   );
-}
+});
 
-function ProgressBar({ value, max }: { value: number; max: number }) {
+const ProgressBar = memo(function ProgressBar({ value, max }: { value: number; max: number }) {
   const pct = (value / max) * 100;
   return (
     <div
@@ -157,7 +157,7 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
       />
     </div>
   );
-}
+});
 
 export default function Clock() {
   const [time, setTime] = useState<TimeState | null>(null);
