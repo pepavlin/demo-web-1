@@ -52,6 +52,7 @@ import {
   buildCrossbowMesh,
   buildBoatMesh,
   buildCatapultMesh,
+  buildMotherShipMesh,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
@@ -381,6 +382,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const lightningTimerRef = useRef(0);
   /** Flash opacity 0–1; decays to 0 quickly after lightning */
   const lightningFlashRef = useRef(0);
+
+  // ─── MotherShip Refs ─────────────────────────────────────────────────────────
+  const motherShipRef = useRef<THREE.Group | null>(null);
+  const motherShipLightsRef = useRef<THREE.PointLight[]>([]);
 
   // ─── Boat Refs ───────────────────────────────────────────────────────────────
   const boatRef = useRef<THREE.Group | null>(null);
@@ -2283,6 +2288,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(boat);
     boatRef.current = boat;
 
+    // ── MotherShip ────────────────────────────────────────────────────────────
+    // Massive alien mothership hovering high in the sky above the world center.
+    // Scaled to 0.55× so the outer ring (~52 unit radius) reads well at distance.
+    const { group: shipGroup, lights: shipLights } = buildMotherShipMesh();
+    shipGroup.scale.setScalar(0.55);
+    // Position above the world, slightly to the north, tilted to look dramatic
+    shipGroup.position.set(0, 170, -60);
+    shipGroup.rotation.z = 0.06; // very slight list
+    scene.add(shipGroup);
+    motherShipRef.current = shipGroup;
+    motherShipLightsRef.current = shipLights;
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
@@ -2929,6 +2946,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Brighten lighthouse light at night, dim at day (smooth transition)
       if (lighthouseLightRef.current) {
         lighthouseLightRef.current.intensity = 1.5 + nightFactor * 4.5;
+      }
+
+      // ── MotherShip animation ──────────────────────────────────────────────
+      if (motherShipRef.current) {
+        // Ultra-slow rotation — full revolution in ~5 real minutes
+        motherShipRef.current.rotation.y = elapsed * 0.018;
+        // Gentle vertical bob
+        motherShipRef.current.position.y = 170 + Math.sin(elapsed * 0.12) * 1.8;
+        // Faint lateral sway
+        motherShipRef.current.rotation.z = 0.06 + Math.sin(elapsed * 0.07) * 0.008;
+        // Flickering orange lights
+        motherShipLightsRef.current.forEach((light, i) => {
+          const base = (light as THREE.PointLight & { _base?: number })._base ?? light.intensity;
+          light.intensity = base * (0.82 + Math.sin(elapsed * (1.2 + i * 0.37) + i) * 0.18);
+        });
       }
 
       // ── Player movement (only when NOT possessing an entity or on boat) ─────

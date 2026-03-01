@@ -1489,3 +1489,189 @@ export function buildCatapultMesh(): { group: THREE.Group; armGroup: THREE.Group
 
   return { group, armGroup };
 }
+
+// ── MotherShip ───────────────────────────────────────────────────────────────
+
+const hullMat = (color: number, roughness = 0.85, metalness = 0.6) =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness });
+
+/**
+ * Builds the District-9-style alien mothership mesh group.
+ * Returns the root group and an array of point lights for flicker animation.
+ * Scale the group externally (e.g. group.scale.setScalar(0.5)) as needed.
+ */
+export function buildMotherShipMesh(): { group: THREE.Group; lights: THREE.PointLight[] } {
+  const shipGroup = new THREE.Group();
+
+  // ── Outer ring ──────────────────────────────────────────────────────────────
+  const outerRing = new THREE.Group();
+  const torusMesh = new THREE.Mesh(new THREE.TorusGeometry(95, 8, 12, 80), hullMat(0x2e2820, 0.9, 0.5));
+  torusMesh.rotation.x = Math.PI / 2;
+  outerRing.add(torusMesh);
+
+  const innerTorus = new THREE.Mesh(new THREE.TorusGeometry(72, 4, 8, 64), hullMat(0x252018, 0.92, 0.45));
+  innerTorus.rotation.x = Math.PI / 2;
+  outerRing.add(innerTorus);
+
+  const accentTorus = new THREE.Mesh(new THREE.TorusGeometry(103, 2, 6, 80), hullMat(0x3a2e22, 0.88, 0.55));
+  accentTorus.rotation.x = Math.PI / 2;
+  accentTorus.position.y = -3;
+  outerRing.add(accentTorus);
+  shipGroup.add(outerRing);
+
+  // ── Central hub ─────────────────────────────────────────────────────────────
+  const hub = new THREE.Group();
+
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(28, 20, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+    hullMat(0x1e1c18, 0.95, 0.4)
+  );
+  dome.position.y = -2;
+  hub.add(dome);
+
+  hub.add(new THREE.Mesh(new THREE.CylinderGeometry(20, 24, 18, 16), hullMat(0x2a2420, 0.88, 0.55)));
+
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(18, 22, 16), hullMat(0x242018, 0.9, 0.5));
+  cap.position.y = 18;
+  hub.add(cap);
+
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(25, 3, 8, 32), hullMat(0x382e24, 0.85, 0.6));
+  collar.rotation.x = Math.PI / 2;
+  collar.position.y = 2;
+  hub.add(collar);
+
+  const blister1 = new THREE.Mesh(new THREE.SphereGeometry(8, 10, 8), hullMat(0x201e1a, 0.95, 0.35));
+  blister1.position.set(18, -5, 8);
+  hub.add(blister1);
+
+  const blister2 = new THREE.Mesh(new THREE.SphereGeometry(6, 10, 8), hullMat(0x201e1a, 0.95, 0.35));
+  blister2.position.set(-14, -8, 14);
+  hub.add(blister2);
+  shipGroup.add(hub);
+
+  // ── Radial arms ─────────────────────────────────────────────────────────────
+  const armsGroup = new THREE.Group();
+  const armAngles = [0, 51, 103, 155, 205, 257, 308];
+  const armWidths  = [5, 3.5, 4.5, 3, 5.5, 3.5, 4];
+  const armHeights = [6, 4, 5, 4.5, 7, 3.5, 5];
+  armAngles.forEach((deg, i) => {
+    const angle = (deg * Math.PI) / 180;
+    const len = 70;
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(armWidths[i], armHeights[i], len),
+      hullMat(0x28221e + i * 0x010000, 0.9, 0.5)
+    );
+    arm.position.set(Math.cos(angle) * (len / 2 + 22), -2 - i * 0.5, Math.sin(angle) * (len / 2 + 22));
+    arm.rotation.y = -angle;
+    armsGroup.add(arm);
+
+    if (i % 2 === 0) {
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(2.5, 3, len * 0.6), hullMat(0x201c18, 0.92, 0.45));
+      brace.position.set(Math.cos(angle) * (len * 0.3 + 22), -6, Math.sin(angle) * (len * 0.3 + 22));
+      brace.rotation.y = -angle;
+      armsGroup.add(brace);
+    }
+  });
+  shipGroup.add(armsGroup);
+
+  // ── Hanging elements ─────────────────────────────────────────────────────────
+  const hangGroup = new THREE.Group();
+  const hangDefs = [
+    { x: 40,  z: 60,  rx: 0.1,  rz: 0.08,  sy: 1.2, w: 12, h: 20, d: 16 },
+    { x: -55, z: 30,  rx: -0.08,rz: 0.12,  sy: 1.0, w: 10, h: 25, d: 12 },
+    { x: 70,  z: -20, rx: 0.05, rz: -0.1,  sy: 1.1, w: 8,  h: 18, d: 10 },
+    { x: -30, z: -70, rx: 0.12, rz: 0.06,  sy: 0.9, w: 14, h: 22, d: 18 },
+    { x: 10,  z: 85,  rx: -0.06,rz: -0.08, sy: 1.3, w: 9,  h: 16, d: 11 },
+    { x: -80, z: -40, rx: 0.09, rz: 0.15,  sy: 1.0, w: 11, h: 19, d: 14 },
+    { x: 60,  z: 70,  rx: -0.12,rz: 0.07,  sy: 1.1, w: 7,  h: 14, d: 9  },
+    { x: -20, z: 95,  rx: 0.08, rz: -0.11, sy: 0.95,w: 13, h: 21, d: 15 },
+  ];
+  hangDefs.forEach(({ x, z, rx, rz, sy, w, h, d }) => {
+    const mod = new THREE.Mesh(new THREE.BoxGeometry(w, h * sy, d), hullMat(0x1c1814, 0.95, 0.4));
+    mod.position.set(x, -12 - h * sy * 0.5, z);
+    mod.rotation.x = rx; mod.rotation.z = rz;
+    hangGroup.add(mod);
+
+    const acc = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, h * 0.3, d * 0.6), hullMat(0x251f1b, 0.93, 0.45));
+    acc.position.set(x + 1, -12 - h * sy - h * 0.2, z - 1);
+    hangGroup.add(acc);
+  });
+  for (let i = 0; i < 18; i++) {
+    const angle = (i / 18) * Math.PI * 2 + i * 0.3;
+    const r = 45 + Math.sin(i * 1.7) * 30;
+    const h = 8 + Math.cos(i * 2.3) * 5;
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, h, 5), hullMat(0x1a1612, 0.95, 0.5));
+    tube.position.set(Math.cos(angle) * r, -10 - h * 0.5, Math.sin(angle) * r);
+    hangGroup.add(tube);
+  }
+  shipGroup.add(hangGroup);
+
+  // ── Underside panels ────────────────────────────────────────────────────────
+  const panelGroup = new THREE.Group();
+  for (let i = 0; i < 24; i++) {
+    const angle = (i / 24) * Math.PI * 2;
+    const r = 30 + (i % 5) * 10;
+    const w = 8 + (i % 3) * 4;
+    const d = 6 + (i % 4) * 3;
+    const panelMat = hullMat(i % 3 === 0 ? 0x1e1c18 : i % 3 === 1 ? 0x252018 : 0x1a1814, 0.95, 0.45);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), panelMat);
+    panel.position.set(Math.cos(angle) * r, -4 - (i % 4) * 1.5, Math.sin(angle) * r);
+    panel.rotation.y = angle + i * 0.2;
+    panelGroup.add(panel);
+  }
+  shipGroup.add(panelGroup);
+
+  // ── Orange glow lights ───────────────────────────────────────────────────────
+  const pointLights: THREE.PointLight[] = [];
+  const lightDefs = [
+    { x: 0,   y: -8, z: 0,   intensity: 12, color: 0xff8833 },
+    { x: 45,  y: -6, z: 20,  intensity: 8,  color: 0xff6622 },
+    { x: -50, y: -7, z: -15, intensity: 9,  color: 0xffaa44 },
+    { x: 20,  y: -5, z: -60, intensity: 7,  color: 0xff7733 },
+    { x: -25, y: -6, z: 55,  intensity: 8,  color: 0xff5511 },
+    { x: 70,  y: -5, z: -40, intensity: 6,  color: 0xffbb55 },
+    { x: -65, y: -7, z: 45,  intensity: 7,  color: 0xff6633 },
+    { x: 30,  y: -4, z: 80,  intensity: 5,  color: 0xff8844 },
+    { x: -80, y: -5, z: -30, intensity: 6,  color: 0xff5522 },
+    { x: 55,  y: -6, z: -70, intensity: 5,  color: 0xffaa33 },
+    { x: 12,  y: -5, z: 35,  intensity: 3,  color: 0xff7722 },
+    { x: -35, y: -4, z: -50, intensity: 3,  color: 0xff6611 },
+    { x: 80,  y: -5, z: 10,  intensity: 4,  color: 0xffcc55 },
+    { x: -15, y: -6, z: -85, intensity: 4,  color: 0xff8833 },
+  ];
+  lightDefs.forEach(({ x, y, z, intensity, color }) => {
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(1.5 + intensity * 0.15, 8, 8),
+      new THREE.MeshBasicMaterial({ color })
+    );
+    glow.position.set(x, y, z);
+    shipGroup.add(glow);
+
+    const light = new THREE.PointLight(color, intensity, 80, 2);
+    light.position.set(x, y, z);
+    // Store base intensity for flicker animation
+    (light as THREE.PointLight & { _base: number })._base = intensity;
+    shipGroup.add(light);
+    pointLights.push(light);
+  });
+
+  // ── Debris particles around the ship ────────────────────────────────────────
+  const count = 500;
+  const debrisPos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const r = 40 + Math.random() * 80;
+    debrisPos[i * 3]     = Math.cos(theta) * r;
+    debrisPos[i * 3 + 1] = (Math.random() - 0.5) * 30;
+    debrisPos[i * 3 + 2] = Math.sin(theta) * r;
+  }
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute("position", new THREE.BufferAttribute(debrisPos, 3));
+  const debris = new THREE.Points(
+    debrisGeo,
+    new THREE.PointsMaterial({ color: 0x8a7a6a, size: 0.6, sizeAttenuation: true, transparent: true, opacity: 0.45 })
+  );
+  shipGroup.add(debris);
+
+  return { group: shipGroup, lights: pointLights };
+}
