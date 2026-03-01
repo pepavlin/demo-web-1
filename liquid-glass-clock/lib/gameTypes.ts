@@ -81,6 +81,20 @@ export interface SheepData {
   headPitchTarget: number;
   /** Current head pitch (smoothed). */
   headPitchCurrent: number;
+
+  // ── Combat ─────────────────────────────────────────────────────────────────
+  hp: number;
+  maxHp: number;
+  /** False once the death animation finishes and the mesh is removed. */
+  isAlive: boolean;
+  /** Counts down from 0.25 s → 0 to drive the red hit flash. */
+  hitFlashTimer: number;
+  /** True while the death animation is playing. */
+  isDying: boolean;
+  /** Elapsed seconds since death was triggered. */
+  deathTimer: number;
+  /** Accumulated Y rotation during death spin. */
+  deathRotationY: number;
 }
 
 export interface FoxData {
@@ -129,6 +143,16 @@ export interface CannonballData {
   shadowMesh: THREE.Mesh;
   velocity: THREE.Vector3;
   lifetime: number; // seconds remaining before despawn
+}
+
+/** A single blood splatter particle spawned on sheep death. */
+export interface BloodParticle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  /** Remaining lifetime in seconds. */
+  lifetime: number;
+  /** Original lifetime (used to compute fade ratio). */
+  maxLifetime: number;
 }
 
 /** A brief impact explosion ring that expands and fades on cannonball landing. */
