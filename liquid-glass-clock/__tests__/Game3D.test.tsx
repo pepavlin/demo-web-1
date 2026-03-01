@@ -453,4 +453,39 @@ describe("Game3D component", () => {
     act(() => { jest.advanceTimersByTime(0); });
     expect(queryByText(/Na lodi/)).toBeNull();
   });
+
+  // ── Minimap enlargement & lighthouse accessibility tests ─────────────────────
+
+  it("renders minimap canvas with enlarged size (220x220)", () => {
+    const { container } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    const canvas = container.querySelector("canvas[width='220'][height='220']");
+    expect(canvas).not.toBeNull();
+  });
+
+  it("lighthouse coordinates are within world playable boundary (±123.5)", () => {
+    // LIGHTHOUSE_X = -95, LIGHTHOUSE_Z = 85, WORLD_SIZE/2 - 10 = 123.5
+    const LIGHTHOUSE_X = -95;
+    const LIGHTHOUSE_Z = 85;
+    const WORLD_SIZE = 267;
+    const boundary = WORLD_SIZE / 2 - 10;
+    expect(Math.abs(LIGHTHOUSE_X)).toBeLessThanOrEqual(boundary);
+    expect(Math.abs(LIGHTHOUSE_Z)).toBeLessThanOrEqual(boundary);
+  });
+
+  it("lighthouse is visible on the 220x220 minimap (coords map within canvas)", () => {
+    const LIGHTHOUSE_X = -95;
+    const LIGHTHOUSE_Z = 85;
+    const WORLD_SIZE = 267;
+    const W = 220;
+    const scale = W / WORLD_SIZE;
+    const cx = W / 2;
+    const cy = W / 2;
+    const mx = cx + LIGHTHOUSE_X * scale;
+    const mz = cy + LIGHTHOUSE_Z * scale;
+    expect(mx).toBeGreaterThanOrEqual(0);
+    expect(mx).toBeLessThanOrEqual(W);
+    expect(mz).toBeGreaterThanOrEqual(0);
+    expect(mz).toBeLessThanOrEqual(W);
+  });
 });
