@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 
 const SHEEP_W = 120;
 const SHEEP_H = 85;
-const MOVE_SPEED = 280; // px per second along edge
+const MOVE_SPEED = 160; // px per second along edge
 const JUMP_VELOCITY = 520; // px/s away from wall (toward center)
 const GRAVITY = 1200; // px/s²
 const GROUND_Y_OFFSET = 10; // gap between sheep feet and wall
