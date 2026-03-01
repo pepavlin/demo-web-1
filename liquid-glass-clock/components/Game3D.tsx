@@ -335,6 +335,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const bulletsRef = useRef<BulletData[]>([]);
   const weaponMeshRef = useRef<THREE.Group | null>(null);
   const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
+  const swordSwingTimerRef = useRef(9999); // seconds since last sword swing; 9999 = idle (no swing)
   const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
 
   // ─── Catapult / Cannonball Refs ──────────────────────────────────────────────
@@ -608,9 +609,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : type === "crossbow" ? buildCrossbowMesh()
       : buildSwordMesh(); // sword
     if (type === "sword") {
-      newMesh.position.set(0.20, -0.18, -0.38);
-      newMesh.rotation.y = -0.25;
-      newMesh.rotation.z = -0.05;
+      newMesh.position.set(0.25, -0.28, -0.48);
+      newMesh.rotation.x = -Math.PI / 2; // tip pointing up
+      newMesh.rotation.y = -0.3;          // angle so blade face shows toward center
+      newMesh.rotation.z = 0.3;           // tilt right – natural grip
     } else if (type === "bow") {
       newMesh.position.set(0.16, -0.16, -0.40);
       newMesh.rotation.y = -0.12;
@@ -717,6 +719,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
+
+    // ── Sword swing animation trigger ───────────────────────────────────────
+    if (weaponCfg.type === "sword") {
+      swordSwingTimerRef.current = 0; // restart the swing timer
+    }
 
     // ── Muzzle flash (only for ranged weapons) ──────────────────────────────
     if (muzzleFlashRef.current && weaponCfg.bulletSpeed > 0) {
@@ -919,9 +926,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : buildSwordMesh(); // sword
     // Position each weapon in camera-local space
     if (wType === "sword") {
-      weaponGroup.position.set(0.20, -0.18, -0.38);
-      weaponGroup.rotation.y = -0.25;
-      weaponGroup.rotation.z = -0.05;
+      weaponGroup.position.set(0.25, -0.28, -0.48);
+      weaponGroup.rotation.x = -Math.PI / 2; // tip pointing up
+      weaponGroup.rotation.y = -0.3;          // angle so blade face shows toward center
+      weaponGroup.rotation.z = 0.3;           // tilt right – natural grip
     } else if (wType === "bow") {
       weaponGroup.position.set(0.16, -0.16, -0.40);
       weaponGroup.rotation.y = -0.12;
@@ -3594,15 +3602,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const swaySpeed = isMoving ? 7 : 3;
 
         const wType = selectedWeaponRef.current;
-        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : 0.20; // sword default
-        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : -0.18; // sword default
-        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : -0.38; // sword default
-        wep.position.set(
-          baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
-          baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
-          baseZ + recoil * 0.12
-        );
-        wep.rotation.x = recoil * 0.18 + Math.sin(elapsed * swaySpeed) * swayAmt * 0.4;
+        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : 0.25; // sword: 0.25
+        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : -0.28; // sword: -0.28
+        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : -0.48; // sword: -0.48
+
+        if (wType === "sword") {
+          // ── Sword swing animation ─────────────────────────────────────────
+          const SWORD_SWING_DURATION = 0.30; // seconds for one full slash
+          if (swordSwingTimerRef.current < SWORD_SWING_DURATION) {
+            swordSwingTimerRef.current += dt;
+          }
+          const swingProgress = Math.min(1, swordSwingTimerRef.current / SWORD_SWING_DURATION);
+          // Bell-curve: 0 → peak at 0.5 → 0. Gives a smooth out-and-back slash.
+          const swingAngle = Math.sin(swingProgress * Math.PI);
+
+          // Position: subtle forward thrust at peak of swing
+          wep.position.set(
+            baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6 - swingAngle * 0.04,
+            baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt,
+            baseZ - swingAngle * 0.06
+          );
+          // Rotation: tip starts up (-π/2), swings forward to near-horizontal, then returns
+          wep.rotation.x = -Math.PI / 2 + swingAngle * 1.5; // tip up → swing forward
+          wep.rotation.y = -0.3 + swingAngle * 0.25;         // slight outward sweep
+          wep.rotation.z = 0.3  - swingAngle * 0.55;         // slash from right to left
+        } else {
+          wep.position.set(
+            baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
+            baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
+            baseZ + recoil * 0.12
+          );
+          wep.rotation.x = recoil * 0.18 + Math.sin(elapsed * swaySpeed) * swayAmt * 0.4;
+        }
 
         // ── Bow draw animation ──────────────────────────────────────────────
         // bowstring is pulled back as the bow reloads. drawProgress goes from
