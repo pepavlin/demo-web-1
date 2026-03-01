@@ -27,9 +27,11 @@ export function useMouseParallax(): MouseParallax {
       rawX.set((e.clientX / window.innerWidth) * 2 - 1);
       rawY.set((e.clientY / window.innerHeight) * 2 - 1);
     };
-    window.addEventListener("mousemove", handle);
+    window.addEventListener("mousemove", handle, { passive: true });
     return () => window.removeEventListener("mousemove", handle);
-  }, [rawX, rawY]);
+    // rawX / rawY are stable MotionValue references — no re-registration needed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { normX, normY };
 }

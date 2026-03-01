@@ -14,6 +14,10 @@ interface Particle {
   radius: number;
   color: string;
   glowColor: string;
+  /** Pre-parsed RGB channels – avoids regex on every frame */
+  r: number;
+  g: number;
+  b: number;
 }
 
 const DOT_COLORS = [
@@ -26,13 +30,14 @@ const DOT_COLORS = [
 ];
 
 // ─── Scene constants ─────────────────────────────────────────────────────────
-const PARTICLE_COUNT     = 2500;
+const PARTICLE_COUNT     = 900;   // Reduced from 2500 for better frame budget
 const WORLD_SIZE         = 2200;  // Half-size of the world cube
 const FOV_DEFAULT        = 650;   // Default focal length
 const FOV_MIN            = 350;
 const FOV_MAX            = 1400;
 const NEAR_CLIP          = 18;    // Discard particles this close to camera
 const CONNECTION_DIST_3D = 180;   // Reduced for better performance
+const CONNECTION_DIST_3D_SQ = CONNECTION_DIST_3D * CONNECTION_DIST_3D; // Pre-squared for fast rejection
 const MAX_LINE_OPACITY   = 0.28;
 const PARTICLE_SPEED     = 0.28;
 const PARTICLE_WORLD_R   = 4.5;
@@ -42,7 +47,7 @@ const BREATHE_AMPLITUDE  = 280;    // Camera moves ±280 world units along Z
 const BREATHE_SPEED      = 0.00045; // Slow oscillation (~14 s per cycle at 60 fps)
 const CAM_Z_LERP         = 0.018;   // Camera Z smoothing
 /** Max particles sampled for the O(n²) connection pass – keeps it O(CONN_SAMPLE²) not O(n²) */
-const CONN_SAMPLE        = 200;
+const CONN_SAMPLE        = 80;    // Reduced from 200 (40K→6.4K comparisons/frame)
 
 // ─── Mouse attraction / repulsion constants ───────────────────────────────────
 const MOUSE_INFLUENCE_R  = 200;   // Screen-space radius of mouse influence (px)
@@ -51,11 +56,19 @@ const REPULSE_STRENGTH   = 0.160; // Acceleration per frame at max influence (re
 const MOUSE_DAMP         = 0.97;  // Velocity damping applied inside influence radius
 const MAX_SPEED_BOOST    = 8.8;   // Speed cap (units/frame) during mouse interaction – 4× higher
 
+function parseRgba(color: string): { r: number; g: number; b: number } {
+  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (!m) return { r: 255, g: 255, b: 255 };
+  return { r: +m[1], g: +m[2], b: +m[3] };
+}
+
 function createParticle(): Particle {
   const colorEntry = DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)];
   const theta = Math.random() * Math.PI * 2;
   const phi   = Math.acos(2 * Math.random() - 1);
   const speed = PARTICLE_SPEED * (0.4 + Math.random() * 0.9);
+  // Pre-parse RGB at creation time – avoids per-frame regex
+  const { r, g, b } = parseRgba(colorEntry.dot);
   return {
     wx: (Math.random() - 0.5) * WORLD_SIZE * 2,
     wy: (Math.random() - 0.5) * WORLD_SIZE * 2,
@@ -66,13 +79,8 @@ function createParticle(): Particle {
     radius: Math.random() * 1.5 + 1.0,
     color: colorEntry.dot,
     glowColor: colorEntry.glow,
+    r, g, b,
   };
-}
-
-function parseRgba(color: string): { r: number; g: number; b: number } {
-  const m = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (!m) return { r: 255, g: 255, b: 255 };
-  return { r: +m[1], g: +m[2], b: +m[3] };
 }
 
 export default function GeometricParticles() {
@@ -130,10 +138,10 @@ export default function GeometricParticles() {
       );
     };
 
-    window.addEventListener("mousemove",  onMouseMove);
-    window.addEventListener("mouseleave", onMouseLeave);
-    window.addEventListener("mousedown",  onMouseDown);
-    window.addEventListener("mouseup",    onMouseUp);
+    window.addEventListener("mousemove",  onMouseMove, { passive: true });
+    window.addEventListener("mouseleave", onMouseLeave, { passive: true });
+    window.addEventListener("mousedown",  onMouseDown, { passive: true });
+    window.addEventListener("mouseup",    onMouseUp, { passive: true });
     window.addEventListener("wheel",      onWheel, { passive: false });
 
     // ─── Perspective projection ───────────────────────────────────────────────
@@ -243,7 +251,7 @@ export default function GeometricParticles() {
 
       // ── Draw connecting lines (3-D distance check) ────────────────────────
       // Sample only CONN_SAMPLE visible particles for the O(n²) pass so that
-      // frame time stays bounded even with 6 000 total particles.
+      // frame time stays bounded.
       const connCandidates = projected.filter((x) => x.proj !== null).slice(0, CONN_SAMPLE);
       for (let i = 0; i < connCandidates.length; i++) {
         const a = connCandidates[i];
@@ -254,19 +262,20 @@ export default function GeometricParticles() {
           const dx = a.p.wx - b.p.wx;
           const dy = a.p.wy - b.p.wy;
           const dz = a.p.wz - b.p.wz;
-          const dist3d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist3d >= CONNECTION_DIST_3D) continue;
+          // Use squared distance for fast rejection — avoids sqrt on most pairs
+          const dist3dSq = dx * dx + dy * dy + dz * dz;
+          if (dist3dSq >= CONNECTION_DIST_3D_SQ) continue;
 
+          const dist3d    = Math.sqrt(dist3dSq);
           const avgDepth  = (a.proj.depth + b.proj.depth) / 2;
           const depthFade = Math.max(0, 1 - (avgDepth - NEAR_CLIP) / (maxDepth - NEAR_CLIP));
           const opacity   = (1 - dist3d / CONNECTION_DIST_3D) * MAX_LINE_OPACITY * (0.2 + depthFade * 0.8);
 
-          const ca = parseRgba(a.p.color);
-          const cb = parseRgba(b.p.color);
+          // Use pre-parsed RGB channels — no regex at runtime
           ctx.beginPath();
           ctx.moveTo(a.proj.sx, a.proj.sy);
           ctx.lineTo(b.proj.sx, b.proj.sy);
-          ctx.strokeStyle = `rgba(${Math.round((ca.r + cb.r) / 2)},${Math.round((ca.g + cb.g) / 2)},${Math.round((ca.b + cb.b) / 2)},${opacity.toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${(a.p.r + b.p.r) >> 1},${(a.p.g + b.p.g) >> 1},${(a.p.b + b.p.b) >> 1},${opacity.toFixed(3)})`;
           ctx.lineWidth   = Math.max(0.2, depthFade * 1.0);
           ctx.stroke();
         }
@@ -305,10 +314,10 @@ export default function GeometricParticles() {
             sx - drawRadius * 0.3, sy - drawRadius * 0.3, 0,
             sx, sy, drawRadius
           );
-          const { r, g, b: bv } = parseRgba(p.color);
+          // Use pre-parsed RGB channels — no regex at runtime
           sphereGrad.addColorStop(0, "rgba(255,255,255,0.9)");
           sphereGrad.addColorStop(0.3, p.color);
-          sphereGrad.addColorStop(1, `rgba(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(bv * 0.4)},0.8)`);
+          sphereGrad.addColorStop(1, `rgba(${p.r * 0.4 | 0},${p.g * 0.4 | 0},${p.b * 0.4 | 0},0.8)`);
           ctx.fillStyle = sphereGrad;
         } else {
           ctx.fillStyle = p.color;

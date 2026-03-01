@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useTasks, parseTasks as parseTasksImpl } from "@/hooks/useTasks";
 import type { Task } from "@/hooks/useTasks";
 
@@ -27,13 +27,16 @@ export default function FeedbackWidget() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const tasks = useTasks();
-  const runningTasks = tasks.filter((t) => t?.status === "running");
-  const queuedTasks = tasks.filter((t) => t?.status === "queued");
-  const taskCounts: TaskCounts = {
-    running: runningTasks.length,
-    queued: queuedTasks.length,
-  };
-  const hasActiveTasks = taskCounts.running > 0 || taskCounts.queued > 0;
+  const { runningTasks, queuedTasks, taskCounts, hasActiveTasks } = useMemo(() => {
+    const running = tasks.filter((t) => t?.status === "running");
+    const queued  = tasks.filter((t) => t?.status === "queued");
+    return {
+      runningTasks: running,
+      queuedTasks:  queued,
+      taskCounts: { running: running.length, queued: queued.length } as TaskCounts,
+      hasActiveTasks: running.length > 0 || queued.length > 0,
+    };
+  }, [tasks]);
 
   useEffect(() => {
     if (open && status === "idle" && textareaRef.current) {
