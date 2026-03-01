@@ -71,8 +71,8 @@ import WeaponSelect from "./WeaponSelect";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
-const MOVE_SPEED = 10;
-const SPRINT_SPEED = 20;
+const MOVE_SPEED = 6;
+const SPRINT_SPEED = 12;
 const GRAVITY = -25;
 const JUMP_FORCE = 10;
 const SHEEP_COUNT = 200;
