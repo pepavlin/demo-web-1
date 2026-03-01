@@ -33,9 +33,9 @@ import {
   buildRuins,
   buildLighthouse,
   buildBulletMesh,
-  buildWeaponMesh,
   buildSwordMesh,
-  buildSniperMesh,
+  buildBowMesh,
+  buildCrossbowMesh,
   buildBoatMesh,
   buildCatapultMesh,
 } from "@/lib/meshBuilders";
@@ -489,32 +489,35 @@ describe("buildBulletMesh", () => {
   });
 });
 
-describe("buildWeaponMesh", () => {
+describe("buildBowMesh", () => {
   it("returns a THREE.Group", () => {
-    const weapon = buildWeaponMesh();
-    expect(weapon).toBeInstanceOf(THREE.Group);
+    const bow = buildBowMesh();
+    expect(bow).toBeInstanceOf(THREE.Group);
   });
 
-  it("has multiple parts (slide, barrel, grip, guard, sight)", () => {
-    const weapon = buildWeaponMesh();
-    expect(weapon.children.length).toBeGreaterThanOrEqual(5);
+  it("has multiple parts (limbs, grip, string, arrow, fletching)", () => {
+    const bow = buildBowMesh();
+    expect(bow.children.length).toBeGreaterThanOrEqual(8);
   });
 
   it("all parts are THREE.Mesh instances", () => {
-    const weapon = buildWeaponMesh();
-    weapon.children.forEach((child) => {
+    const bow = buildBowMesh();
+    bow.children.forEach((child) => {
       expect(child).toBeInstanceOf(THREE.Mesh);
     });
   });
 
-  it("uses dark material colors (grey/black gun finish)", () => {
-    const weapon = buildWeaponMesh();
-    // Every material color should be dark (max channel < 0.35)
-    weapon.children.forEach((child) => {
+  it("uses wood-like brown colors for limbs", () => {
+    const bow = buildBowMesh();
+    // Check that at least one child has a brownish color (r > g > b)
+    let hasBrownish = false;
+    bow.children.forEach((child) => {
       const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
-      const maxChannel = Math.max(mat.color.r, mat.color.g, mat.color.b);
-      expect(maxChannel).toBeLessThan(0.35);
+      if (mat.color.r > mat.color.g && mat.color.g > mat.color.b) {
+        hasBrownish = true;
+      }
     });
+    expect(hasBrownish).toBe(true);
   });
 });
 
@@ -548,34 +551,34 @@ describe("buildSwordMesh", () => {
   });
 });
 
-describe("buildSniperMesh", () => {
+describe("buildCrossbowMesh", () => {
   it("returns a THREE.Group", () => {
-    const sniper = buildSniperMesh();
-    expect(sniper).toBeInstanceOf(THREE.Group);
+    const crossbow = buildCrossbowMesh();
+    expect(crossbow).toBeInstanceOf(THREE.Group);
   });
 
-  it("has many parts (barrel, body, scope, stock, grip, bipod, etc.)", () => {
-    const sniper = buildSniperMesh();
-    expect(sniper.children.length).toBeGreaterThanOrEqual(10);
+  it("has many parts (stock, rail, limbs, stirrup, string, trigger, bolt, etc.)", () => {
+    const crossbow = buildCrossbowMesh();
+    expect(crossbow.children.length).toBeGreaterThanOrEqual(10);
   });
 
   it("all parts are THREE.Mesh instances", () => {
-    const sniper = buildSniperMesh();
-    sniper.children.forEach((child) => {
+    const crossbow = buildCrossbowMesh();
+    crossbow.children.forEach((child) => {
       expect(child).toBeInstanceOf(THREE.Mesh);
     });
   });
 
-  it("includes a glowing scope lens (emissive material)", () => {
-    const sniper = buildSniperMesh();
-    let hasEmissive = false;
-    sniper.children.forEach((child) => {
+  it("uses dark wood and metal colors", () => {
+    const crossbow = buildCrossbowMesh();
+    // At least one part should be dark (dark wood or metal)
+    let hasDark = false;
+    crossbow.children.forEach((child) => {
       const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
-      if (mat.emissive && (mat.emissive.r > 0 || mat.emissive.g > 0 || mat.emissive.b > 0)) {
-        hasEmissive = true;
-      }
+      const brightness = mat.color.r + mat.color.g + mat.color.b;
+      if (brightness < 0.5) hasDark = true;
     });
-    expect(hasEmissive).toBe(true);
+    expect(hasDark).toBe(true);
   });
 });
 

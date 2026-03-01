@@ -960,6 +960,194 @@ export function buildSniperMesh(): THREE.Group {
   return group;
 }
 
+// ─── Weapon (bow) ─────────────────────────────────────────────────────────────
+/** First-person bow with curved limbs and a visible string. */
+export function buildBowMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x7a4a1a });
+  const darkWoodMat = new THREE.MeshLambertMaterial({ color: 0x4a2a08 });
+  const stringMat = new THREE.MeshLambertMaterial({ color: 0xeeddbb });
+  const arrowMat = new THREE.MeshLambertMaterial({ color: 0x8b5e3c });
+  const arrowTipMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
+  const fletchingMat = new THREE.MeshLambertMaterial({ color: 0xdd4444 });
+
+  // ── Grip (center handle) ─────────────────────────────────────────────────
+  const gripGeo = new THREE.CylinderGeometry(0.016, 0.018, 0.14, 8);
+  const grip = new THREE.Mesh(gripGeo, darkWoodMat);
+  group.add(grip);
+
+  // ── Upper limb (curved upward arc – 3 segments) ──────────────────────────
+  // Segment 1: lower part of upper limb
+  const u1Geo = new THREE.CylinderGeometry(0.012, 0.015, 0.10, 7);
+  const u1 = new THREE.Mesh(u1Geo, woodMat);
+  u1.position.set(0.018, 0.115, 0.01);
+  u1.rotation.z = 0.22;
+  group.add(u1);
+
+  // Segment 2: mid upper limb
+  const u2Geo = new THREE.CylinderGeometry(0.009, 0.012, 0.10, 7);
+  const u2 = new THREE.Mesh(u2Geo, woodMat);
+  u2.position.set(0.042, 0.21, 0.008);
+  u2.rotation.z = 0.48;
+  group.add(u2);
+
+  // Segment 3: tip of upper limb (angled back toward string)
+  const u3Geo = new THREE.CylinderGeometry(0.006, 0.009, 0.07, 6);
+  const u3 = new THREE.Mesh(u3Geo, woodMat);
+  u3.position.set(0.074, 0.28, 0.002);
+  u3.rotation.z = 0.72;
+  group.add(u3);
+
+  // ── Lower limb (mirrored) ─────────────────────────────────────────────────
+  const l1Geo = new THREE.CylinderGeometry(0.012, 0.015, 0.10, 7);
+  const l1 = new THREE.Mesh(l1Geo, woodMat);
+  l1.position.set(0.018, -0.115, 0.01);
+  l1.rotation.z = -0.22;
+  group.add(l1);
+
+  const l2Geo = new THREE.CylinderGeometry(0.009, 0.012, 0.10, 7);
+  const l2 = new THREE.Mesh(l2Geo, woodMat);
+  l2.position.set(0.042, -0.21, 0.008);
+  l2.rotation.z = -0.48;
+  group.add(l2);
+
+  const l3Geo = new THREE.CylinderGeometry(0.006, 0.009, 0.07, 6);
+  const l3 = new THREE.Mesh(l3Geo, woodMat);
+  l3.position.set(0.074, -0.28, 0.002);
+  l3.rotation.z = -0.72;
+  group.add(l3);
+
+  // ── Bowstring (thin flat box from upper to lower tip) ─────────────────────
+  const stringGeo = new THREE.BoxGeometry(0.004, 0.60, 0.003);
+  const stringMesh = new THREE.Mesh(stringGeo, stringMat);
+  stringMesh.position.set(0.095, 0, 0.0);
+  group.add(stringMesh);
+
+  // ── Arrow on the string ───────────────────────────────────────────────────
+  // Shaft
+  const shaftGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.38, 6);
+  const shaft = new THREE.Mesh(shaftGeo, arrowMat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.set(0.06, 0, -0.12);
+  group.add(shaft);
+
+  // Arrowhead
+  const tipGeo = new THREE.ConeGeometry(0.009, 0.04, 6);
+  const tip = new THREE.Mesh(tipGeo, arrowTipMat);
+  tip.rotation.x = -Math.PI / 2;
+  tip.position.set(0.06, 0, -0.33);
+  group.add(tip);
+
+  // Fletching (two small flat rectangles at the nock end)
+  const fletchGeo = new THREE.BoxGeometry(0.002, 0.035, 0.05);
+  const fletch1 = new THREE.Mesh(fletchGeo, fletchingMat);
+  fletch1.position.set(0.066, 0.018, 0.08);
+  group.add(fletch1);
+  const fletch2 = new THREE.Mesh(fletchGeo.clone(), fletchingMat);
+  fletch2.position.set(0.066, -0.018, 0.08);
+  group.add(fletch2);
+
+  return group;
+}
+
+// ─── Weapon (crossbow) ────────────────────────────────────────────────────────
+/** First-person crossbow with stock, horizontal limbs and loaded bolt. */
+export function buildCrossbowMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x2a1a08 });
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b3d1a });
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+  const darkMetalMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const stringMat = new THREE.MeshLambertMaterial({ color: 0xddccaa });
+  const boltMat = new THREE.MeshLambertMaterial({ color: 0x7a4a1a });
+  const boltTipMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+
+  // ── Stock (main wooden body, aimed along -Z) ──────────────────────────────
+  const stockGeo = new THREE.BoxGeometry(0.06, 0.055, 0.40);
+  const stock = new THREE.Mesh(stockGeo, woodMat);
+  stock.position.set(0, 0, 0.02);
+  group.add(stock);
+
+  // Butt of the stock (wider end at back)
+  const buttGeo = new THREE.BoxGeometry(0.07, 0.065, 0.10);
+  const butt = new THREE.Mesh(buttGeo, woodMat);
+  butt.position.set(0, -0.004, 0.22);
+  group.add(butt);
+
+  // ── Tiller / rail (forward rail for the bolt to slide on) ─────────────────
+  const railGeo = new THREE.BoxGeometry(0.038, 0.022, 0.30);
+  const rail = new THREE.Mesh(railGeo, darkMetalMat);
+  rail.position.set(0, 0.038, -0.12);
+  group.add(rail);
+
+  // ── Horizontal bow limbs (perpendicular to aiming axis) ───────────────────
+  // Left limb
+  const leftLimbGeo = new THREE.CylinderGeometry(0.010, 0.013, 0.26, 7);
+  const leftLimb = new THREE.Mesh(leftLimbGeo, bodyMat);
+  leftLimb.rotation.z = Math.PI / 2;
+  leftLimb.position.set(-0.13, 0.028, -0.22);
+  group.add(leftLimb);
+
+  // Right limb
+  const rightLimbGeo = new THREE.CylinderGeometry(0.010, 0.013, 0.26, 7);
+  const rightLimb = new THREE.Mesh(rightLimbGeo, bodyMat);
+  rightLimb.rotation.z = Math.PI / 2;
+  rightLimb.position.set(0.13, 0.028, -0.22);
+  group.add(rightLimb);
+
+  // ── Stirrup (metal loop at front, used to cock the crossbow) ─────────────
+  const stirrupGeo = new THREE.TorusGeometry(0.028, 0.007, 6, 10, Math.PI);
+  const stirrup = new THREE.Mesh(stirrupGeo, metalMat);
+  stirrup.rotation.y = Math.PI / 2;
+  stirrup.position.set(0, 0.006, -0.35);
+  group.add(stirrup);
+
+  // ── Bowstring (horizontal, pulled back in cocked position) ────────────────
+  // Left string half
+  const lStringGeo = new THREE.BoxGeometry(0.003, 0.003, 0.14);
+  const lString = new THREE.Mesh(lStringGeo, stringMat);
+  lString.position.set(-0.065, 0.028, -0.14);
+  lString.rotation.y = 0.18;
+  group.add(lString);
+
+  // Right string half
+  const rStringGeo = new THREE.BoxGeometry(0.003, 0.003, 0.14);
+  const rString = new THREE.Mesh(rStringGeo, stringMat);
+  rString.position.set(0.065, 0.028, -0.14);
+  rString.rotation.y = -0.18;
+  group.add(rString);
+
+  // ── Trigger mechanism (simple block) ─────────────────────────────────────
+  const triggerGeo = new THREE.BoxGeometry(0.022, 0.032, 0.028);
+  const trigger = new THREE.Mesh(triggerGeo, metalMat);
+  trigger.position.set(0, -0.01, 0.06);
+  group.add(trigger);
+
+  // Trigger guard
+  const guardGeo = new THREE.TorusGeometry(0.022, 0.007, 5, 8, Math.PI);
+  const guard = new THREE.Mesh(guardGeo, metalMat);
+  guard.rotation.z = Math.PI / 2;
+  guard.rotation.y = Math.PI / 2;
+  guard.position.set(0, -0.038, 0.07);
+  group.add(guard);
+
+  // ── Loaded bolt (quarrel) on the rail ─────────────────────────────────────
+  const boltShaftGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 6);
+  const boltShaft = new THREE.Mesh(boltShaftGeo, boltMat);
+  boltShaft.rotation.x = Math.PI / 2;
+  boltShaft.position.set(0, 0.048, -0.14);
+  group.add(boltShaft);
+
+  // Bolt tip
+  const boltTipGeo = new THREE.ConeGeometry(0.010, 0.038, 6);
+  const boltTip = new THREE.Mesh(boltTipGeo, boltTipMat);
+  boltTip.rotation.x = -Math.PI / 2;
+  boltTip.position.set(0, 0.048, -0.27);
+  group.add(boltTip);
+
+  return group;
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();
