@@ -106,6 +106,8 @@ export interface BulletData {
   lifetime: number; // seconds remaining before despawn
   /** When true, gravity is applied each frame (bow arrows fly in an arc). */
   useGravity?: boolean;
+  /** True once the arrow has hit terrain and is stuck in the ground. */
+  stuck?: boolean;
 }
 
 export interface CatapultData {

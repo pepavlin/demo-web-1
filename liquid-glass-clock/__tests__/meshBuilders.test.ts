@@ -497,39 +497,42 @@ describe("buildBowMesh", () => {
     expect(bow).toBeInstanceOf(THREE.Group);
   });
 
-  it("has at least 8 direct children (grip + 6 limb segments + bowstring group)", () => {
+  it("has at least 7 direct children (grip + risers + 2 tube limbs + 2 string pivots + nockPoint)", () => {
     const bow = buildBowMesh();
-    expect(bow.children.length).toBeGreaterThanOrEqual(8);
+    // grip, upperRiser, lowerRiser, upperLimb, lowerLimb, upperStringPivot, lowerStringPivot, nockPoint
+    expect(bow.children.length).toBeGreaterThanOrEqual(7);
   });
 
-  it("has a named 'bowstring' group for draw animation", () => {
+  it("has named 'upperStringPivot' and 'lowerStringPivot' groups for V-string animation", () => {
     const bow = buildBowMesh();
-    const bowstring = bow.getObjectByName("bowstring");
-    expect(bowstring).toBeDefined();
-    expect(bowstring).toBeInstanceOf(THREE.Group);
+    const upperPivot = bow.getObjectByName("upperStringPivot");
+    const lowerPivot = bow.getObjectByName("lowerStringPivot");
+    expect(upperPivot).toBeDefined();
+    expect(upperPivot).toBeInstanceOf(THREE.Group);
+    expect(lowerPivot).toBeDefined();
+    expect(lowerPivot).toBeInstanceOf(THREE.Group);
   });
 
-  it("bowstring group contains a nocked arrow", () => {
+  it("has a named 'nockPoint' group that contains the nocked arrow", () => {
     const bow = buildBowMesh();
+    const nockPoint = bow.getObjectByName("nockPoint");
+    expect(nockPoint).toBeDefined();
+    expect(nockPoint).toBeInstanceOf(THREE.Group);
     const nockedArrow = bow.getObjectByName("nockedArrow");
     expect(nockedArrow).toBeDefined();
     expect(nockedArrow).toBeInstanceOf(THREE.Group);
   });
 
-  it("upper and lower limbs use correctly oriented rotation (negative for upper, symmetric for lower)", () => {
-    // Upper limb segments should have rotation.z < 0 (tilts toward +X where string is)
+  it("limb tubes use TubeGeometry (smooth, no per-segment rotation issues)", () => {
     const bow = buildBowMesh();
-    // Children: [grip, u1, u2, u3, l1, l2, l3, bowstringGroup]
-    const u1 = bow.children[1] as THREE.Mesh;
-    const u2 = bow.children[2] as THREE.Mesh;
-    const u3 = bow.children[3] as THREE.Mesh;
-    // Upper limb segments tilt toward +X → rotation.z < 0
-    expect(u1.rotation.z).toBeLessThan(0);
-    expect(u2.rotation.z).toBeLessThan(0);
-    expect(u3.rotation.z).toBeLessThan(0);
-    // Lower limb segments point downward-rightward → |rotation.z| > π/2
-    const l1 = bow.children[4] as THREE.Mesh;
-    expect(Math.abs(l1.rotation.z)).toBeGreaterThan(Math.PI / 2);
+    let hasTubeGeometry = false;
+    bow.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh && mesh.geometry instanceof THREE.TubeGeometry) {
+        hasTubeGeometry = true;
+      }
+    });
+    expect(hasTubeGeometry).toBe(true);
   });
 
   it("uses wood-like brown colors for limbs (found via traverse)", () => {
@@ -546,16 +549,12 @@ describe("buildBowMesh", () => {
     expect(hasBrownish).toBe(true);
   });
 
-  it("limb segment positions connect smoothly (centers lie on a curve toward +X)", () => {
+  it("string pivots are positioned symmetrically (upper Y = -lower Y)", () => {
     const bow = buildBowMesh();
-    // Upper limb segments (indices 1, 2, 3) should have increasing X and Y positions
-    const u1 = bow.children[1] as THREE.Mesh;
-    const u2 = bow.children[2] as THREE.Mesh;
-    const u3 = bow.children[3] as THREE.Mesh;
-    expect(u2.position.x).toBeGreaterThan(u1.position.x);
-    expect(u3.position.x).toBeGreaterThan(u2.position.x);
-    expect(u2.position.y).toBeGreaterThan(u1.position.y);
-    expect(u3.position.y).toBeGreaterThan(u2.position.y);
+    const upperPivot = bow.getObjectByName("upperStringPivot") as THREE.Group;
+    const lowerPivot = bow.getObjectByName("lowerStringPivot") as THREE.Group;
+    expect(upperPivot.position.y).toBeCloseTo(-lowerPivot.position.y, 3);
+    expect(upperPivot.position.x).toBeCloseTo(lowerPivot.position.x, 3);
   });
 });
 
