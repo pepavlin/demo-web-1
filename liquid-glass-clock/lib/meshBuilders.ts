@@ -961,6 +961,15 @@ export function buildSniperMesh(): THREE.Group {
 }
 
 // ─── Weapon (bow) ─────────────────────────────────────────────────────────────
+/**
+ * Helper: compute rotation.z so a CylinderGeometry (default Y-axis) points
+ * from point A to point B in the XY plane.
+ * Formula: rotation.z = atan2(-dx, dy) where (dx, dy) = B - A.
+ */
+function bowLimbRotZ(ax: number, ay: number, bx: number, by: number): number {
+  return Math.atan2(-(bx - ax), by - ay);
+}
+
 /** First-person bow with curved limbs and a visible string. */
 export function buildBowMesh(): THREE.Group {
   const group = new THREE.Group();
@@ -976,76 +985,146 @@ export function buildBowMesh(): THREE.Group {
   const grip = new THREE.Mesh(gripGeo, darkWoodMat);
   group.add(grip);
 
-  // ── Upper limb (curved upward arc – 3 segments) ──────────────────────────
-  // Segment 1: lower part of upper limb
-  const u1Geo = new THREE.CylinderGeometry(0.012, 0.015, 0.10, 7);
-  const u1 = new THREE.Mesh(u1Geo, woodMat);
-  u1.position.set(0.018, 0.115, 0.01);
-  u1.rotation.z = 0.22;
+  // ── Limb keypoints (X = toward string, Y = up/down) ──────────────────────
+  // Upper limb: K0 (grip top) → K1 → K2 → K3 (tip)
+  // Each segment is oriented so its Y-axis aligns with the segment direction,
+  // wider end (larger radius) at the grip side, narrower at the tip.
+  const K = {
+    // Upper limb
+    u0: [0.000,  0.070] as [number, number],
+    u1: [0.022,  0.153] as [number, number],
+    u2: [0.054,  0.231] as [number, number],
+    u3: [0.086,  0.306] as [number, number],
+    // Lower limb (mirror of upper in Y)
+    l0: [0.000, -0.070] as [number, number],
+    l1: [0.022, -0.153] as [number, number],
+    l2: [0.054, -0.231] as [number, number],
+    l3: [0.086, -0.306] as [number, number],
+  };
+
+  // ── Upper limb – segment 1 (K u0 → u1) ──────────────────────────────────
+  const u1Len = Math.hypot(K.u1[0] - K.u0[0], K.u1[1] - K.u0[1]);
+  const u1 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, u1Len, 7), woodMat);
+  u1.position.set((K.u0[0] + K.u1[0]) / 2, (K.u0[1] + K.u1[1]) / 2, 0);
+  u1.rotation.z = bowLimbRotZ(K.u0[0], K.u0[1], K.u1[0], K.u1[1]);
   group.add(u1);
 
-  // Segment 2: mid upper limb
-  const u2Geo = new THREE.CylinderGeometry(0.009, 0.012, 0.10, 7);
-  const u2 = new THREE.Mesh(u2Geo, woodMat);
-  u2.position.set(0.042, 0.21, 0.008);
-  u2.rotation.z = 0.48;
+  // ── Upper limb – segment 2 (K u1 → u2) ──────────────────────────────────
+  const u2Len = Math.hypot(K.u2[0] - K.u1[0], K.u2[1] - K.u1[1]);
+  const u2 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, u2Len, 7), woodMat);
+  u2.position.set((K.u1[0] + K.u2[0]) / 2, (K.u1[1] + K.u2[1]) / 2, 0);
+  u2.rotation.z = bowLimbRotZ(K.u1[0], K.u1[1], K.u2[0], K.u2[1]);
   group.add(u2);
 
-  // Segment 3: tip of upper limb (angled back toward string)
-  const u3Geo = new THREE.CylinderGeometry(0.006, 0.009, 0.07, 6);
-  const u3 = new THREE.Mesh(u3Geo, woodMat);
-  u3.position.set(0.074, 0.28, 0.002);
-  u3.rotation.z = 0.72;
+  // ── Upper limb – segment 3 (K u2 → u3, tip) ─────────────────────────────
+  const u3Len = Math.hypot(K.u3[0] - K.u2[0], K.u3[1] - K.u2[1]);
+  const u3 = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.009, u3Len, 6), woodMat);
+  u3.position.set((K.u2[0] + K.u3[0]) / 2, (K.u2[1] + K.u3[1]) / 2, 0);
+  u3.rotation.z = bowLimbRotZ(K.u2[0], K.u2[1], K.u3[0], K.u3[1]);
   group.add(u3);
 
-  // ── Lower limb (mirrored) ─────────────────────────────────────────────────
-  const l1Geo = new THREE.CylinderGeometry(0.012, 0.015, 0.10, 7);
-  const l1 = new THREE.Mesh(l1Geo, woodMat);
-  l1.position.set(0.018, -0.115, 0.01);
-  l1.rotation.z = -0.22;
+  // ── Lower limb – segment 1 (K l0 → l1) ──────────────────────────────────
+  // Going downward; wider end at the grip side (l0), narrower at l1.
+  // rotation.z ≈ -(π - upper_angle) to correctly orient downward+rightward.
+  const l1Len = Math.hypot(K.l1[0] - K.l0[0], K.l1[1] - K.l0[1]);
+  const l1 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, l1Len, 7), woodMat);
+  l1.position.set((K.l0[0] + K.l1[0]) / 2, (K.l0[1] + K.l1[1]) / 2, 0);
+  l1.rotation.z = bowLimbRotZ(K.l0[0], K.l0[1], K.l1[0], K.l1[1]);
   group.add(l1);
 
-  const l2Geo = new THREE.CylinderGeometry(0.009, 0.012, 0.10, 7);
-  const l2 = new THREE.Mesh(l2Geo, woodMat);
-  l2.position.set(0.042, -0.21, 0.008);
-  l2.rotation.z = -0.48;
+  // ── Lower limb – segment 2 (K l1 → l2) ──────────────────────────────────
+  const l2Len = Math.hypot(K.l2[0] - K.l1[0], K.l2[1] - K.l1[1]);
+  const l2 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, l2Len, 7), woodMat);
+  l2.position.set((K.l1[0] + K.l2[0]) / 2, (K.l1[1] + K.l2[1]) / 2, 0);
+  l2.rotation.z = bowLimbRotZ(K.l1[0], K.l1[1], K.l2[0], K.l2[1]);
   group.add(l2);
 
-  const l3Geo = new THREE.CylinderGeometry(0.006, 0.009, 0.07, 6);
-  const l3 = new THREE.Mesh(l3Geo, woodMat);
-  l3.position.set(0.074, -0.28, 0.002);
-  l3.rotation.z = -0.72;
+  // ── Lower limb – segment 3 (K l2 → l3, tip) ─────────────────────────────
+  const l3Len = Math.hypot(K.l3[0] - K.l2[0], K.l3[1] - K.l2[1]);
+  const l3 = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.009, l3Len, 6), woodMat);
+  l3.position.set((K.l2[0] + K.l3[0]) / 2, (K.l2[1] + K.l3[1]) / 2, 0);
+  l3.rotation.z = bowLimbRotZ(K.l2[0], K.l2[1], K.l3[0], K.l3[1]);
   group.add(l3);
 
-  // ── Bowstring (thin flat box from upper to lower tip) ─────────────────────
-  const stringGeo = new THREE.BoxGeometry(0.004, 0.60, 0.003);
-  const stringMesh = new THREE.Mesh(stringGeo, stringMat);
-  stringMesh.position.set(0.095, 0, 0.0);
-  group.add(stringMesh);
+  // ── Bowstring group (animated – pulled back when drawing) ─────────────────
+  // Named "bowstring" so Game3D can find and animate it.
+  const bowstringGroup = new THREE.Group();
+  bowstringGroup.name = "bowstring";
 
-  // ── Arrow on the string ───────────────────────────────────────────────────
-  // Shaft
-  const shaftGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.38, 6);
+  // String runs from upper tip to lower tip; tips are at X=0.086, Y=±0.306.
+  // String positioned at X=0.092 (slightly in front of tips for visual clarity).
+  const stringHeight = K.u3[1] * 2 + 0.012; // ≈ 0.624
+  const stringGeo = new THREE.BoxGeometry(0.003, stringHeight, 0.002);
+  const stringMesh = new THREE.Mesh(stringGeo, stringMat);
+  stringMesh.position.set(0.092, 0, 0);
+  bowstringGroup.add(stringMesh);
+
+  // ── Arrow nocked on the string (child of bowstringGroup so it pulls with it)
+  const arrowGroup = new THREE.Group();
+  arrowGroup.name = "nockedArrow";
+  // Shaft – oriented along -Z (into screen = forward)
+  const shaftGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.36, 6);
   const shaft = new THREE.Mesh(shaftGeo, arrowMat);
-  shaft.rotation.x = Math.PI / 2;
-  shaft.position.set(0.06, 0, -0.12);
+  shaft.rotation.x = Math.PI / 2;         // Y→Z: arrow points along Z
+  shaft.position.set(0.072, 0, -0.08);    // resting on string, pointing forward
+  arrowGroup.add(shaft);
+
+  // Arrowhead (cone pointing forward = -Z)
+  const tipGeo = new THREE.ConeGeometry(0.008, 0.036, 6);
+  const arrowTip = new THREE.Mesh(tipGeo, arrowTipMat);
+  arrowTip.rotation.x = -Math.PI / 2;     // tip of cone toward -Z
+  arrowTip.position.set(0.072, 0, -0.278);
+  arrowGroup.add(arrowTip);
+
+  // Fletching (two flat fins at nock end)
+  const fletchGeo = new THREE.BoxGeometry(0.002, 0.030, 0.048);
+  const fletch1 = new THREE.Mesh(fletchGeo, fletchingMat);
+  fletch1.position.set(0.078, 0.016, 0.098);
+  arrowGroup.add(fletch1);
+  const fletch2 = new THREE.Mesh(fletchGeo.clone(), fletchingMat);
+  fletch2.position.set(0.078, -0.016, 0.098);
+  arrowGroup.add(fletch2);
+
+  bowstringGroup.add(arrowGroup);
+  group.add(bowstringGroup);
+
+  return group;
+}
+
+// ─── Arrow projectile mesh ─────────────────────────────────────────────────────
+/**
+ * Visible arrow mesh fired from the bow. Points along -Z (forward) by default.
+ * Rotate each frame to align with velocity for arc trajectory.
+ */
+export function buildArrowProjectileMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x8b5e3c });
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0xbbbbbb });
+  const fletchMat = new THREE.MeshLambertMaterial({ color: 0xcc3333 });
+
+  // Shaft along -Z (forward)
+  const shaftGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.55, 6);
+  const shaft = new THREE.Mesh(shaftGeo, woodMat);
+  shaft.rotation.x = Math.PI / 2; // cylinder Y → Z axis
+  shaft.position.set(0, 0, -0.1); // center slightly forward
   group.add(shaft);
 
-  // Arrowhead
-  const tipGeo = new THREE.ConeGeometry(0.009, 0.04, 6);
-  const tip = new THREE.Mesh(tipGeo, arrowTipMat);
-  tip.rotation.x = -Math.PI / 2;
-  tip.position.set(0.06, 0, -0.33);
-  group.add(tip);
+  // Arrowhead (cone, tip toward -Z = forward)
+  const headGeo = new THREE.ConeGeometry(0.028, 0.10, 6);
+  const head = new THREE.Mesh(headGeo, metalMat);
+  head.rotation.x = -Math.PI / 2; // cone tip toward -Z
+  head.position.set(0, 0, -0.42);
+  group.add(head);
 
-  // Fletching (two small flat rectangles at the nock end)
-  const fletchGeo = new THREE.BoxGeometry(0.002, 0.035, 0.05);
-  const fletch1 = new THREE.Mesh(fletchGeo, fletchingMat);
-  fletch1.position.set(0.066, 0.018, 0.08);
-  group.add(fletch1);
-  const fletch2 = new THREE.Mesh(fletchGeo.clone(), fletchingMat);
-  fletch2.position.set(0.066, -0.018, 0.08);
-  group.add(fletch2);
+  // Fletching (3 small fins at rear = +Z side)
+  const finGeo = new THREE.BoxGeometry(0.005, 0.08, 0.12);
+  for (let i = 0; i < 3; i++) {
+    const fin = new THREE.Mesh(finGeo.clone(), fletchMat);
+    const angle = (i / 3) * Math.PI * 2;
+    fin.position.set(Math.cos(angle) * 0.03, Math.sin(angle) * 0.03, 0.20);
+    fin.rotation.z = angle;
+    group.add(fin);
+  }
 
   return group;
 }

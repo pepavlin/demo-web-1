@@ -100,9 +100,12 @@ export interface CoinData {
 }
 
 export interface BulletData {
-  mesh: THREE.Mesh;
+  /** The visual mesh/group for this projectile. */
+  mesh: THREE.Object3D;
   velocity: THREE.Vector3;
   lifetime: number; // seconds remaining before despawn
+  /** When true, gravity is applied each frame (bow arrows fly in an arc). */
+  useGravity?: boolean;
 }
 
 export interface CatapultData {

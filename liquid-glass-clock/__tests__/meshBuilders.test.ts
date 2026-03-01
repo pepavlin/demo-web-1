@@ -33,6 +33,7 @@ import {
   buildRuins,
   buildLighthouse,
   buildBulletMesh,
+  buildArrowProjectileMesh,
   buildSwordMesh,
   buildBowMesh,
   buildCrossbowMesh,
@@ -496,29 +497,118 @@ describe("buildBowMesh", () => {
     expect(bow).toBeInstanceOf(THREE.Group);
   });
 
-  it("has multiple parts (limbs, grip, string, arrow, fletching)", () => {
+  it("has at least 8 direct children (grip + 6 limb segments + bowstring group)", () => {
     const bow = buildBowMesh();
     expect(bow.children.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("all parts are THREE.Mesh instances", () => {
+  it("has a named 'bowstring' group for draw animation", () => {
     const bow = buildBowMesh();
-    bow.children.forEach((child) => {
-      expect(child).toBeInstanceOf(THREE.Mesh);
-    });
+    const bowstring = bow.getObjectByName("bowstring");
+    expect(bowstring).toBeDefined();
+    expect(bowstring).toBeInstanceOf(THREE.Group);
   });
 
-  it("uses wood-like brown colors for limbs", () => {
+  it("bowstring group contains a nocked arrow", () => {
     const bow = buildBowMesh();
-    // Check that at least one child has a brownish color (r > g > b)
+    const nockedArrow = bow.getObjectByName("nockedArrow");
+    expect(nockedArrow).toBeDefined();
+    expect(nockedArrow).toBeInstanceOf(THREE.Group);
+  });
+
+  it("upper and lower limbs use correctly oriented rotation (negative for upper, symmetric for lower)", () => {
+    // Upper limb segments should have rotation.z < 0 (tilts toward +X where string is)
+    const bow = buildBowMesh();
+    // Children: [grip, u1, u2, u3, l1, l2, l3, bowstringGroup]
+    const u1 = bow.children[1] as THREE.Mesh;
+    const u2 = bow.children[2] as THREE.Mesh;
+    const u3 = bow.children[3] as THREE.Mesh;
+    // Upper limb segments tilt toward +X → rotation.z < 0
+    expect(u1.rotation.z).toBeLessThan(0);
+    expect(u2.rotation.z).toBeLessThan(0);
+    expect(u3.rotation.z).toBeLessThan(0);
+    // Lower limb segments point downward-rightward → |rotation.z| > π/2
+    const l1 = bow.children[4] as THREE.Mesh;
+    expect(Math.abs(l1.rotation.z)).toBeGreaterThan(Math.PI / 2);
+  });
+
+  it("uses wood-like brown colors for limbs (found via traverse)", () => {
+    const bow = buildBowMesh();
     let hasBrownish = false;
-    bow.children.forEach((child) => {
-      const mat = (child as THREE.Mesh).material as THREE.MeshLambertMaterial;
-      if (mat.color.r > mat.color.g && mat.color.g > mat.color.b) {
+    bow.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      if (mat.color && mat.color.r > mat.color.g && mat.color.g > mat.color.b) {
         hasBrownish = true;
       }
     });
     expect(hasBrownish).toBe(true);
+  });
+
+  it("limb segment positions connect smoothly (centers lie on a curve toward +X)", () => {
+    const bow = buildBowMesh();
+    // Upper limb segments (indices 1, 2, 3) should have increasing X and Y positions
+    const u1 = bow.children[1] as THREE.Mesh;
+    const u2 = bow.children[2] as THREE.Mesh;
+    const u3 = bow.children[3] as THREE.Mesh;
+    expect(u2.position.x).toBeGreaterThan(u1.position.x);
+    expect(u3.position.x).toBeGreaterThan(u2.position.x);
+    expect(u2.position.y).toBeGreaterThan(u1.position.y);
+    expect(u3.position.y).toBeGreaterThan(u2.position.y);
+  });
+});
+
+describe("buildArrowProjectileMesh", () => {
+  it("returns a THREE.Group", () => {
+    const arrow = buildArrowProjectileMesh();
+    expect(arrow).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has at least 5 parts (shaft, head, 3 fins)", () => {
+    const arrow = buildArrowProjectileMesh();
+    expect(arrow.children.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("all parts are THREE.Mesh instances", () => {
+    const arrow = buildArrowProjectileMesh();
+    arrow.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("shaft uses a wood-like brown material", () => {
+    const arrow = buildArrowProjectileMesh();
+    const shaft = arrow.children[0] as THREE.Mesh;
+    const mat = shaft.material as THREE.MeshLambertMaterial;
+    // Brown: r > g > b
+    expect(mat.color.r).toBeGreaterThan(mat.color.g);
+    expect(mat.color.g).toBeGreaterThan(mat.color.b);
+  });
+
+  it("arrowhead uses a metallic grey material", () => {
+    const arrow = buildArrowProjectileMesh();
+    const head = arrow.children[1] as THREE.Mesh;
+    const mat = head.material as THREE.MeshLambertMaterial;
+    // Grey: r ≈ g ≈ b (THREE.js linearises sRGB, so 0xbb ≈ 0.497 in linear)
+    const r = mat.color.r;
+    const g = mat.color.g;
+    const b = mat.color.b;
+    expect(Math.abs(r - g)).toBeLessThan(0.1);
+    expect(Math.abs(g - b)).toBeLessThan(0.1);
+    // Neutral grey (not black, not super bright) — linear value ~0.4–0.8
+    expect(r).toBeGreaterThan(0.3);
+    expect(r).toBeLessThan(0.9);
+  });
+
+  it("fletching fins are positioned at the rear (+Z side)", () => {
+    const arrow = buildArrowProjectileMesh();
+    // Fins start at index 2 (after shaft and head)
+    for (let i = 2; i < arrow.children.length; i++) {
+      const fin = arrow.children[i] as THREE.Mesh;
+      // Fins are at the rear = positive Z relative to shaft center
+      expect(fin.position.z).toBeGreaterThan(0);
+    }
   });
 });
 
