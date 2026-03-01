@@ -47,6 +47,7 @@ import {
   buildRuins,
   buildLighthouse,
   buildBulletMesh,
+  buildArrowProjectileMesh,
   buildSwordMesh,
   buildBowMesh,
   buildCrossbowMesh,
@@ -127,6 +128,7 @@ const IMPACT_EFFECT_DURATION = 0.45;     // seconds the impact explosion ring la
 // Per-weapon values come from WEAPON_CONFIGS; these are shared constants:
 const BULLET_LIFETIME = 4;      // seconds before auto-despawn
 const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
+const ARROW_GRAVITY = -22;      // downward acceleration (units/s²) for bow arrows
 // Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
@@ -735,14 +737,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       forward.transformDirection(cam.matrixWorld);
       startPos.addScaledVector(forward, 1.2);
 
-      const bulletMesh = buildBulletMesh();
-      bulletMesh.position.copy(startPos);
-      scene.add(bulletMesh);
+      const isBow = weaponCfg.type === "bow";
+      const projectileMesh = isBow ? buildArrowProjectileMesh() : buildBulletMesh();
+      projectileMesh.position.copy(startPos);
+
+      // Orient arrow to face the shoot direction immediately
+      if (isBow) {
+        const fwd = forward.clone();
+        projectileMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), fwd);
+      }
+
+      scene.add(projectileMesh);
 
       bulletsRef.current.push({
-        mesh: bulletMesh,
+        mesh: projectileMesh,
         velocity: forward.clone().multiplyScalar(weaponCfg.bulletSpeed),
         lifetime: BULLET_LIFETIME,
+        useGravity: isBow,
       });
     }
 
@@ -3592,6 +3603,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           baseZ + recoil * 0.12
         );
         wep.rotation.x = recoil * 0.18 + Math.sin(elapsed * swaySpeed) * swayAmt * 0.4;
+
+        // ── Bow draw animation ──────────────────────────────────────────────
+        // bowstring is pulled back as the bow reloads. drawProgress goes from
+        // 0 (just fired / relaxed) to 1 (fully drawn / ready to shoot).
+        if (wType === "bow") {
+          const bowCooldown = WEAPON_CONFIGS["bow"].cooldown;
+          const drawProgress = bowCooldown > 0
+            ? 1 - Math.min(1, playerAttackCooldownRef.current / bowCooldown)
+            : 1;
+
+          const bowstringGroup = wep.getObjectByName("bowstring");
+          if (bowstringGroup) {
+            // Pull string back toward the archer (+Z in bow-local space)
+            const pullZ = drawProgress * 0.028;
+            bowstringGroup.position.z = pullZ;
+            // Slightly pull string away from limb tips when drawn
+            bowstringGroup.position.x = drawProgress * -0.006;
+          }
+
+          // Tilt bow slightly when fully drawn (aiming posture)
+          wep.rotation.z = drawProgress * -0.06;
+        }
       }
 
       // ── Bullet update ──────────────────────────────────────────────────────
@@ -3602,6 +3635,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           toRemove.push(bullet);
           return;
         }
+
+        // Apply gravity and orient arrow along velocity (bow arrows only)
+        if (bullet.useGravity) {
+          bullet.velocity.y += ARROW_GRAVITY * dt;
+          if (bullet.velocity.lengthSq() > 0.001) {
+            const dir = bullet.velocity.clone().normalize();
+            bullet.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+          }
+        }
+
         // Move bullet forward
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
 
