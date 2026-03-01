@@ -6,74 +6,6 @@ import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 
 // ─── Animated SVG weapons ─────────────────────────────────────────────────────
 
-function PistolSVG({ selected }: { selected: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 120 80"
-      width="120"
-      height="80"
-      style={{
-        filter: selected ? "drop-shadow(0 0 8px #6ee7b7)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
-        animation: "pistol-idle 3s ease-in-out infinite",
-      }}
-    >
-      <style>{`
-        @keyframes pistol-idle {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          30% { transform: translateY(-4px) rotate(-1.5deg); }
-          60% { transform: translateY(-2px) rotate(1deg); }
-        }
-        @keyframes pistol-slide-back {
-          0%, 80%, 100% { transform: translateX(0); }
-          40% { transform: translateX(5px); }
-        }
-        @keyframes barrel-flash {
-          0%, 85%, 100% { opacity: 0; }
-          87%, 92% { opacity: 1; }
-        }
-        @keyframes pistol-trigger {
-          0%, 100% { transform: rotate(0deg); transform-origin: 70px 55px; }
-          50% { transform: rotate(-8deg); transform-origin: 70px 55px; }
-        }
-      `}</style>
-      {/* Grip */}
-      <rect x="62" y="44" width="18" height="28" rx="3" fill="#2a2a2a" />
-      <rect x="63" y="46" width="16" height="6" rx="1" fill="#1a1a1a" opacity="0.5" />
-      {/* Frame */}
-      <rect x="30" y="42" width="44" height="14" rx="2" fill="#3a3a3a" />
-      {/* Slide (animated) */}
-      <g style={{ animation: "pistol-slide-back 4s ease-in-out infinite" }}>
-        <rect x="28" y="36" width="46" height="12" rx="2" fill="#282828" />
-        {/* Slide serrations */}
-        <line x1="60" y1="37" x2="60" y2="47" stroke="#1a1a1a" strokeWidth="1.5" />
-        <line x1="64" y1="37" x2="64" y2="47" stroke="#1a1a1a" strokeWidth="1.5" />
-        <line x1="68" y1="37" x2="68" y2="47" stroke="#1a1a1a" strokeWidth="1.5" />
-      </g>
-      {/* Barrel */}
-      <rect x="10" y="39" width="22" height="8" rx="3" fill="#1a1a1a" />
-      {/* Muzzle flash */}
-      <g style={{ animation: "barrel-flash 4s ease-in-out infinite" }}>
-        <ellipse cx="9" cy="43" rx="5" ry="3" fill="#ffdd44" opacity="0.9" />
-        <ellipse cx="7" cy="43" rx="3" ry="2" fill="#ffffff" opacity="0.8" />
-      </g>
-      {/* Trigger guard */}
-      <path d="M62 56 Q58 64 66 62" stroke="#555" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      {/* Trigger */}
-      <rect
-        x="68" y="52" width="3" height="8" rx="1" fill="#666"
-        style={{ animation: "pistol-trigger 2.5s ease-in-out infinite" }}
-      />
-      {/* Front sight */}
-      <rect x="20" y="36" width="4" height="4" rx="1" fill="#444" />
-      {/* Rear sight notch */}
-      <rect x="68" y="35" width="8" height="3" rx="1" fill="#333" />
-      <rect x="70.5" y="35.5" width="3" height="2" rx="0.5" fill="#1a1a1a" />
-      {/* Highlight */}
-      <rect x="28" y="36.5" width="46" height="2" rx="1" fill="white" opacity="0.08" />
-    </svg>
-  );
-}
-
 function SwordSVG({ selected }: { selected: boolean }) {
   return (
     <svg
@@ -100,18 +32,25 @@ function SwordSVG({ selected }: { selected: boolean }) {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 0.7; }
         }
+        @keyframes sword-swing {
+          0%, 70%, 100% { transform: rotate(0deg); transform-origin: 100px 40px; }
+          80% { transform: rotate(-12deg); transform-origin: 100px 40px; }
+          88% { transform: rotate(8deg); transform-origin: 100px 40px; }
+        }
       `}</style>
-      {/* Blade */}
-      <polygon points="10,40 22,36 90,40 22,44" fill="#c8dff0" />
-      <polygon points="10,40 22,36 90,40" fill="#e0f0ff" opacity="0.7" />
-      {/* Blade edge */}
-      <line x1="10" y1="40" x2="90" y2="40" stroke="#ffffff" strokeWidth="0.8" opacity="0.6" />
-      {/* Blade center fuller */}
-      <line x1="22" y1="39.5" x2="88" y2="39.5" stroke="#88aacc" strokeWidth="0.6" opacity="0.5" />
-      {/* Blade shimmer highlight */}
-      <rect x="22" y="36.5" width="60" height="3" rx="1" fill="white" style={{ animation: "blade-shimmer 2.5s ease-in-out infinite" }} />
-      {/* Blade glow */}
-      <ellipse cx="50" cy="40" rx="38" ry="3" fill="#88ccff" style={{ animation: "sword-glow 2.5s ease-in-out infinite" }} />
+      <g style={{ animation: "sword-swing 3s ease-in-out infinite" }}>
+        {/* Blade */}
+        <polygon points="10,40 22,36 90,40 22,44" fill="#c8dff0" />
+        <polygon points="10,40 22,36 90,40" fill="#e0f0ff" opacity="0.7" />
+        {/* Blade edge */}
+        <line x1="10" y1="40" x2="90" y2="40" stroke="#ffffff" strokeWidth="0.8" opacity="0.6" />
+        {/* Blade center fuller */}
+        <line x1="22" y1="39.5" x2="88" y2="39.5" stroke="#88aacc" strokeWidth="0.6" opacity="0.5" />
+        {/* Blade shimmer highlight */}
+        <rect x="22" y="36.5" width="60" height="3" rx="1" fill="white" style={{ animation: "blade-shimmer 2.5s ease-in-out infinite" }} />
+        {/* Blade glow */}
+        <ellipse cx="50" cy="40" rx="38" ry="3" fill="#88ccff" style={{ animation: "sword-glow 2.5s ease-in-out infinite" }} />
+      </g>
       {/* Cross-guard */}
       <rect x="84" y="29" width="6" height="22" rx="2" fill="#c8960c" />
       <ellipse cx="87" cy="29" rx="3" ry="4" fill="#e8b020" />
@@ -132,7 +71,73 @@ function SwordSVG({ selected }: { selected: boolean }) {
   );
 }
 
-function SniperSVG({ selected }: { selected: boolean }) {
+function BowSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 120 80"
+      width="120"
+      height="80"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #86efac)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "bow-idle 4s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes bow-idle {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          40% { transform: translateY(-4px) rotate(1deg); }
+          70% { transform: translateY(-2px) rotate(-0.8deg); }
+        }
+        @keyframes bow-draw {
+          0%, 75%, 100% { d: path("M30,12 Q18,40 30,68"); }
+          80% { d: path("M34,12 Q16,40 34,68"); }
+          88% { d: path("M30,12 Q18,40 30,68"); }
+        }
+        @keyframes string-vibrate {
+          0%, 70%, 100% { transform: scaleX(1); }
+          78% { transform: scaleX(1.04); }
+          84% { transform: scaleX(0.97); }
+          90% { transform: scaleX(1.02); }
+        }
+        @keyframes arrow-fly {
+          0%, 72%, 100% { opacity: 1; transform: translateX(0); }
+          73% { opacity: 1; transform: translateX(0); }
+          80% { opacity: 0; transform: translateX(50px); }
+          82%, 99% { opacity: 0; }
+        }
+      `}</style>
+
+      {/* Bow limb (curved path) */}
+      <path d="M30,10 Q15,40 30,70" stroke="#7a4a1a" strokeWidth="5" fill="none" strokeLinecap="round" />
+      {/* Bow limb highlight */}
+      <path d="M29,10 Q14,40 29,70" stroke="#a06030" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5" />
+
+      {/* Bowstring */}
+      <g style={{ animation: "string-vibrate 3s ease-in-out infinite" }}>
+        <line x1="30" y1="10" x2="30" y2="70" stroke="#ddd0aa" strokeWidth="1.5" />
+      </g>
+
+      {/* Arrow */}
+      <g style={{ animation: "arrow-fly 3s ease-in-out infinite" }}>
+        {/* Arrow shaft */}
+        <line x1="30" y1="40" x2="90" y2="40" stroke="#8b5e3c" strokeWidth="3" strokeLinecap="round" />
+        {/* Arrowhead */}
+        <polygon points="90,40 80,36 82,40 80,44" fill="#aaaaaa" />
+        {/* Fletching */}
+        <polygon points="33,40 30,33 36,40" fill="#cc3333" opacity="0.85" />
+        <polygon points="33,40 30,47 36,40" fill="#cc3333" opacity="0.85" />
+      </g>
+
+      {/* Grip wrap */}
+      <rect x="25" y="34" width="9" height="12" rx="2" fill="#4a2a08" />
+      <line x1="26" y1="36" x2="33" y2="36" stroke="#3a1a04" strokeWidth="1.2" />
+      <line x1="26" y1="39" x2="33" y2="39" stroke="#3a1a04" strokeWidth="1.2" />
+      <line x1="26" y1="42" x2="33" y2="42" stroke="#3a1a04" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function CrossbowSVG({ selected }: { selected: boolean }) {
   return (
     <svg
       viewBox="0 0 140 80"
@@ -140,89 +145,83 @@ function SniperSVG({ selected }: { selected: boolean }) {
       height="80"
       style={{
         filter: selected ? "drop-shadow(0 0 10px #f87171)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
-        animation: "sniper-idle 5s ease-in-out infinite",
+        animation: "crossbow-idle 5s ease-in-out infinite",
       }}
     >
       <style>{`
-        @keyframes sniper-idle {
+        @keyframes crossbow-idle {
           0%, 100% { transform: translateY(0px) rotate(0deg); }
           40% { transform: translateY(-3px) rotate(-0.8deg); }
           70% { transform: translateY(-2px) rotate(0.5deg); }
         }
-        @keyframes scope-pulse {
-          0%, 100% { opacity: 0.6; r: 5; }
-          50% { opacity: 1; r: 7; }
+        @keyframes crossbow-recoil {
+          0%, 75%, 100% { transform: translateX(0); }
+          78% { transform: translateX(3px); }
+          83% { transform: translateX(-1px); }
+          88% { transform: translateX(1px); }
         }
-        @keyframes scope-lens-glow {
-          0%, 100% { opacity: 0.5; }
-          50% { opacity: 1; }
+        @keyframes crossbow-string {
+          0%, 74%, 100% { transform: scaleX(1); }
+          76% { transform: scaleX(1.05); }
+          82% { transform: scaleX(0.97); }
         }
-        @keyframes scope-crosshair {
-          0%, 100% { opacity: 0.4; }
-          30% { opacity: 0.9; }
-          60% { opacity: 0.6; }
-        }
-        @keyframes bipod-sway {
-          0%, 100% { transform: rotate(0deg); transform-origin: 35px 50px; }
-          50% { transform: rotate(2deg); transform-origin: 35px 50px; }
+        @keyframes bolt-fly {
+          0%, 73%, 100% { opacity: 1; transform: translateX(0); }
+          74% { opacity: 1; }
+          80% { opacity: 0; transform: translateX(60px); }
+          82%, 99% { opacity: 0; }
         }
       `}</style>
-      {/* Stock */}
-      <rect x="90" y="37" width="38" height="14" rx="4" fill="#6b3d1a" />
-      <rect x="90" y="38" width="38" height="4" rx="2" fill="#8b5a2a" opacity="0.4" />
-      {/* Cheekrest */}
-      <rect x="95" y="32" width="22" height="6" rx="3" fill="#7a4520" />
-      {/* Receiver */}
-      <rect x="52" y="35" width="42" height="16" rx="3" fill="#1e1e1e" />
-      {/* Magazine */}
-      <rect x="70" y="51" width="10" height="12" rx="2" fill="#222" />
-      {/* Grip */}
-      <polygon points="78,51 90,51 86,64 74,64" fill="#1a1a1a" />
-      {/* Trigger guard */}
-      <path d="M75 51 Q71 60 80 57" stroke="#444" strokeWidth="2" fill="none" strokeLinecap="round" />
-      {/* Barrel (long) */}
-      <rect x="6" y="38.5" width="50" height="8" rx="3" fill="#1a1a1a" />
-      {/* Muzzle brake / suppressor */}
-      <rect x="4" y="37.5" width="7" height="10" rx="2" fill="#2a2a2a" />
-      {/* Scope mount rail */}
-      <rect x="52" y="33" width="38" height="5" rx="1" fill="#2a2a2a" />
-      {/* Scope tube */}
-      <rect x="55" y="20" width="36" height="13" rx="6" fill="#333" />
-      <rect x="55" y="21" width="36" height="4" rx="3" fill="#444" opacity="0.5" />
-      {/* Scope objective (front) */}
-      <circle cx="60" cy="26.5" r="7" fill="#2a2a2a" />
-      <circle cx="60" cy="26.5" r="5.5" fill="#1a3a5a" />
-      <circle
-        cx="60" cy="26.5" r="4"
-        fill="#88ccff"
-        style={{ animation: "scope-lens-glow 2s ease-in-out infinite" }}
-      />
-      {/* Scope crosshair lines */}
-      <g style={{ animation: "scope-crosshair 2s ease-in-out infinite" }}>
-        <line x1="57" y1="26.5" x2="63" y2="26.5" stroke="white" strokeWidth="0.8" />
-        <line x1="60" y1="23.5" x2="60" y2="29.5" stroke="white" strokeWidth="0.8" />
-        <circle cx="60" cy="26.5" r="1.5" stroke="white" strokeWidth="0.6" fill="none" />
+
+      <g style={{ animation: "crossbow-recoil 4s ease-in-out infinite" }}>
+        {/* Stock */}
+        <rect x="72" y="36" width="52" height="14" rx="4" fill="#6b3d1a" />
+        <rect x="72" y="37" width="52" height="4" rx="2" fill="#8b5a2a" opacity="0.4" />
+        {/* Grip */}
+        <polygon points="88,50 100,50 96,64 84,64" fill="#2a1a08" />
+        {/* Trigger guard */}
+        <path d="M87 50 Q83 58 92 55" stroke="#555" strokeWidth="2" fill="none" strokeLinecap="round" />
+        {/* Trigger */}
+        <rect x="89" y="49" width="4" height="7" rx="1" fill="#666" />
+
+        {/* Tiller / rail */}
+        <rect x="22" y="37" width="54" height="8" rx="2" fill="#1a1a1a" />
+
+        {/* Horizontal bow limbs */}
+        <line x1="22" y1="41" x2="6" y2="30" stroke="#2a1a08" strokeWidth="6" strokeLinecap="round" />
+        <line x1="22" y1="41" x2="6" y2="52" stroke="#2a1a08" strokeWidth="6" strokeLinecap="round" />
+        {/* Limb tips */}
+        <circle cx="6" cy="30" r="3.5" fill="#1a0a04" />
+        <circle cx="6" cy="52" r="3.5" fill="#1a0a04" />
+
+        {/* Stirrup (metal loop at front) */}
+        <ellipse cx="18" cy="41" rx="6" ry="9" stroke="#444" strokeWidth="2.5" fill="none" />
+
+        {/* Bowstring */}
+        <g style={{ animation: "crossbow-string 4s ease-in-out infinite" }}>
+          <line x1="6" y1="30" x2="22" y2="41" stroke="#ddd0aa" strokeWidth="1.5" />
+          <line x1="6" y1="52" x2="22" y2="41" stroke="#ddd0aa" strokeWidth="1.5" />
+        </g>
+
+        {/* Loaded bolt */}
+        <g style={{ animation: "bolt-fly 4s ease-in-out infinite" }}>
+          <line x1="22" y1="40" x2="68" y2="40" stroke="#8b5e3c" strokeWidth="3.5" strokeLinecap="round" />
+          <polygon points="68,40 60,37 62,40 60,43" fill="#888888" />
+          {/* Bolt fletching */}
+          <polygon points="26,40 22,35 30,40" fill="#cc3333" opacity="0.8" />
+          <polygon points="26,40 22,45 30,40" fill="#cc3333" opacity="0.8" />
+        </g>
+
+        {/* Scope rail */}
+        <rect x="42" y="33" width="28" height="4" rx="1" fill="#2a2a2a" />
+        {/* Scope (small red dot) */}
+        <rect x="48" y="25" width="18" height="9" rx="4" fill="#333" />
+        <circle cx="57" cy="29.5" r="3" fill="#1a1a1a" />
+        <circle cx="57" cy="29.5" r="1.5" fill="#ff2222" opacity="0.8" />
+
+        {/* Highlight on stock */}
+        <rect x="72" y="37" width="52" height="2" rx="1" fill="white" opacity="0.07" />
       </g>
-      {/* Scope eyepiece (rear) */}
-      <circle cx="86" cy="26.5" r="5" fill="#2a2a2a" />
-      <circle cx="86" cy="26.5" r="3.5" fill="#1a2a3a" />
-      <circle cx="86" cy="26.5" r="2"
-        fill="#4488cc" opacity="0.8"
-        style={{ animation: "scope-pulse 2s ease-in-out infinite" }}
-      />
-      {/* Scope turret (elevation knob) */}
-      <rect x="70" y="13" width="5" height="10" rx="2" fill="#333" />
-      <rect x="70.5" y="14" width="4" height="2" rx="1" fill="#555" />
-      {/* Bipod */}
-      <g style={{ animation: "bipod-sway 3s ease-in-out infinite" }}>
-        <line x1="28" y1="46.5" x2="18" y2="62" stroke="#333" strokeWidth="2.5" strokeLinecap="round" />
-        <line x1="36" y1="46.5" x2="46" y2="62" stroke="#333" strokeWidth="2.5" strokeLinecap="round" />
-        {/* Bipod feet */}
-        <rect x="14" y="61" width="8" height="2.5" rx="1" fill="#2a2a2a" />
-        <rect x="42" y="61" width="8" height="2.5" rx="1" fill="#2a2a2a" />
-      </g>
-      {/* Highlight on barrel */}
-      <rect x="6" y="39" width="50" height="2" rx="1" fill="white" opacity="0.06" />
     </svg>
   );
 }
@@ -243,34 +242,34 @@ const WEAPON_META: Record<
     key: string;
   }
 > = {
-  pistol: {
-    icon: null,
-    stats: [
-      { label: "Poškození", value: 25, max: 100 },
-      { label: "Dostřel", value: 55, max: 100 },
-      { label: "Rychlost střelby", value: 75, max: 100 },
-    ],
-    description: "Spolehlivá standardní pistole. Dobrá rovnováha poškození a rychlosti.",
-    key: "1",
-  },
   sword: {
     icon: null,
     stats: [
       { label: "Poškození", value: 80, max: 100 },
-      { label: "Dostřel", value: 20, max: 100 },
-      { label: "Rychlost útoku", value: 95, max: 100 },
+      { label: "Dostřel", value: 15, max: 100 },
+      { label: "Rychlost útoku", value: 90, max: 100 },
     ],
-    description: "Ocelový meč pro boj zblízka. Žádné projektily — ale smrtící na krátkou vzdálenost.",
+    description: "Ocelový meč pro šermování zblízka. Rychlé výpady — žádné projektily, smrtící na krátkou vzdálenost.",
+    key: "1",
+  },
+  bow: {
+    icon: null,
+    stats: [
+      { label: "Poškození", value: 55, max: 100 },
+      { label: "Dostřel", value: 75, max: 100 },
+      { label: "Rychlost střelby", value: 60, max: 100 },
+    ],
+    description: "Dřevěný luk se šípy. Tichá střelba na střední vzdálenost — pomalé nabití, ale přesný zásah.",
     key: "2",
   },
-  sniper: {
+  crossbow: {
     icon: null,
     stats: [
       { label: "Poškození", value: 95, max: 100 },
       { label: "Dostřel", value: 100, max: 100 },
       { label: "Rychlost střelby", value: 25, max: 100 },
     ],
-    description: "Přesná puška s optickým zaměřovačem. Jeden výstřel stačí.",
+    description: "Kuše se šipkou. Ničivá síla na dálku — pomalé nabití, ale devastující průbojný bolt.",
     key: "3",
   },
 };
@@ -359,9 +358,9 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
           marginBottom: 12,
         }}
       >
-        {type === "pistol" && <PistolSVG selected={selected} />}
         {type === "sword" && <SwordSVG selected={selected} />}
-        {type === "sniper" && <SniperSVG selected={selected} />}
+        {type === "bow" && <BowSVG selected={selected} />}
+        {type === "crossbow" && <CrossbowSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -439,14 +438,14 @@ interface WeaponSelectProps {
 }
 
 export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
-  const [selected, setSelected] = useState<WeaponType>("pistol");
+  const [selected, setSelected] = useState<WeaponType>("sword");
 
   // Keyboard shortcuts 1/2/3 to pick weapon, Enter to confirm
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "1") setSelected("pistol");
-      if (e.key === "2") setSelected("sword");
-      if (e.key === "3") setSelected("sniper");
+      if (e.key === "1") setSelected("sword");
+      if (e.key === "2") setSelected("bow");
+      if (e.key === "3") setSelected("crossbow");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -502,7 +501,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             marginBottom: 24,
           }}
         >
-          {(["pistol", "sword", "sniper"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>

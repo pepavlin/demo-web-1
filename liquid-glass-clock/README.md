@@ -20,9 +20,9 @@ Before starting, you choose one of three animated weapons:
 
 | Weapon | Type | Damage | Style |
 |---|---|---|---|
-| **Pistole** | Ranged | 25 | Balanced — bullet + close melee |
-| **Meč** | Melee only | 50 | High damage, short range, very fast |
-| **Sniperka** | Ranged | 90 | One-shot power, long range, slow reload |
+| **Meč** | Melee only | 55 | Fencing — high-speed sword swings, short range |
+| **Luk** | Ranged | 40 | Silent arrows — medium range, moderate reload |
+| **Kuše** | Ranged | 85 | Powerful bolt — long range, slow reload |
 
 Keys `[1]` `[2]` `[3]` select a weapon; `[Enter]` or the confirm button starts the game.
 
@@ -166,7 +166,7 @@ npm test
 Test suites (344+ tests total):
 - `__tests__/buildingSystem.test.ts` — block mesh builders, grid snapping, persistence
 - `__tests__/terrainUtils.test.ts` — terrain generation, spawn points, sculpt modification
-- `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions (including sword & sniper)
+- `__tests__/meshBuilders.test.ts` — all 3D mesh builder functions (including sword, bow & crossbow)
 - `__tests__/soundManager.test.ts` — audio manager initialization and playback
 - `__tests__/Game3D.test.tsx` — Game3D component render, intro screen, and weapon select flow
 - `__tests__/WeaponSelect.test.tsx` — weapon selection UI, keyboard shortcuts, confirm callback

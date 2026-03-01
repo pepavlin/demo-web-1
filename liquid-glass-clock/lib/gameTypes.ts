@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // ─── Weapon system ────────────────────────────────────────────────────────────
-export type WeaponType = "pistol" | "sword" | "sniper";
+export type WeaponType = "sword" | "bow" | "crossbow";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -20,31 +20,31 @@ export interface WeaponConfig {
 }
 
 export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
-  pistol: {
-    type: "pistol",
-    label: "Pistole",
-    damage: 25,
-    range: 5,
-    cooldown: 0.65,
-    bulletSpeed: 55,
-    color: "#6ee7b7",
-  },
   sword: {
     type: "sword",
     label: "Meč",
-    damage: 50,
-    range: 4.5,
-    cooldown: 0.38,
-    bulletSpeed: 0, // melee only
+    damage: 55,
+    range: 2.2,
+    cooldown: 0.45,
+    bulletSpeed: 0, // melee only – šermování
     color: "#fbbf24",
   },
-  sniper: {
-    type: "sniper",
-    label: "Sniperka",
-    damage: 90,
-    range: 8,
-    cooldown: 2.0,
-    bulletSpeed: 130,
+  bow: {
+    type: "bow",
+    label: "Luk",
+    damage: 40,
+    range: 80,
+    cooldown: 1.1,
+    bulletSpeed: 38,
+    color: "#86efac",
+  },
+  crossbow: {
+    type: "crossbow",
+    label: "Kuše",
+    damage: 85,
+    range: 100,
+    cooldown: 2.2,
+    bulletSpeed: 90,
     color: "#f87171",
   },
 };

@@ -263,8 +263,20 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => soundManager.playFoxGrowl()).not.toThrow();
   });
 
-  it("playAttack()", () => {
+  it("playAttack() – default (bow)", () => {
     expect(() => soundManager.playAttack()).not.toThrow();
+  });
+
+  it("playAttack('sword') – sword swish + metallic ring", () => {
+    expect(() => soundManager.playAttack("sword")).not.toThrow();
+  });
+
+  it("playAttack('bow') – bowstring twang + arrow whoosh", () => {
+    expect(() => soundManager.playAttack("bow")).not.toThrow();
+  });
+
+  it("playAttack('crossbow') – mechanical click + bolt release", () => {
+    expect(() => soundManager.playAttack("crossbow")).not.toThrow();
   });
 
   it("playFoxHit()", () => {
@@ -339,6 +351,14 @@ describe("SoundManager – graceful no-ops before init", () => {
 
   it("playAttack() before init does not throw", () => {
     expect(() => soundManager.playAttack()).not.toThrow();
+  });
+
+  it("playAttack('sword') before init does not throw", () => {
+    expect(() => soundManager.playAttack("sword")).not.toThrow();
+  });
+
+  it("playAttack('crossbow') before init does not throw", () => {
+    expect(() => soundManager.playAttack("crossbow")).not.toThrow();
   });
 
   it("playFoxHit() before init does not throw", () => {

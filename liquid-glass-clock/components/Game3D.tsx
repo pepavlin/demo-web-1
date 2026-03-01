@@ -47,9 +47,9 @@ import {
   buildRuins,
   buildLighthouse,
   buildBulletMesh,
-  buildWeaponMesh,
   buildSwordMesh,
-  buildSniperMesh,
+  buildBowMesh,
+  buildCrossbowMesh,
   buildBoatMesh,
   buildCatapultMesh,
   type SheepMeshParts,
@@ -126,7 +126,7 @@ const IMPACT_EFFECT_DURATION = 0.45;     // seconds the impact explosion ring la
 // Per-weapon values come from WEAPON_CONFIGS; these are shared constants:
 const BULLET_LIFETIME = 4;      // seconds before auto-despawn
 const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
-// Default weapon position in camera-local space (pistol)
+// Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
 // ─── Possession Constants ─────────────────────────────────────────────────────
@@ -398,8 +398,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const playerBodyLegPhaseRef = useRef(0);
 
   // ─── Selected weapon (persisted via ref for use inside animation loop) ───────
-  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("pistol");
-  const selectedWeaponRef = useRef<WeaponType>("pistol");
+  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("sword");
+  const selectedWeaponRef = useRef<WeaponType>("sword");
 
   // ─── Third-Person Camera Refs ────────────────────────────────────────────────
   const thirdPersonRef    = useRef(false);
@@ -597,19 +597,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     cam.remove(weaponMeshRef.current);
     // Build new mesh
     const newMesh =
-      type === "sword" ? buildSwordMesh()
-      : type === "sniper" ? buildSniperMesh()
-      : buildWeaponMesh();
+      type === "bow" ? buildBowMesh()
+      : type === "crossbow" ? buildCrossbowMesh()
+      : buildSwordMesh(); // sword
     if (type === "sword") {
       newMesh.position.set(0.20, -0.18, -0.38);
       newMesh.rotation.y = -0.25;
       newMesh.rotation.z = -0.05;
-    } else if (type === "sniper") {
-      newMesh.position.set(0.18, -0.22, -0.55);
-      newMesh.rotation.y = -0.08;
-    } else {
-      newMesh.position.copy(WEAPON_POS);
+    } else if (type === "bow") {
+      newMesh.position.set(0.16, -0.16, -0.40);
       newMesh.rotation.y = -0.12;
+    } else {
+      // crossbow
+      newMesh.position.set(0.18, -0.22, -0.52);
+      newMesh.rotation.y = -0.08;
     }
     cam.add(newMesh);
     weaponMeshRef.current = newMesh;
@@ -705,7 +706,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
 
     playerAttackCooldownRef.current = weaponCfg.cooldown;
-    soundManager.playAttack();
+    soundManager.playAttack(weaponCfg.type);
 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
@@ -897,20 +898,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── First-person weapon (attached to camera) ─────────────────────────────
     const wType = selectedWeaponRef.current;
     const weaponGroup =
-      wType === "sword" ? buildSwordMesh()
-      : wType === "sniper" ? buildSniperMesh()
-      : buildWeaponMesh();
-    // Sword sits closer/lower and rotates differently for melee feel
+      wType === "bow" ? buildBowMesh()
+      : wType === "crossbow" ? buildCrossbowMesh()
+      : buildSwordMesh(); // sword
+    // Position each weapon in camera-local space
     if (wType === "sword") {
       weaponGroup.position.set(0.20, -0.18, -0.38);
       weaponGroup.rotation.y = -0.25;
       weaponGroup.rotation.z = -0.05;
-    } else if (wType === "sniper") {
-      weaponGroup.position.set(0.18, -0.22, -0.55);
-      weaponGroup.rotation.y = -0.08;
+    } else if (wType === "bow") {
+      weaponGroup.position.set(0.16, -0.16, -0.40);
+      weaponGroup.rotation.y = -0.12;
     } else {
-      weaponGroup.position.copy(WEAPON_POS);
-      weaponGroup.rotation.y = -0.12; // slight inward cant
+      // crossbow
+      weaponGroup.position.set(0.18, -0.22, -0.52);
+      weaponGroup.rotation.y = -0.08;
     }
     camera.add(weaponGroup);
     weaponMeshRef.current = weaponGroup;
@@ -2439,7 +2441,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // Digit keys 1–3 — select weapon in explore mode
       if (e.type === "keydown" && buildModeRef.current === "explore") {
-        const WEAPON_ORDER: WeaponType[] = ["pistol", "sword", "sniper"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow"];
         if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
@@ -2547,7 +2549,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
       } else if (buildModeRef.current === "explore") {
         // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["pistol", "sword", "sniper"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow"];
         const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
         const next = (cur + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
         const newWeapon = WEAPON_ORDER[next];
@@ -3549,9 +3551,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const swaySpeed = isMoving ? 7 : 3;
 
         const wType = selectedWeaponRef.current;
-        const baseX = wType === "sword" ? 0.20 : wType === "sniper" ? 0.18 : WEAPON_POS.x;
-        const baseY = wType === "sword" ? -0.18 : wType === "sniper" ? -0.22 : WEAPON_POS.y;
-        const baseZ = wType === "sword" ? -0.38 : wType === "sniper" ? -0.55 : WEAPON_POS.z;
+        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : 0.20; // sword default
+        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : -0.18; // sword default
+        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : -0.38; // sword default
         wep.position.set(
           baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
           baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt - recoil * 0.04,
@@ -4771,10 +4773,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           </div>
 
           {/* Weapon slots HUD — all 3 weapons, active one highlighted */}
-          {(["pistol", "sword", "sniper"] as WeaponType[]).map((w, idx) => {
+          {(["sword", "bow", "crossbow"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "pistol" ? "🔫" : w === "sword" ? "⚔️" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : "🎯";
             return (
               <div
                 key={w}

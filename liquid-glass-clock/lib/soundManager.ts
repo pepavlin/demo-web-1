@@ -455,27 +455,154 @@ class SoundManager {
     osc.stop(t + dur);
   }
 
-  /** Sharp crack + whoosh for the player's ranged attack. */
-  playAttack(): void {
+  /**
+   * Weapon attack sound – different audio per weapon type.
+   * @param weaponType  "sword" | "bow" | "crossbow"
+   */
+  playAttack(weaponType: string = "bow"): void {
+    if (!this.ctx || !this.sfxGain) return;
+    if (weaponType === "sword") {
+      this._playSwordSwing();
+    } else if (weaponType === "crossbow") {
+      this._playCrossbowShot();
+    } else {
+      this._playBowShot();
+    }
+  }
+
+  /** Sword swing: sharp air-cutting swish + brief metallic ring. */
+  private _playSwordSwing(): void {
     if (!this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
-    // High-pass noise burst (muzzle noise)
-    this._noiseBurst(3200, "highpass", 0.25, 0.07);
+    // Swish – bandpass noise, fast decay, mimics blade cutting air
+    const swishSrc = ctx.createBufferSource();
+    swishSrc.buffer = this._noiseBuffer(0.18);
+    const swishFlt = ctx.createBiquadFilter();
+    swishFlt.type = "bandpass";
+    swishFlt.frequency.value = 2400;
+    swishFlt.Q.value = 0.7;
+    const swishEnv = ctx.createGain();
+    swishEnv.gain.setValueAtTime(0, t);
+    swishEnv.gain.linearRampToValueAtTime(0.32, t + 0.02);
+    swishEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    swishSrc.connect(swishFlt);
+    swishFlt.connect(swishEnv);
+    swishEnv.connect(this.sfxGain);
+    swishSrc.start(t);
+    swishSrc.stop(t + 0.18);
 
-    // Downward frequency sweep (crack)
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(900, t);
-    osc.frequency.exponentialRampToValueAtTime(180, t + 0.1);
-    const env = ctx.createGain();
-    env.gain.setValueAtTime(0.38, t);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    osc.connect(env);
-    env.connect(this.sfxGain);
-    osc.start(t);
-    osc.stop(t + 0.12);
+    // Metallic ring – sine at steel resonance frequency, longer decay
+    const ringOsc = ctx.createOscillator();
+    ringOsc.type = "sine";
+    ringOsc.frequency.setValueAtTime(920 + Math.random() * 120, t + 0.02);
+    const ringEnv = ctx.createGain();
+    ringEnv.gain.setValueAtTime(0.14, t + 0.02);
+    ringEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    ringOsc.connect(ringEnv);
+    ringEnv.connect(this.sfxGain);
+    ringOsc.start(t + 0.02);
+    ringOsc.stop(t + 0.28);
+  }
+
+  /** Bow shot: bowstring twang + arrow whoosh in flight. */
+  private _playBowShot(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Bowstring twang – low-pitched pluck with a brief vibrato decay
+    const twangOsc = ctx.createOscillator();
+    twangOsc.type = "sine";
+    twangOsc.frequency.setValueAtTime(130 + Math.random() * 20, t);
+    twangOsc.frequency.exponentialRampToValueAtTime(90, t + 0.15);
+    const twangEnv = ctx.createGain();
+    twangEnv.gain.setValueAtTime(0.42, t);
+    twangEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    twangOsc.connect(twangEnv);
+    twangEnv.connect(this.sfxGain);
+    twangOsc.start(t);
+    twangOsc.stop(t + 0.22);
+
+    // Second harmonic – adds body to the pluck
+    const twangOsc2 = ctx.createOscillator();
+    twangOsc2.type = "sine";
+    twangOsc2.frequency.setValueAtTime(260 + Math.random() * 20, t);
+    twangOsc2.frequency.exponentialRampToValueAtTime(180, t + 0.1);
+    const twangEnv2 = ctx.createGain();
+    twangEnv2.gain.setValueAtTime(0.18, t);
+    twangEnv2.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    twangOsc2.connect(twangEnv2);
+    twangEnv2.connect(this.sfxGain);
+    twangOsc2.start(t);
+    twangOsc2.stop(t + 0.14);
+
+    // Arrow whoosh – highpass noise sweep (arrow in flight)
+    const whooshSrc = ctx.createBufferSource();
+    whooshSrc.buffer = this._noiseBuffer(0.2);
+    const whooshFlt = ctx.createBiquadFilter();
+    whooshFlt.type = "highpass";
+    whooshFlt.frequency.value = 1800;
+    whooshFlt.Q.value = 0.5;
+    const whooshEnv = ctx.createGain();
+    whooshEnv.gain.setValueAtTime(0, t + 0.04);
+    whooshEnv.gain.linearRampToValueAtTime(0.18, t + 0.08);
+    whooshEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+    whooshSrc.connect(whooshFlt);
+    whooshFlt.connect(whooshEnv);
+    whooshEnv.connect(this.sfxGain);
+    whooshSrc.start(t + 0.04);
+    whooshSrc.stop(t + 0.28);
+  }
+
+  /** Crossbow shot: mechanical click/thunk + sharp bolt release. */
+  private _playCrossbowShot(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Mechanical trigger click – short square pulse
+    const clickOsc = ctx.createOscillator();
+    clickOsc.type = "square";
+    clickOsc.frequency.value = 580 + Math.random() * 80;
+    const clickEnv = ctx.createGain();
+    clickEnv.gain.setValueAtTime(0.28, t);
+    clickEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    clickOsc.connect(clickEnv);
+    clickEnv.connect(this.sfxGain);
+    clickOsc.start(t);
+    clickOsc.stop(t + 0.04);
+
+    // Body thunk – deep sine thud (limb energy release)
+    const thunkOsc = ctx.createOscillator();
+    thunkOsc.type = "sine";
+    thunkOsc.frequency.setValueAtTime(210, t + 0.01);
+    thunkOsc.frequency.exponentialRampToValueAtTime(70, t + 0.1);
+    const thunkEnv = ctx.createGain();
+    thunkEnv.gain.setValueAtTime(0.38, t + 0.01);
+    thunkEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    thunkOsc.connect(thunkEnv);
+    thunkEnv.connect(this.sfxGain);
+    thunkOsc.start(t + 0.01);
+    thunkOsc.stop(t + 0.12);
+
+    // Bolt flight – high-pass noise, sharp and cutting (faster than bow arrow)
+    const boltSrc = ctx.createBufferSource();
+    boltSrc.buffer = this._noiseBuffer(0.14);
+    const boltFlt = ctx.createBiquadFilter();
+    boltFlt.type = "highpass";
+    boltFlt.frequency.value = 3000;
+    boltFlt.Q.value = 0.8;
+    const boltEnv = ctx.createGain();
+    boltEnv.gain.setValueAtTime(0, t + 0.02);
+    boltEnv.gain.linearRampToValueAtTime(0.22, t + 0.04);
+    boltEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    boltSrc.connect(boltFlt);
+    boltFlt.connect(boltEnv);
+    boltEnv.connect(this.sfxGain);
+    boltSrc.start(t + 0.02);
+    boltSrc.stop(t + 0.18);
   }
 
   /** Impact thud played when a bullet / melee hit lands on a fox. */
