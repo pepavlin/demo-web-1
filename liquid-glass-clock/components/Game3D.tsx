@@ -133,6 +133,10 @@ const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
 const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when possessed
 
+// ─── Lighthouse Constants ─────────────────────────────────────────────────────
+const LIGHTHOUSE_X = -95;       // world X coordinate — accessible northwest coastal rise
+const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable boundary (±123.5)
+
 // ─── Boat Constants ───────────────────────────────────────────────────────────
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
 const BOAT_SPEED = 8;           // units/second when sailing
@@ -2247,14 +2251,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── Lighthouse (on a coastal rise) ───────────────────────────────────────
     const { group: lighthouse, beamPivot, lighthouseLight } = buildLighthouse();
-    const lhX = -220;
-    const lhZ = 180;
-    lighthouse.position.set(lhX, getTerrainHeightSampled(lhX, lhZ), lhZ);
+    lighthouse.position.set(LIGHTHOUSE_X, getTerrainHeightSampled(LIGHTHOUSE_X, LIGHTHOUSE_Z), LIGHTHOUSE_Z);
     scene.add(lighthouse);
     lighthouseBeamRef.current = beamPivot;
     lighthouseLightRef.current = lighthouseLight;
     // Cylinder collider for the lighthouse base (base radius 2.2)
-    treeCollisionRef.current.push({ x: lhX, z: lhZ, radius: 2.2 + PLAYER_RADIUS });
+    treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS });
 
     // ── Boat (rowboat floating near the shore) ────────────────────────────────
     // Scan outward from player spawn to find the nearest water tile deep enough
@@ -4225,7 +4227,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (canvas && cameraRef.current) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          const W = 160;
+          const W = 220;
           const scale = W / WORLD_SIZE;
           const cx = W / 2;
           const cy = W / 2;
@@ -4279,6 +4281,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ctx.fill();
             }
           });
+
+          // Lighthouse marker
+          const lhMx = cx + LIGHTHOUSE_X * scale;
+          const lhMz = cy + LIGHTHOUSE_Z * scale;
+          if (lhMx >= 0 && lhMx <= W && lhMz >= 0 && lhMz <= W) {
+            ctx.fillStyle = "#ff8c00";
+            ctx.beginPath();
+            ctx.arc(lhMx, lhMz, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 8px monospace";
+            ctx.fillText("M", lhMx - 3, lhMz + 3);
+          }
 
           // Player arrow — always based on body position, not camera offset
           const px = cx + playerBodyPosRef.current.x * scale;
@@ -4692,7 +4707,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               boxShadow: "0 4px 24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
             }}
           >
-            <canvas ref={minimapRef} width={160} height={160} />
+            <canvas ref={minimapRef} width={220} height={220} />
           </div>
 
           {/* Time + compass */}
@@ -4715,7 +4730,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           <div
             className="rounded-xl text-xs font-bold text-center"
             style={{
-              width: 168,
+              width: 220,
               padding: "9px 16px",
               background: cameraMode === 'third'
                 ? "rgba(30,70,160,0.80)"
