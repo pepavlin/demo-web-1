@@ -120,6 +120,12 @@ export interface BulletData {
   lifetime: number; // seconds remaining before despawn
   /** When true, gravity is applied each frame (bow arrows fly in an arc). */
   useGravity?: boolean;
+  /** When true, the arrow is embedded in the ground and no longer moves. */
+  isStuck?: boolean;
+  /** Countdown (seconds) before a stuck arrow is removed from the scene. */
+  stuckLifetime?: number;
+  /** Power multiplier used when the arrow was fired (0.1–1.0 for bow charge). */
+  power?: number;
 }
 
 export interface CatapultData {

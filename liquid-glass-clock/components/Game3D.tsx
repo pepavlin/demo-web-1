@@ -331,6 +331,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const catapultsDefeatedRef = useRef(0);
   const isMouseHeldRef = useRef(false); // true while left mouse button is held down
 
+  // ─── Bow charging Refs ───────────────────────────────────────────────────────
+  /** True while the player holds left mouse with the bow selected. */
+  const isBowChargingRef = useRef(false);
+  /** performance.now() timestamp when the bow draw started. */
+  const bowChargeStartRef = useRef(0);
+  /** Current charge level 0–1 (updated every frame). */
+  const bowChargeRef = useRef(0);
+  /** DOM ref for the charge bar element — manipulated directly to avoid React re-renders. */
+  const bowChargeBarRef = useRef<HTMLDivElement | null>(null);
+  /** Maximum hold time (seconds) to reach full power. */
+  const BOW_MAX_CHARGE_TIME = 1.5;
+
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
   const bulletsRef = useRef<BulletData[]>([]);
   const weaponMeshRef = useRef<THREE.Group | null>(null);
@@ -758,7 +770,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   }
 
   // ─── Player attack ───────────────────────────────────────────────────────────
-  const doAttack = useCallback(() => {
+  /**
+   * Fire the currently equipped weapon.
+   * @param powerMultiplier – for the bow: 0.1 (weak pull) to 1.0 (full draw).
+   *   Scales arrow speed and damage. Defaults to 1.0 for non-bow weapons.
+   */
+  const doAttack = useCallback((powerMultiplier = 1.0) => {
     if (!isLockedRef.current) return;
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
@@ -807,11 +824,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       scene.add(projectileMesh);
 
+      // For the bow, scale bullet speed by the draw power (min 15% of full speed).
+      const effectiveSpeed = isBow
+        ? weaponCfg.bulletSpeed * Math.max(0.15, powerMultiplier)
+        : weaponCfg.bulletSpeed;
+
       bulletsRef.current.push({
         mesh: projectileMesh,
-        velocity: forward.clone().multiplyScalar(weaponCfg.bulletSpeed),
+        velocity: forward.clone().multiplyScalar(effectiveSpeed),
         lifetime: BULLET_LIFETIME,
         useGravity: isBow,
+        power: isBow ? powerMultiplier : undefined,
       });
     }
 
@@ -2423,8 +2446,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             placeBlock(ghostMeshRef.current.position.clone());
           }
         } else if (buildModeRef.current === "explore") {
-          isMouseHeldRef.current = true; // start auto-fire loop
-          doAttack(); // fire immediately on first click
+          if (selectedWeaponRef.current === "bow") {
+            // Bow: start charging on press — fire on release
+            isBowChargingRef.current = true;
+            bowChargeStartRef.current = performance.now();
+            bowChargeRef.current = 0;
+            if (bowChargeBarRef.current) {
+              bowChargeBarRef.current.style.width = "0%";
+              bowChargeBarRef.current.parentElement!.style.opacity = "1";
+            }
+          } else {
+            isMouseHeldRef.current = true; // start auto-fire loop for other weapons
+            doAttack(); // fire immediately on first click
+          }
         }
         // sculpt mode: scroll wheel sculpts, left click does nothing extra
       } else if (e.button === 2 && buildModeRef.current !== "explore") {
@@ -2435,7 +2469,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) {
+        // ── Bow release: fire with power proportional to draw time ──────────
+        if (isBowChargingRef.current && buildModeRef.current === "explore") {
+          isBowChargingRef.current = false;
+          const chargeSeconds = (performance.now() - bowChargeStartRef.current) / 1000;
+          const power = Math.min(1.0, Math.max(0.1, chargeSeconds / BOW_MAX_CHARGE_TIME));
+          bowChargeRef.current = 0;
+          if (bowChargeBarRef.current) {
+            bowChargeBarRef.current.style.width = "0%";
+            bowChargeBarRef.current.parentElement!.style.opacity = "0";
+          }
+          doAttack(power);
+        }
         isMouseHeldRef.current = false;
+        isBowChargingRef.current = false;
       }
     };
     document.addEventListener("mouseup", onMouseUp);
@@ -3675,9 +3722,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         playerAttackCooldownRef.current = Math.max(0, playerAttackCooldownRef.current - dt);
       }
 
-      // ── Auto-fire while left mouse button is held (explore mode only) ──────
-      if (isMouseHeldRef.current && buildModeRef.current === "explore") {
+      // ── Auto-fire while left mouse button is held (explore mode, non-bow) ──
+      if (isMouseHeldRef.current && buildModeRef.current === "explore" && selectedWeaponRef.current !== "bow") {
         doAttack();
+      }
+
+      // ── Bow charge: update charge level and charge bar each frame ───────────
+      if (isBowChargingRef.current) {
+        const chargeSeconds = (performance.now() - bowChargeStartRef.current) / 1000;
+        bowChargeRef.current = Math.min(1.0, chargeSeconds / BOW_MAX_CHARGE_TIME);
+        if (bowChargeBarRef.current) {
+          bowChargeBarRef.current.style.width = `${bowChargeRef.current * 100}%`;
+          // Colour transitions: green → yellow → red as charge fills up
+          const r = Math.round(bowChargeRef.current * 220);
+          const g = Math.round(200 - bowChargeRef.current * 100);
+          bowChargeBarRef.current.style.backgroundColor = `rgb(${r},${g},60)`;
+        }
       }
 
       // ── Weapon sway & recoil animation ─────────────────────────────────────
@@ -3730,31 +3790,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         // ── Bow draw animation ──────────────────────────────────────────────
-        // bowstring is pulled back as the bow reloads. drawProgress goes from
-        // 0 (just fired / relaxed) to 1 (fully drawn / ready to shoot).
+        // When the player holds the mouse, drawProgress = bowChargeRef (0→1).
+        // Otherwise (idle / after firing) use cooldown-based relaxed state.
         if (wType === "bow") {
-          const bowCooldown = WEAPON_CONFIGS["bow"].cooldown;
-          const drawProgress = bowCooldown > 0
-            ? 1 - Math.min(1, playerAttackCooldownRef.current / bowCooldown)
-            : 1;
+          let drawProgress: number;
+          if (isBowChargingRef.current) {
+            // Active draw: reflect real charge amount
+            drawProgress = bowChargeRef.current;
+          } else {
+            // Relaxed / reload state: string returns to rest as cooldown expires
+            const bowCooldown = WEAPON_CONFIGS["bow"].cooldown;
+            drawProgress = bowCooldown > 0
+              ? 1 - Math.min(1, playerAttackCooldownRef.current / bowCooldown)
+              : 1;
+            // Keep string slack until player draws again
+            drawProgress *= 0.15; // partially visible tension at rest
+          }
 
           const bowstringGroup = wep.getObjectByName("bowstring");
           if (bowstringGroup) {
             // Pull string back toward the archer (+Z in bow-local space)
-            const pullZ = drawProgress * 0.028;
+            const pullZ = drawProgress * 0.034;
             bowstringGroup.position.z = pullZ;
             // Slightly pull string away from limb tips when drawn
-            bowstringGroup.position.x = drawProgress * -0.006;
+            bowstringGroup.position.x = drawProgress * -0.008;
           }
 
-          // Tilt bow slightly when fully drawn (aiming posture)
-          wep.rotation.z = drawProgress * -0.06;
+          // Tilt bow and pull weapon back slightly when fully drawn (aiming posture)
+          wep.rotation.z = drawProgress * -0.10;
+          if (isBowChargingRef.current) {
+            // Pull bow slightly toward player as string is drawn
+            wep.position.z += drawProgress * 0.06;
+          }
         }
       }
 
       // ── Bullet update ──────────────────────────────────────────────────────
       const toRemove: BulletData[] = [];
       bulletsRef.current.forEach((bullet) => {
+        // ── Stuck arrows: count down and remove after their embedded lifetime ──
+        if (bullet.isStuck) {
+          bullet.stuckLifetime = (bullet.stuckLifetime ?? 0) - dt;
+          if (bullet.stuckLifetime <= 0) toRemove.push(bullet);
+          return; // no further physics or collision for stuck arrows
+        }
+
         bullet.lifetime -= dt;
         if (bullet.lifetime <= 0) {
           toRemove.push(bullet);
@@ -3773,13 +3853,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Move bullet forward
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
 
+        // ── Arrow ground sticking (bow arrows only) ──────────────────────────
+        if (bullet.useGravity && !bullet.isStuck) {
+          const groundY = getTerrainHeightSampled(
+            bullet.mesh.position.x,
+            bullet.mesh.position.z
+          );
+          if (bullet.mesh.position.y <= groundY + 0.05) {
+            // Snap arrow tip to just above terrain
+            bullet.mesh.position.y = groundY + 0.05;
+            // Freeze the arrow in place (orientation already set by gravity loop above)
+            bullet.velocity.set(0, 0, 0);
+            bullet.isStuck = true;
+            bullet.stuckLifetime = 12; // visible in ground for 12 seconds then removed
+            return; // skip collision checks — arrow is stuck in the ground
+          }
+        }
+
         // Check fox collisions
         let bulletHit = false;
         for (const fox of foxListRef.current) {
           if (!fox.isAlive) continue;
           const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
           if (dist < BULLET_HIT_RADIUS) {
-            const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+            // Scale bow arrow damage by the draw power stored on the bullet
+            const baseDmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+            const dmg = bullet.power !== undefined
+              ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+              : baseDmg;
             fox.hp = Math.max(0, fox.hp - dmg);
             fox.hitFlashTimer = 0.25;
             flashFoxMesh(fox.mesh);
@@ -3803,7 +3904,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             if (!cat.isAlive) continue;
             const dist = bullet.mesh.position.distanceTo(cat.mesh.position);
             if (dist < CATAPULT_HIT_RADIUS) {
-              const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              const baseDmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              const dmg = bullet.power !== undefined
+                ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+                : baseDmg;
               cat.hp = Math.max(0, cat.hp - dmg);
               cat.hitFlashTimer = 0.3;
               flashCatapultMesh(cat.mesh);
@@ -4837,8 +4941,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         className="w-full h-full cursor-crosshair"
         onClick={() => {
           if (isLockedRef.current) {
-            // Attack only in explore mode; build mode is handled by onMouseDown
-            if (buildModeRef.current === "explore") {
+            // Attack only in explore mode; build mode is handled by onMouseDown.
+            // Bow uses hold-and-release mechanic — the onClick path is a fallback
+            // for quick taps; fire at minimum power so the mechanic stays consistent.
+            if (buildModeRef.current === "explore" && selectedWeaponRef.current !== "bow") {
               doAttack();
             }
           } else {
@@ -5394,6 +5500,53 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             {attackEffect === "Miss" ? "Miss!" : attackEffect}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOW CHARGE BAR ═══════════════ */}
+      {gameState.isLocked && selectedWeapon === "bow" && (
+        <div
+          className="fixed pointer-events-none select-none"
+          style={{
+            bottom: 80,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 60,
+            opacity: 0,         // starts hidden; toggled by DOM ref in the game loop
+            transition: "opacity 0.12s ease",
+          }}
+        >
+          <div
+            className="text-xs font-semibold text-center mb-1"
+            style={{ color: "rgba(255,255,255,0.80)", letterSpacing: "0.05em" }}
+          >
+            Natažení luku
+          </div>
+          {/* Outer track */}
+          <div
+            style={{
+              width: 160,
+              height: 8,
+              borderRadius: 6,
+              background: "rgba(0,0,0,0.45)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              overflow: "hidden",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            {/* Inner fill — manipulated directly via bowChargeBarRef */}
+            <div
+              ref={bowChargeBarRef}
+              style={{
+                height: "100%",
+                width: "0%",
+                borderRadius: 6,
+                backgroundColor: "rgb(60,200,60)",
+                boxShadow: "0 0 6px rgba(100,255,100,0.5)",
+                transition: "none",
+              }}
+            />
           </div>
         </div>
       )}
