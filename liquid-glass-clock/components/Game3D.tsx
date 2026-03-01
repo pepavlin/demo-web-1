@@ -57,7 +57,7 @@ import {
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
@@ -342,6 +342,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const catapultListRef = useRef<CatapultData[]>([]);
   const cannonballsRef = useRef<CannonballData[]>([]);
   const impactEffectsRef = useRef<ImpactEffect[]>([]);
+
+  // ─── Blood Particle Refs ──────────────────────────────────────────────────────
+  const bloodParticlesRef = useRef<BloodParticle[]>([]);
 
   // ─── Sound Refs ─────────────────────────────────────────────────────────────
   const footstepTimerRef = useRef(0);
@@ -706,6 +709,54 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
   }
 
+  // ─── Flash sheep mesh red when hit ───────────────────────────────────────────
+  function flashSheepMesh(mesh: THREE.Group) {
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.set(0xff0000);
+          setTimeout(() => mat.emissive.set(0x000000), 180);
+        }
+      }
+    });
+  }
+
+  // ─── Spawn blood particles at a world position ────────────────────────────────
+  function spawnBloodParticles(scene: THREE.Scene, pos: THREE.Vector3) {
+    const count = 22 + Math.floor(Math.random() * 10);
+    for (let i = 0; i < count; i++) {
+      const radius = 0.05 + Math.random() * 0.1;
+      const geo = new THREE.SphereGeometry(radius, 4, 3);
+      const r = 0.55 + Math.random() * 0.35;
+      const mat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(r, 0.0, 0.0),
+        emissive: new THREE.Color(0.25, 0.0, 0.0),
+        transparent: true,
+        opacity: 1.0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      // Spawn slightly above the sheep body centre
+      mesh.position.copy(pos);
+      mesh.position.y += 0.4 + Math.random() * 0.5;
+
+      // Random outward velocity — broad upward hemisphere
+      const angle = Math.random() * Math.PI * 2;
+      const elevation = 0.2 + Math.random() * (Math.PI * 0.55);
+      const speed = 2.5 + Math.random() * 5.5;
+      const velocity = new THREE.Vector3(
+        Math.cos(angle) * Math.cos(elevation) * speed,
+        Math.sin(elevation) * speed,
+        Math.sin(angle) * Math.cos(elevation) * speed,
+      );
+
+      const maxLifetime = 0.7 + Math.random() * 0.9;
+      scene.add(mesh);
+      bloodParticlesRef.current.push({ mesh, velocity, lifetime: maxLifetime, maxLifetime });
+    }
+  }
+
   // ─── Player attack ───────────────────────────────────────────────────────────
   const doAttack = useCallback(() => {
     if (!isLockedRef.current) return;
@@ -820,6 +871,41 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (cat.hp <= 0) {
           cat.isAlive = false;
           catapultsDefeatedRef.current++;
+        }
+      }
+    }
+
+    // ── Melee hit on sheep ───────────────────────────────────────────────────
+    // Sheep can be hit with any weapon at melee range (same range as fox check)
+    if (!sceneRef.current) return;
+    {
+      let closestSheep: SheepData | null = null;
+      let closestSheepDist = weaponCfg.range;
+
+      sheepListRef.current.forEach((sheep) => {
+        if (!sheep.isAlive || sheep.isDying) return;
+        const d = sheep.mesh.position.distanceTo(playerPos);
+        if (d < closestSheepDist) {
+          closestSheepDist = d;
+          closestSheep = sheep;
+        }
+      });
+
+      if (closestSheep) {
+        const sheep = closestSheep as SheepData;
+        sheep.hp = Math.max(0, sheep.hp - weaponCfg.damage);
+        sheep.hitFlashTimer = 0.25;
+        flashSheepMesh(sheep.mesh);
+        soundManager.playFoxHit();
+        setAttackEffect(`-${weaponCfg.damage}`);
+        setTimeout(() => setAttackEffect(null), 700);
+
+        if (sheep.hp <= 0 && !sheep.isDying) {
+          sheep.isDying = true;
+          sheep.deathTimer = 0;
+          sheep.deathRotationY = sheep.mesh.rotation.y;
+          // Spawn blood immediately at moment of death
+          spawnBloodParticles(sceneRef.current!, sheep.mesh.position);
         }
       }
     }
@@ -2119,6 +2205,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           : 10 + Math.random() * 25,  // will start walking
         headPitchTarget: startGrazing ? -0.65 : 0,
         headPitchCurrent: 0,
+        // combat
+        hp: 30,
+        maxHp: 30,
+        isAlive: true,
+        hitFlashTimer: 0,
+        isDying: false,
+        deathTimer: 0,
+        deathRotationY: initialAngle,
       };
     });
 
@@ -3721,6 +3815,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 catapultsDefeatedRef.current++;
               }
               toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
+        // Check sheep collisions (ranged weapons can also kill sheep)
+        if (!bulletHit) {
+          for (const sheep of sheepListRef.current) {
+            if (!sheep.isAlive || sheep.isDying) continue;
+            const dist = bullet.mesh.position.distanceTo(sheep.mesh.position);
+            if (dist < BULLET_HIT_RADIUS * 1.2) {
+              const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              sheep.hp = Math.max(0, sheep.hp - dmg);
+              sheep.hitFlashTimer = 0.25;
+              flashSheepMesh(sheep.mesh);
+              soundManager.playFoxHit();
+              setAttackEffect(`-${dmg}`);
+              setTimeout(() => setAttackEffect(null), 700);
+              if (sheep.hp <= 0 && !sheep.isDying) {
+                sheep.isDying = true;
+                sheep.deathTimer = 0;
+                sheep.deathRotationY = sheep.mesh.rotation.y;
+                spawnBloodParticles(scene, sheep.mesh.position);
+              }
+              toRemove.push(bullet);
               break;
             }
           }
@@ -3735,6 +3855,42 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         bulletsRef.current = bulletsRef.current.filter(
           (b) => !toRemove.includes(b)
         );
+      }
+
+      // ── Blood particle physics ──────────────────────────────────────────────
+      if (bloodParticlesRef.current.length > 0) {
+        const deadParticles: BloodParticle[] = [];
+        bloodParticlesRef.current.forEach((p) => {
+          p.lifetime -= dt;
+          if (p.lifetime <= 0) {
+            deadParticles.push(p);
+            return;
+          }
+          // Gravity
+          p.velocity.y -= 12 * dt;
+          p.mesh.position.addScaledVector(p.velocity, dt);
+          // Bounce off terrain surface (simple ground check)
+          const groundY = getTerrainHeightSampled(p.mesh.position.x, p.mesh.position.z);
+          if (p.mesh.position.y < groundY) {
+            p.mesh.position.y = groundY;
+            p.velocity.y = -p.velocity.y * 0.25; // damped bounce
+            p.velocity.x *= 0.6;
+            p.velocity.z *= 0.6;
+          }
+          // Fade out
+          const mat = p.mesh.material as THREE.MeshLambertMaterial;
+          mat.opacity = p.lifetime / p.maxLifetime;
+        });
+        if (deadParticles.length > 0) {
+          deadParticles.forEach((p) => {
+            scene.remove(p.mesh);
+            p.mesh.geometry.dispose();
+            (p.mesh.material as THREE.MeshLambertMaterial).dispose();
+          });
+          bloodParticlesRef.current = bloodParticlesRef.current.filter(
+            (p) => !deadParticles.includes(p)
+          );
+        }
       }
 
       // ── Fox AI ─────────────────────────────────────────────────────────────
@@ -4095,6 +4251,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         let nearestDist = POSSESS_RADIUS;
         let nearestSheep: SheepData | null = null;
         sheepListRef.current.forEach((sheep) => {
+          // Cannot possess dead or dying sheep
+          if (!sheep.isAlive || sheep.isDying) return;
           const d = sheep.mesh.position.distanceTo(playerPos);
           if (d < nearestDist) {
             nearestDist = d;
@@ -4130,6 +4288,84 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (sheep === possessedSheepRef.current) return;
 
         const s = sheep.mesh;
+
+        // ── Death animation ─────────────────────────────────────────────────
+        if (sheep.isDying) {
+          sheep.deathTimer += dt;
+          const t = sheep.deathTimer;
+
+          // Hit flash cooldown (may still be running)
+          if (sheep.hitFlashTimer > 0) {
+            sheep.hitFlashTimer = Math.max(0, sheep.hitFlashTimer - dt);
+          }
+
+          if (t < 0.35) {
+            // Phase 1: violent body-shock shaking
+            const shakeAmp = (0.35 - t) / 0.35; // 1 → 0
+            const shake = Math.sin(t * 65) * shakeAmp;
+            s.position.x += shake * 0.08;
+            s.position.z += shake * 0.08;
+            s.rotation.z = shake * 0.45;
+            // Head snaps back
+            sheep.headGroup.rotation.z = -0.3 - shakeAmp * 0.4;
+            // Legs flail outward
+            if (sheep.legPivots.length === 4) {
+              sheep.legPivots.forEach((p, i) => {
+                p.rotation.z = (i % 2 === 0 ? 1 : -1) * shakeAmp * 0.9;
+              });
+            }
+          } else if (t < 1.4) {
+            // Phase 2: exponential spin + tip over
+            const fallT = (t - 0.35) / 1.05; // 0 → 1
+            // Spin: fast at start (exponential decay feel)
+            const spinSpeed = Math.pow(1 - fallT, 1.8) * 14; // rad/s
+            sheep.deathRotationY += spinSpeed * dt;
+            s.rotation.y = sheep.deathRotationY;
+            // Tip over sideways (Z axis)
+            s.rotation.z = fallT * (Math.PI / 2) * 1.05; // overshoot slightly
+            // Small vertical bounce on initial impact
+            const bounce = Math.max(0, Math.sin(fallT * Math.PI * 2.5) * (1 - fallT) * 0.3);
+            s.position.y = getTerrainHeightSampled(s.position.x, s.position.z) + bounce;
+            // Legs stick out stiff
+            if (sheep.legPivots.length === 4) {
+              sheep.legPivots.forEach((p, i) => {
+                p.rotation.z = ((i % 2 === 0 ? 1 : -1) * 0.7) * (1 - fallT * 0.5);
+              });
+            }
+          } else if (t < 2.4) {
+            // Phase 3: fade out while lying on ground
+            const fadeT = (t - 1.4) / 1.0; // 0 → 1
+            const opacity = 1 - fadeT;
+            s.traverse((child) => {
+              const m = child as THREE.Mesh;
+              if (m.isMesh && m.material) {
+                const mat = m.material as THREE.MeshLambertMaterial;
+                mat.transparent = true;
+                mat.opacity = opacity;
+              }
+            });
+            s.rotation.z = Math.PI / 2; // stay lying flat
+          } else {
+            // Animation complete — remove from scene
+            scene.remove(s);
+            sheep.isAlive = false;
+            sheep.isDying = false;
+            // Un-possess if the player was riding this sheep
+            if (possessedSheepRef.current === sheep) {
+              possessedSheepRef.current = null;
+            }
+          }
+          return; // skip normal AI while dying
+        }
+
+        // Skip dead sheep entirely
+        if (!sheep.isAlive) return;
+
+        // Hit flash timer decay
+        if (sheep.hitFlashTimer > 0) {
+          sheep.hitFlashTimer = Math.max(0, sheep.hitFlashTimer - dt);
+        }
+
         const dx = playerPos.x - s.position.x;
         const dz = playerPos.z - s.position.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
@@ -4507,6 +4743,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up impact effects
       impactEffectsRef.current.forEach((fx) => { scene.remove(fx.ring); fx.particles.forEach((p) => scene.remove(p)); });
       impactEffectsRef.current = [];
+      // Clean up blood particles
+      bloodParticlesRef.current.forEach((p) => {
+        scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        (p.mesh.material as THREE.MeshLambertMaterial).dispose();
+      });
+      bloodParticlesRef.current = [];
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
