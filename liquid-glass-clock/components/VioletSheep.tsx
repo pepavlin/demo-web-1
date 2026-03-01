@@ -214,11 +214,14 @@ export default function VioletSheep() {
   useEffect(() => {
     if (!mounted) return;
 
-    // Initialise refs on bottom edge — position is set by the first RAF frame
+    // Initialise refs on bottom edge
     edgeRef.current = "bottom";
     edgePosRef.current = 200;
     wallDepthRef.current = 0;
     velNormalRef.current = 0;
+
+    // Set correct initial transform immediately (don't wait for first RAF frame)
+    setSheepTransform(getTransform("bottom", 200, 0, window.innerWidth, window.innerHeight));
 
     let prev = performance.now();
 
