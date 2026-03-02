@@ -54,10 +54,11 @@ import {
   buildBoatMesh,
   buildCatapultMesh,
   buildMotherShipMesh,
+  buildRocketMesh,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
@@ -144,6 +145,17 @@ const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable bounda
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
 const BOAT_SPEED = 8;           // units/second when sailing
 const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
+
+// ─── Rocket Constants ─────────────────────────────────────────────────────────
+const ROCKET_BOARD_RADIUS = 8;     // units — show boarding prompt within this distance
+const ROCKET_CAM_HEIGHT = 6.0;     // camera height inside rocket (above ground level)
+/** World-space X,Z of the launch pad — aligned roughly toward the mothership at (0, y, -60) */
+const ROCKET_SPAWN_X = 8;
+const ROCKET_SPAWN_Z = -28;
+/** Target altitude — matches mothership base at Y ≈ 170 */
+const ROCKET_TARGET_Y = 165;
+/** How many seconds the full launch flight takes */
+const ROCKET_FLIGHT_DURATION = 12;
 
 // ─── Swim Constants ───────────────────────────────────────────────────────────
 const SWIM_SPEED = 5.5;         // units/second when swimming in water
@@ -412,6 +424,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const onBoatRef = useRef(false);
   const nearBoatForBoardRef = useRef(false);
 
+  // ─── Rocket Refs ─────────────────────────────────────────────────────────────
+  const rocketDataRef = useRef<RocketData | null>(null);
+  const onRocketRef = useRef(false);
+  const nearRocketForBoardRef = useRef(false);
+
   // ─── Camera Mode Refs ────────────────────────────────────────────────────────
   const cameraModeRef = useRef<"first" | "third">("first");
   const [cameraMode, setCameraMode] = useState<"first" | "third">("first");
@@ -442,6 +459,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [isPossessed, setIsPossessed] = useState(false);
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
   const [onBoat, setOnBoat] = useState(false);
+  const [nearRocketPrompt, setNearRocketPrompt] = useState(false);
+  const [onRocket, setOnRocket] = useState(false);
+  const [rocketCountdown, setRocketCountdown] = useState<number | null>(null);
+  const [rocketLaunching, setRocketLaunching] = useState(false);
+  const [rocketArrived, setRocketArrived] = useState(false);
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -2459,6 +2481,30 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     motherShipRef.current = shipGroup;
     motherShipLightsRef.current = shipLights;
 
+    // ── Rocket & Launch Pad ────────────────────────────────────────────────────
+    // Fixed position on flat ground, roughly aimed at the mothership above.
+    {
+      const rx = ROCKET_SPAWN_X;
+      const rz = ROCKET_SPAWN_Z;
+      const groundY = getTerrainHeightSampled(rx, rz);
+      const { group: rocketGroup, flameGroup, launchPad, exhaustParticles } = buildRocketMesh();
+      // Rocket sits on the launch pad which sits on the ground
+      rocketGroup.position.set(rx, groundY, rz);
+      scene.add(rocketGroup);
+
+      rocketDataRef.current = {
+        mesh: rocketGroup,
+        flameGroup,
+        launchPadMesh: launchPad,
+        state: 'idle',
+        launchProgress: 0,
+        groundY,
+        countdown: 3,
+        countdownTimer: 0,
+        exhaustParticles,
+      };
+    }
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
@@ -2525,9 +2571,36 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         doAttack();
       }
 
-      // E key: board/exit boat, OR possess/unpossess nearby sheep
+      // E key: board/exit boat, board rocket, OR possess/unpossess nearby sheep
       if (e.type === "keydown" && e.code === "KeyE") {
-        if (onBoatRef.current) {
+        if (onRocketRef.current) {
+          // ── Exit rocket (only allowed while idle/boarded, not during launch) ─
+          const rd = rocketDataRef.current;
+          if (rd && (rd.state === 'idle' || rd.state === 'boarded') && cameraRef.current) {
+            // Place player at the base of the rocket
+            const gx = rd.mesh.position.x + 3;
+            const gz = rd.mesh.position.z;
+            const gy = getTerrainHeightSampled(gx, gz);
+            cameraRef.current.position.set(gx, gy + PLAYER_HEIGHT, gz);
+            playerBodyPosRef.current.copy(cameraRef.current.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+            rd.state = 'idle';
+          }
+          onRocketRef.current = false;
+          setOnRocket(false);
+          setRocketCountdown(null);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        } else if (nearRocketForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current) {
+          // ── Board the rocket ────────────────────────────────────────────────
+          const rd = rocketDataRef.current;
+          if (rd && rd.state === 'idle') {
+            onRocketRef.current = true;
+            setOnRocket(true);
+            rd.state = 'boarded';
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+          }
+        } else if (onBoatRef.current) {
           // ── Exit boat: find nearest land to place the player ───────────────
           const boat = boatRef.current;
           if (boat && cameraRef.current) {
@@ -2587,6 +2660,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           possessedSheepRef.current = nearestSheepForPossessRef.current;
           setIsPossessed(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        }
+      }
+
+      // Space key — launch rocket when boarded (start countdown)
+      if (e.type === "keydown" && e.code === "Space" && onRocketRef.current) {
+        const rd = rocketDataRef.current;
+        if (rd && rd.state === 'boarded') {
+          rd.state = 'countdown';
+          rd.countdown = 3;
+          rd.countdownTimer = 0;
+          setRocketCountdown(3);
         }
       }
 
@@ -3534,6 +3618,151 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               rotY: yawRef.current,
               pitch: pitchRef.current,
             });
+          }
+        }
+      }
+
+      // ── Rocket: proximity, countdown, launch flight ───────────────────────────
+      {
+        const rd = rocketDataRef.current;
+        if (rd && cameraRef.current) {
+          const cam = cameraRef.current;
+          const rocketPos = rd.mesh.position;
+
+          if (rd.state === 'idle') {
+            // Proximity check — show boarding prompt
+            const playerPos3 = playerBodyPosRef.current;
+            const dx = rocketPos.x - playerPos3.x;
+            const dz = rocketPos.z - playerPos3.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const isNear = dist < ROCKET_BOARD_RADIUS && !possessedSheepRef.current && !onBoatRef.current;
+            nearRocketForBoardRef.current = isNear;
+            setNearRocketPrompt(isNear);
+          } else {
+            nearRocketForBoardRef.current = false;
+            setNearRocketPrompt(false);
+          }
+
+          if (rd.state === 'boarded' && isLockedRef.current) {
+            // Keep camera locked inside rocket cabin
+            cam.position.set(
+              rocketPos.x,
+              rd.groundY + ROCKET_CAM_HEIGHT,
+              rocketPos.z
+            );
+            playerBodyPosRef.current.copy(cam.position);
+            cam.rotation.order = "YXZ";
+            cam.rotation.y = yawRef.current;
+            cam.rotation.x = pitchRef.current;
+          }
+
+          if (rd.state === 'countdown') {
+            // Tick countdown timer
+            rd.countdownTimer += dt;
+            if (rd.countdownTimer >= 1.0) {
+              rd.countdownTimer -= 1.0;
+              rd.countdown -= 1;
+              setRocketCountdown(rd.countdown);
+              if (rd.countdown <= 0) {
+                // Begin actual launch
+                rd.state = 'launching';
+                rd.launchProgress = 0;
+                rd.flameGroup.visible = true;
+                rd.exhaustParticles.forEach((p) => { p.visible = true; });
+                setRocketCountdown(null);
+                setRocketLaunching(true);
+              }
+            }
+
+            // While counting down — keep camera in cabin, slight pre-ignition shaking
+            if (isLockedRef.current) {
+              const shake = rd.countdown <= 1 ? 0.04 : 0.015;
+              cam.position.set(
+                rocketPos.x + (Math.random() - 0.5) * shake,
+                rd.groundY + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shake,
+                rocketPos.z + (Math.random() - 0.5) * shake
+              );
+              playerBodyPosRef.current.copy(cam.position);
+              cam.rotation.order = "YXZ";
+              cam.rotation.y = yawRef.current;
+              cam.rotation.x = pitchRef.current;
+            }
+          }
+
+          if (rd.state === 'launching') {
+            rd.launchProgress += dt / ROCKET_FLIGHT_DURATION;
+            rd.launchProgress = Math.min(rd.launchProgress, 1);
+
+            // Ease-in-out curve for smooth acceleration then deceleration
+            const t = rd.launchProgress;
+            const eased = t < 0.5
+              ? 2 * t * t
+              : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+            // Move rocket from ground toward mothership
+            const targetX = 0;     // mothership X
+            const targetZ = -60;   // mothership Z
+            rd.mesh.position.x = rocketPos.x + (targetX - ROCKET_SPAWN_X) * eased;
+            rd.mesh.position.y = rd.groundY + (ROCKET_TARGET_Y - rd.groundY) * eased;
+            rd.mesh.position.z = ROCKET_SPAWN_Z + (targetZ - ROCKET_SPAWN_Z) * eased;
+
+            // Animate exhaust flame — flicker and pulse
+            const flameScale = 1.0 + Math.sin(elapsed * 18) * 0.25 + eased * 0.5;
+            rd.flameGroup.scale.setScalar(flameScale);
+
+            // Animate smoke puffs offset below the rocket
+            rd.exhaustParticles.forEach((puff, i) => {
+              const puffMat = puff.material as THREE.MeshLambertMaterial;
+              puff.position.set(
+                (Math.random() - 0.5) * 0.4,
+                -1.5 - i * 0.6 - eased * 3,
+                (Math.random() - 0.5) * 0.4
+              );
+              puffMat.opacity = Math.max(0, 0.55 - i * 0.06 - eased * 0.3);
+            });
+
+            // Camera shakes inside rocket during ascent
+            if (isLockedRef.current) {
+              const shakeMag = 0.04 * (1 - eased * 0.5);
+              cam.position.set(
+                rd.mesh.position.x + (Math.random() - 0.5) * shakeMag,
+                rd.mesh.position.y + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shakeMag,
+                rd.mesh.position.z + (Math.random() - 0.5) * shakeMag
+              );
+              playerBodyPosRef.current.copy(cam.position);
+              cam.rotation.order = "YXZ";
+              cam.rotation.y = yawRef.current;
+              cam.rotation.x = pitchRef.current;
+            }
+
+            // Reached mothership
+            if (rd.launchProgress >= 1) {
+              rd.state = 'arrived';
+              rd.flameGroup.visible = false;
+              rd.exhaustParticles.forEach((p) => { p.visible = false; });
+              setRocketLaunching(false);
+              setRocketArrived(true);
+
+              // Place the player standing on/near the mothership
+              if (cameraRef.current) {
+                cameraRef.current.position.set(
+                  rd.mesh.position.x + 5,
+                  rd.mesh.position.y + ROCKET_CAM_HEIGHT + 2,
+                  rd.mesh.position.z
+                );
+                playerBodyPosRef.current.copy(cameraRef.current.position);
+                playerRef.current.velY = 0;
+                playerRef.current.onGround = false;
+              }
+              onRocketRef.current = false;
+              setOnRocket(false);
+              if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+            }
+          }
+
+          if (rd.state === 'arrived') {
+            // Keep rocket parked near mothership — gentle idle drift
+            rd.mesh.position.y = ROCKET_TARGET_Y + Math.sin(elapsed * 0.4) * 0.8;
           }
         }
       }
@@ -5411,6 +5640,105 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             ⛵ Na lodi &nbsp;·&nbsp; <span style={{ color: "#7dd3fc" }}>[E] Opustit loď</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Rocket boarding prompt ═══════════════ */}
+      {nearRocketPrompt && !onRocket && !onBoat && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(60,20,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,120,30,0.50)",
+              boxShadow: "0 0 24px rgba(255,80,0,0.45)",
+            }}
+          >
+            🚀 [E] Nastoupit do rakety
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — On-rocket active banner ═══════════════ */}
+      {onRocket && !rocketLaunching && rocketCountdown === null && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(50,15,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,120,30,0.40)",
+              boxShadow: "0 0 20px rgba(255,80,0,0.35)",
+            }}
+          >
+            🚀 V raketě &nbsp;·&nbsp; <span style={{ color: "#fdba74" }}>[Space] Odpálit</span> &nbsp;·&nbsp; <span style={{ color: "#fca5a5" }}>[E] Vystoupit</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Rocket countdown ═══════════════ */}
+      {rocketCountdown !== null && gameState.isLocked && (
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-2xl text-white font-black animate-pulse"
+            style={{
+              padding: "24px 56px",
+              fontSize: "6rem",
+              lineHeight: 1,
+              background: "rgba(80,10,0,0.90)",
+              backdropFilter: "blur(16px)",
+              border: "2px solid rgba(255,100,0,0.60)",
+              boxShadow: "0 0 60px rgba(255,60,0,0.60)",
+              color: "#ff6600",
+              textShadow: "0 0 30px rgba(255,100,0,0.9)",
+            }}
+          >
+            {rocketCountdown}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Rocket launching banner ═══════════════ */}
+      {rocketLaunching && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(80,10,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,100,30,0.50)",
+              boxShadow: "0 0 28px rgba(255,60,0,0.50)",
+            }}
+          >
+            🔥 Startujeme! Letíme k vesmírné lodi...
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Arrived at mothership message ═══════════════ */}
+      {rocketArrived && gameState.isLocked && (
+        <div className="fixed top-1/3 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-2xl text-white font-bold text-base"
+            style={{
+              padding: "18px 40px",
+              background: "rgba(10,30,80,0.92)",
+              backdropFilter: "blur(14px)",
+              border: "1px solid rgba(100,180,255,0.50)",
+              boxShadow: "0 0 40px rgba(60,140,255,0.50)",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "2rem", marginBottom: 6 }}>🛸</div>
+            Přistáli jste u vesmírné lodi!
+            <div style={{ color: "#93c5fd", fontSize: "0.8rem", marginTop: 6 }}>
+              Vítejte na palubě Matky lodí
+            </div>
           </div>
         </div>
       )}

@@ -185,3 +185,30 @@ export interface GameState {
   catapultsDefeated: number;
   attackReady: boolean;
 }
+
+// ─── Rocket system ─────────────────────────────────────────────────────────
+export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived';
+
+export interface RocketData {
+  /** Root group for the whole rocket (body + nose + fins + nozzle + window + ladder) */
+  mesh: THREE.Group;
+  /** The flame/exhaust group — hidden when idle, shown during launch */
+  flameGroup: THREE.Group;
+  /** The launch pad platform on which the rocket stands */
+  launchPadMesh: THREE.Group;
+  /** Current flight phase */
+  state: RocketState;
+  /**
+   * Progress of the launch flight, 0 = on pad, 1 = at mothership.
+   * Driven by elapsed seconds during 'launching' state.
+   */
+  launchProgress: number;
+  /** World-space Y coordinate of the launch pad (ground position) */
+  groundY: number;
+  /** Countdown value (3 → 2 → 1 → 0) shown to the player before lift-off */
+  countdown: number;
+  /** Accumulator for the countdown timer (seconds between ticks) */
+  countdownTimer: number;
+  /** Particle meshes for exhaust smoke/fire effect */
+  exhaustParticles: THREE.Mesh[];
+}

@@ -40,6 +40,7 @@ import {
   buildBoatMesh,
   buildCatapultMesh,
   buildMotherShipMesh,
+  buildRocketMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -874,5 +875,135 @@ describe("buildMotherShipMesh", () => {
     expect(group.position.x).toBe(0);
     expect(group.position.y).toBe(0);
     expect(group.position.z).toBe(0);
+  });
+});
+
+// ─── buildRocketMesh ──────────────────────────────────────────────────────────
+describe("buildRocketMesh", () => {
+  it("returns an object with group, flameGroup, launchPad, and exhaustParticles", () => {
+    const result = buildRocketMesh();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.flameGroup).toBeInstanceOf(THREE.Group);
+    expect(result.launchPad).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.exhaustParticles)).toBe(true);
+  });
+
+  it("group is positioned at origin by default (caller controls placement)", () => {
+    const { group } = buildRocketMesh();
+    expect(group.position.x).toBe(0);
+    expect(group.position.y).toBe(0);
+    expect(group.position.z).toBe(0);
+  });
+
+  it("group has castShadow and receiveShadow enabled", () => {
+    const { group } = buildRocketMesh();
+    expect(group.castShadow).toBe(true);
+    expect(group.receiveShadow).toBe(true);
+  });
+
+  it("flame group is hidden by default (only visible during launch)", () => {
+    const { flameGroup } = buildRocketMesh();
+    expect(flameGroup.visible).toBe(false);
+  });
+
+  it("exhaust particles are hidden by default", () => {
+    const { exhaustParticles } = buildRocketMesh();
+    exhaustParticles.forEach((puff) => {
+      expect(puff.visible).toBe(false);
+    });
+  });
+
+  it("exhaust particles are Mesh instances", () => {
+    const { exhaustParticles } = buildRocketMesh();
+    expect(exhaustParticles.length).toBeGreaterThan(0);
+    exhaustParticles.forEach((puff) => {
+      expect(puff).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("group contains many mesh descendants (body, nosecone, fins, nozzle, ladder, etc.)", () => {
+    const { group } = buildRocketMesh();
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    // At minimum: body, stripe×2, nosecone, tip, porthole rim, porthole glass,
+    // nozzle, 4 fins, 8 ladder rungs, 2 rails, flame parts, 8 exhaust puffs = 30+
+    expect(meshCount).toBeGreaterThanOrEqual(25);
+  });
+
+  it("launchPad is a child of the main group", () => {
+    const { group, launchPad } = buildRocketMesh();
+    expect(group.children).toContain(launchPad);
+  });
+
+  it("flameGroup is a child of the main group", () => {
+    const { group, flameGroup } = buildRocketMesh();
+    expect(group.children).toContain(flameGroup);
+  });
+
+  it("all body meshes use MeshLambertMaterial", () => {
+    const { group } = buildRocketMesh();
+    group.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      expect(mesh.material).toBeInstanceOf(THREE.MeshLambertMaterial);
+    });
+  });
+
+  it("rocket body has white/light color (dominant high luminance)", () => {
+    const { group } = buildRocketMesh();
+    let foundWhiteish = false;
+    group.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      // Body color 0xdde8f0 has r=0.867, g=0.91, b=0.94 — all high
+      if (mat.color.r > 0.8 && mat.color.g > 0.8 && mat.color.b > 0.8) {
+        foundWhiteish = true;
+      }
+    });
+    expect(foundWhiteish).toBe(true);
+  });
+
+  it("has red accent parts (fins and stripes) — red channel dominant", () => {
+    const { group } = buildRocketMesh();
+    let foundRed = false;
+    group.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      // Use relative comparison to be robust against linear color space conversion.
+      // Red accent 0xcc2222: r >> g,b in both sRGB and linear space.
+      if (
+        mat.color.r > mat.color.g &&
+        mat.color.r > mat.color.b &&
+        mat.color.g < mat.color.r * 0.4
+      ) {
+        foundRed = true;
+      }
+    });
+    expect(foundRed).toBe(true);
+  });
+
+  it("launchPad contains at least a slab and support structure", () => {
+    const { launchPad } = buildRocketMesh();
+    let meshCount = 0;
+    launchPad.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    // slab + 4 legs + tower + gantry arms >= 7
+    expect(meshCount).toBeGreaterThanOrEqual(7);
+  });
+
+  it("exhaust particles are added to the main group", () => {
+    const { group, exhaustParticles } = buildRocketMesh();
+    exhaustParticles.forEach((puff) => {
+      let found = false;
+      group.traverse((child) => {
+        if (child === puff) found = true;
+      });
+      expect(found).toBe(true);
+    });
   });
 });

@@ -1754,3 +1754,199 @@ export function buildMotherShipMesh(): { group: THREE.Group; lights: THREE.Point
 
   return { group: shipGroup, lights: pointLights };
 }
+
+// ─── Rocket ───────────────────────────────────────────────────────────────────
+// A sleek rocket standing on its launch pad.  Returns:
+//   group       – root THREE.Group (everything)
+//   flameGroup  – sub-group for engine flame (toggle visible)
+//   launchPad   – sub-group for the launch pad beneath the rocket
+//   exhaustParticles – array of Mesh for animated smoke puffs
+//
+// Geometry overview (all local Y measured from ground level):
+//   0 – 0.5   launch pad  (flat concrete slab)
+//   0.5 – 9   rocket body (cylinder, radius 0.85)
+//   9 – 12    nose cone   (ConeGeometry tapering to tip)
+//   0.5 fin stubs at Y≈1.5–4, splayed 45° at base
+export function buildRocketMesh(): {
+  group: THREE.Group;
+  flameGroup: THREE.Group;
+  launchPad: THREE.Group;
+  exhaustParticles: THREE.Mesh[];
+} {
+  const group = new THREE.Group();
+
+  // ── Materials ───────────────────────────────────────────────────────────────
+  const bodyMat   = new THREE.MeshLambertMaterial({ color: 0xdde8f0 });   // white body
+  const accentMat = new THREE.MeshLambertMaterial({ color: 0xcc2222 });   // red accent
+  const metalMat  = new THREE.MeshLambertMaterial({ color: 0x9aacbc });   // metallic parts
+  const nozzleMat = new THREE.MeshLambertMaterial({ color: 0x555566 });   // dark nozzle
+  const glassMat  = new THREE.MeshLambertMaterial({ color: 0x66aadd, transparent: true, opacity: 0.6 }); // porthole glass
+  const padMat    = new THREE.MeshLambertMaterial({ color: 0x888899 });   // concrete pad
+  const flameMat  = new THREE.MeshLambertMaterial({ color: 0xff8800, emissive: new THREE.Color(0xff5500), emissiveIntensity: 1.2 });
+  const smokeMat  = new THREE.MeshLambertMaterial({ color: 0xbbbbbb, transparent: true, opacity: 0.55 });
+
+  // ── Launch pad ──────────────────────────────────────────────────────────────
+  const launchPad = new THREE.Group();
+
+  // Main concrete slab
+  const slabGeo = new THREE.BoxGeometry(6, 0.4, 6);
+  const slab = new THREE.Mesh(slabGeo, padMat);
+  slab.position.y = 0.2;
+  slab.receiveShadow = true;
+  launchPad.add(slab);
+
+  // Support legs (4 corner pillars)
+  const legGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.4, 8);
+  [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]].forEach(([x, z]) => {
+    const leg = new THREE.Mesh(legGeo, metalMat);
+    leg.position.set(x, -0.2, z);
+    launchPad.add(leg);
+  });
+
+  // Launch tower arm (one gantry arm pointing toward rocket)
+  const towerBaseGeo = new THREE.BoxGeometry(0.35, 10, 0.35);
+  const tower = new THREE.Mesh(towerBaseGeo, metalMat);
+  tower.position.set(-4, 5, 0);
+  tower.castShadow = true;
+  launchPad.add(tower);
+
+  // Gantry crossbeam
+  const armGeo = new THREE.BoxGeometry(3.6, 0.22, 0.22);
+  [4.0, 6.5, 9.0].forEach((y) => {
+    const arm = new THREE.Mesh(armGeo, metalMat);
+    arm.position.set(-2.2, y, 0);
+    launchPad.add(arm);
+  });
+
+  group.add(launchPad);
+
+  // ── Rocket body (cylinder, sits above the slab) ─────────────────────────────
+  const bodyGeo = new THREE.CylinderGeometry(0.82, 0.88, 8.5, 16);
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 4.65 + 0.4; // half height + slab top
+  body.castShadow = true;
+  group.add(body);
+
+  // Red accent stripe around middle of body
+  const stripeGeo = new THREE.CylinderGeometry(0.90, 0.90, 0.38, 16);
+  const stripe = new THREE.Mesh(stripeGeo, accentMat);
+  stripe.position.y = 5.5;
+  group.add(stripe);
+
+  // Second stripe (upper)
+  const stripe2 = new THREE.Mesh(stripeGeo.clone(), accentMat);
+  stripe2.position.y = 7.8;
+  group.add(stripe2);
+
+  // ── Nose cone ───────────────────────────────────────────────────────────────
+  const coneGeo = new THREE.ConeGeometry(0.82, 3.2, 16);
+  const noseCone = new THREE.Mesh(coneGeo, bodyMat);
+  noseCone.position.y = 10.5; // body top + half cone height
+  noseCone.castShadow = true;
+  group.add(noseCone);
+
+  // Nose cone tip accent
+  const tipGeo = new THREE.ConeGeometry(0.18, 0.7, 8);
+  const tip = new THREE.Mesh(tipGeo, accentMat);
+  tip.position.y = 12.3;
+  group.add(tip);
+
+  // ── Porthole window ─────────────────────────────────────────────────────────
+  const portholeRimGeo = new THREE.TorusGeometry(0.32, 0.07, 8, 16);
+  const portholeRim = new THREE.Mesh(portholeRimGeo, metalMat);
+  portholeRim.position.set(0.88, 7.5, 0);
+  portholeRim.rotation.y = Math.PI / 2;
+  group.add(portholeRim);
+
+  const glassDiskGeo = new THREE.CircleGeometry(0.28, 16);
+  const glassDisk = new THREE.Mesh(glassDiskGeo, glassMat);
+  glassDisk.position.set(0.90, 7.5, 0);
+  glassDisk.rotation.y = Math.PI / 2;
+  group.add(glassDisk);
+
+  // ── Fins (4 symmetric, placed at base of body) ──────────────────────────────
+  const FIN_ANGLES = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+  FIN_ANGLES.forEach((angle) => {
+    const finGroup = new THREE.Group();
+    finGroup.rotation.y = angle;
+
+    // Main fin blade — tapered box
+    const finGeo = new THREE.BoxGeometry(0.14, 3.5, 1.8);
+    const fin = new THREE.Mesh(finGeo, accentMat);
+    // Position so inner edge touches rocket body, fin sweeps back/out
+    fin.position.set(1.4, 2.2, -0.4);
+    fin.rotation.x = 0.3; // slight sweep-back
+    fin.castShadow = true;
+    finGroup.add(fin);
+
+    group.add(finGroup);
+  });
+
+  // ── Engine nozzle (bell at very bottom of body) ──────────────────────────────
+  const nozzleGeo = new THREE.CylinderGeometry(0.55, 0.80, 0.9, 12, 1, true);
+  const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
+  nozzle.position.y = 0.4 + 0.45; // slab top + half nozzle
+  group.add(nozzle);
+
+  // ── Ladder rungs (on one side of the rocket body) ───────────────────────────
+  for (let i = 0; i < 8; i++) {
+    const rungGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.5, 6);
+    const rung = new THREE.Mesh(rungGeo, metalMat);
+    rung.rotation.z = Math.PI / 2;
+    rung.position.set(0.91, 2.0 + i * 0.9, 0);
+    group.add(rung);
+  }
+  // Ladder side rails
+  const railGeo = new THREE.CylinderGeometry(0.025, 0.025, 7.2, 6);
+  ([-0.22, 0.22] as const).forEach((z) => {
+    const rail = new THREE.Mesh(railGeo, metalMat);
+    rail.position.set(0.91, 5.6, z);
+    group.add(rail);
+  });
+
+  // ── Flame / exhaust group (hidden by default) ────────────────────────────────
+  const flameGroup = new THREE.Group();
+  flameGroup.visible = false;
+
+  // Core flame cone (bright orange/white center)
+  const flameCoreMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    emissive: new THREE.Color(0xffdd44),
+    emissiveIntensity: 2.0,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const flameCoreGeo = new THREE.ConeGeometry(0.45, 2.8, 12);
+  const flameCore = new THREE.Mesh(flameCoreGeo, flameCoreMat);
+  flameCore.rotation.x = Math.PI; // point downward
+  flameCore.position.y = -0.5;
+  flameGroup.add(flameCore);
+
+  // Outer flame (larger, more orange)
+  const flameOuterGeo = new THREE.ConeGeometry(0.75, 3.8, 12);
+  const flameOuter = new THREE.Mesh(flameOuterGeo, flameMat);
+  flameOuter.rotation.x = Math.PI;
+  flameOuter.position.y = -0.8;
+  flameGroup.add(flameOuter);
+
+  // Place flame group at nozzle exit
+  flameGroup.position.y = 0.9;
+  group.add(flameGroup);
+
+  // ── Exhaust smoke particles ─────────────────────────────────────────────────
+  const exhaustParticles: THREE.Mesh[] = [];
+  const puffGeo = new THREE.SphereGeometry(0.55, 8, 8);
+  for (let i = 0; i < 8; i++) {
+    const puff = new THREE.Mesh(puffGeo, smokeMat.clone());
+    puff.visible = false;
+    puff.position.y = -1.5 - i * 0.6;
+    (puff.material as THREE.MeshLambertMaterial).opacity = 0.5 - i * 0.05;
+    group.add(puff);
+    exhaustParticles.push(puff);
+  }
+
+  group.castShadow = true;
+  group.receiveShadow = true;
+
+  return { group, flameGroup, launchPad, exhaustParticles };
+}
