@@ -41,6 +41,42 @@ function calcArrowDamage(power: number | undefined): number {
     : baseDmg;
 }
 
+/** Downward acceleration applied to arrows — must match ARROW_GRAVITY in Game3D.tsx. */
+const ARROW_GRAVITY = -22;
+
+/**
+ * Simulate the bow trajectory arc the same way the game loop does:
+ * returns an array of 3D positions for `numPoints` steps each `dt` seconds apart.
+ * Stops early (and fills remaining slots with the landing point) if the simulated
+ * arrow would drop below `groundY` (default 0 for flat-ground tests).
+ */
+function simulateTrajectoryArc(
+  startPos: THREE.Vector3,
+  velocity: THREE.Vector3,
+  numPoints: number,
+  dt: number,
+  groundY = 0,
+): { points: THREE.Vector3[]; landIndex: number } {
+  const vel = velocity.clone();
+  const pos = startPos.clone();
+  const points: THREE.Vector3[] = [];
+  let landIndex = numPoints;
+
+  for (let i = 0; i < numPoints; i++) {
+    points.push(pos.clone());
+
+    if (i > 0 && pos.y <= groundY + 0.05) {
+      landIndex = i + 1;
+      break;
+    }
+
+    vel.y += ARROW_GRAVITY * dt;
+    pos.addScaledVector(vel, dt);
+  }
+
+  return { points, landIndex };
+}
+
 // ── BulletData interface ──────────────────────────────────────────────────────
 
 describe("BulletData interface – new fields", () => {
@@ -152,6 +188,75 @@ describe("calcArrowDamage – damage scales with draw power", () => {
     for (let i = 1; i < powers.length; i++) {
       expect(calcArrowDamage(powers[i])).toBeGreaterThanOrEqual(calcArrowDamage(powers[i - 1]));
     }
+  });
+});
+
+// ── Trajectory arc simulation ─────────────────────────────────────────────────
+
+describe("simulateTrajectoryArc – predicted arrow path", () => {
+  const TRAJ_DT = 0.06;
+  const NUM_POINTS = 80;
+
+  it("first point equals the start position", () => {
+    const start = new THREE.Vector3(0, 5, 0);
+    const vel = new THREE.Vector3(0, 0, -38); // horizontal full-power shot
+    const { points } = simulateTrajectoryArc(start, vel, NUM_POINTS, TRAJ_DT);
+    expect(points[0].x).toBeCloseTo(start.x);
+    expect(points[0].y).toBeCloseTo(start.y);
+    expect(points[0].z).toBeCloseTo(start.z);
+  });
+
+  it("arc curves downward due to gravity", () => {
+    const start = new THREE.Vector3(0, 10, 0);
+    const vel = new THREE.Vector3(0, 0, -38);
+    const { points } = simulateTrajectoryArc(start, vel, NUM_POINTS, TRAJ_DT);
+    // After enough steps the arrow must be lower than the start
+    const lastPoint = points[points.length - 1];
+    expect(lastPoint.y).toBeLessThan(start.y);
+  });
+
+  it("stops early when arrow reaches ground level", () => {
+    const start = new THREE.Vector3(0, 2, 0); // low start – hits ground quickly
+    const vel = new THREE.Vector3(0, 0, -38);
+    const { landIndex } = simulateTrajectoryArc(start, vel, NUM_POINTS, TRAJ_DT, 0);
+    expect(landIndex).toBeLessThan(NUM_POINTS);
+  });
+
+  it("upward-angled shot stays airborne longer than flat shot", () => {
+    const start = new THREE.Vector3(0, 5, 0);
+    const speed = 38;
+    const angle = Math.PI / 8; // 22.5° upward
+
+    const flatVel = new THREE.Vector3(0, 0, -speed);
+    const angledVel = new THREE.Vector3(0, Math.sin(angle) * speed, -Math.cos(angle) * speed);
+
+    const { landIndex: flatLand } = simulateTrajectoryArc(start, flatVel, NUM_POINTS, TRAJ_DT, 0);
+    const { landIndex: angledLand } = simulateTrajectoryArc(start, angledVel, NUM_POINTS, TRAJ_DT, 0);
+
+    expect(angledLand).toBeGreaterThan(flatLand);
+  });
+
+  it("weak shot (15% speed) lands much closer than full-power shot", () => {
+    const baseSpeed = WEAPON_CONFIGS.bow.bulletSpeed;
+    const start = new THREE.Vector3(0, 5, 0);
+
+    const weakVel = new THREE.Vector3(0, 0, -(baseSpeed * 0.15));
+    const fullVel  = new THREE.Vector3(0, 0, -baseSpeed);
+
+    const { points: weakPoints, landIndex: wi } = simulateTrajectoryArc(start, weakVel, NUM_POINTS, TRAJ_DT, 0);
+    const { points: fullPoints, landIndex: fi } = simulateTrajectoryArc(start, fullVel, NUM_POINTS, TRAJ_DT, 0);
+
+    const weakRange = Math.abs(weakPoints[wi - 1].z - start.z);
+    const fullRange  = Math.abs(fullPoints[fi - 1].z - start.z);
+    expect(fullRange).toBeGreaterThan(weakRange);
+  });
+
+  it("returns at most NUM_POINTS points even when arrow never hits ground", () => {
+    // Very high start + upward velocity — never reaches groundY = -9999
+    const start = new THREE.Vector3(0, 1000, 0);
+    const vel = new THREE.Vector3(0, 100, -38);
+    const { points } = simulateTrajectoryArc(start, vel, NUM_POINTS, TRAJ_DT, -9999);
+    expect(points.length).toBeLessThanOrEqual(NUM_POINTS);
   });
 });
 
