@@ -342,6 +342,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const bowChargeBarRef = useRef<HTMLDivElement | null>(null);
   /** Maximum hold time (seconds) to reach full power. */
   const BOW_MAX_CHARGE_TIME = 1.5;
+  /** THREE.Line that shows the predicted arrow trajectory arc while drawing. */
+  const trajectoryArcRef = useRef<THREE.Line | null>(null);
 
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
   const bulletsRef = useRef<BulletData[]>([]);
@@ -1056,6 +1058,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     muzzleFlash.position.set(WEAPON_POS.x, WEAPON_POS.y + 0.01, WEAPON_POS.z - 0.25);
     camera.add(muzzleFlash);
     muzzleFlashRef.current = muzzleFlash;
+
+    // ── Bow trajectory arc preview line ─────────────────────────────────────
+    // Pre-allocated geometry for up to TRAJ_ARC_POINTS steps; updated each frame
+    // while the bow is being drawn to give the player a trajectory preview.
+    const TRAJ_ARC_POINTS = 80;
+    const trajGeom = new THREE.BufferGeometry();
+    const trajPositions = new Float32Array(TRAJ_ARC_POINTS * 3);
+    trajGeom.setAttribute("position", new THREE.BufferAttribute(trajPositions, 3));
+    trajGeom.setDrawRange(0, 0); // hidden until needed
+    const trajMat = new THREE.LineDashedMaterial({
+      color: 0xffee66,
+      opacity: 0.80,
+      transparent: true,
+      dashSize: 0.45,
+      gapSize: 0.25,
+    });
+    const trajectoryArc = new THREE.Line(trajGeom, trajMat);
+    trajectoryArc.visible = false;
+    trajectoryArc.renderOrder = 999; // draw on top to stay visible
+    scene.add(trajectoryArc);
+    trajectoryArcRef.current = trajectoryArc;
 
     // ── Lighting ────────────────────────────────────────────────────────────
     const ambient = new THREE.AmbientLight(0xffffff, 0.45);
@@ -3740,6 +3763,55 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
+      // ── Bow trajectory arc: simulate and render predicted arrow path ─────────
+      {
+        const arc = trajectoryArcRef.current;
+        const cam = cameraRef.current;
+        if (arc && cam && isBowChargingRef.current) {
+          const TRAJ_ARC_POINTS = 80;
+          const TRAJ_DT = 0.06; // seconds per simulation step
+
+          // Initial conditions matching doAttack() exactly
+          const startPos = new THREE.Vector3();
+          cam.getWorldPosition(startPos);
+          const fwd = new THREE.Vector3(0, 0, -1);
+          fwd.transformDirection(cam.matrixWorld);
+          startPos.addScaledVector(fwd, 1.2);
+
+          const power = bowChargeRef.current;
+          const effectiveSpeed = WEAPON_CONFIGS["bow"].bulletSpeed * Math.max(0.15, power);
+          const vel = fwd.clone().multiplyScalar(effectiveSpeed);
+          const pos = startPos.clone();
+
+          const positions = arc.geometry.attributes.position.array as Float32Array;
+          let endIndex = TRAJ_ARC_POINTS;
+
+          for (let i = 0; i < TRAJ_ARC_POINTS; i++) {
+            positions[i * 3]     = pos.x;
+            positions[i * 3 + 1] = pos.y;
+            positions[i * 3 + 2] = pos.z;
+
+            // Stop arc at terrain level
+            const groundY = getTerrainHeightSampled(pos.x, pos.z);
+            if (i > 0 && pos.y <= groundY + 0.05) {
+              endIndex = i + 1;
+              break;
+            }
+
+            // Advance physics (same as bullet update)
+            vel.y += ARROW_GRAVITY * TRAJ_DT;
+            pos.addScaledVector(vel, TRAJ_DT);
+          }
+
+          arc.geometry.setDrawRange(0, endIndex);
+          arc.geometry.attributes.position.needsUpdate = true;
+          arc.computeLineDistances(); // required for LineDashedMaterial
+          arc.visible = true;
+        } else if (arc) {
+          arc.visible = false;
+        }
+      }
+
       // ── Weapon sway & recoil animation ─────────────────────────────────────
       if (weaponMeshRef.current) {
         const wep = weaponMeshRef.current;
@@ -4838,6 +4910,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       document.removeEventListener("pointerlockchange", onLockChange);
       window.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
+      // Clean up trajectory arc
+      if (trajectoryArcRef.current) {
+        scene.remove(trajectoryArcRef.current);
+        trajectoryArcRef.current.geometry.dispose();
+        (trajectoryArcRef.current.material as THREE.LineDashedMaterial).dispose();
+        trajectoryArcRef.current = null;
+      }
       // Clean up any live bullets from the scene
       bulletsRef.current.forEach((b) => scene.remove(b.mesh));
       bulletsRef.current = [];
