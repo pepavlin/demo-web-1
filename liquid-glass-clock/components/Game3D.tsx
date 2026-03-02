@@ -4000,12 +4000,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const TRAJ_ARC_POINTS = 80;
           const TRAJ_DT = 0.06; // seconds per simulation step
 
-          // Initial conditions matching doAttack() exactly
+          // Start trajectory from the bow mesh world position so the arc
+          // visually originates from the bow rather than the camera centre.
           const startPos = new THREE.Vector3();
-          cam.getWorldPosition(startPos);
+          if (weaponMeshRef.current) {
+            weaponMeshRef.current.getWorldPosition(startPos);
+          } else {
+            cam.getWorldPosition(startPos);
+          }
           const fwd = new THREE.Vector3(0, 0, -1);
           fwd.transformDirection(cam.matrixWorld);
-          startPos.addScaledVector(fwd, 1.2);
 
           const power = bowChargeRef.current;
           const effectiveSpeed = WEAPON_CONFIGS["bow"].bulletSpeed * Math.max(0.15, power);
