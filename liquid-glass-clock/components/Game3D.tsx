@@ -76,6 +76,14 @@ import {
 } from "@/lib/weatherSystem";
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
 import WeaponSelect from "./WeaponSelect";
+import MobileControls from "./MobileControls";
+
+// ─── Mobile detection ────────────────────────────────────────────────────────
+// Evaluated once at module initialisation on the client.  Returns false during
+// SSR (window is undefined) — the game is fully client-side so that's fine.
+const IS_MOBILE =
+  typeof window !== "undefined" &&
+  (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const PLAYER_HEIGHT = 1.8;
@@ -83,12 +91,13 @@ const MOVE_SPEED = 6;
 const SPRINT_SPEED = 12;
 const GRAVITY = -25;
 const JUMP_FORCE = 10;
-const SHEEP_COUNT = 200;
-const FOX_COUNT = 12;
-const COIN_COUNT = 35;
-const TREE_COUNT = 180;
-const BUSH_COUNT = 220;
-const ROCK_COUNT = 90;
+// World-population counts — reduced on mobile to stay within memory budget
+const SHEEP_COUNT = IS_MOBILE ? 40 : 200;
+const FOX_COUNT   = IS_MOBILE ? 4  : 12;
+const COIN_COUNT  = IS_MOBILE ? 20 : 35;
+const TREE_COUNT  = IS_MOBILE ? 70 : 180;
+const BUSH_COUNT  = IS_MOBILE ? 80 : 220;
+const ROCK_COUNT  = IS_MOBILE ? 35 : 90;
 const PLAYER_RADIUS = 0.5; // for tree trunk collision
 const SHEEP_SPEED = 1.4;       // slow peaceful walk (was 2.5)
 const SHEEP_FLEE_RADIUS = 12;
@@ -179,7 +188,7 @@ const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
 const TP_HEIGHT   = 2.5; // camera height above player in 3rd-person view
 
 // ─── Weather Constants ────────────────────────────────────────────────────────
-const RAIN_DROP_COUNT = 4500;       // number of rain particles in the scene
+const RAIN_DROP_COUNT = IS_MOBILE ? 1200 : 4500; // rain particles
 const RAIN_SPEED = 55;              // units/sec fall speed
 const RAIN_SPREAD = 280;            // horizontal spread radius
 const RAIN_HEIGHT_RANGE = 90;       // rain spawns between RAIN_Y_MIN and +HEIGHT_RANGE
@@ -329,6 +338,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // Flora animation & collision data
   const floraRef = useRef<Array<{
     foliageGroup: THREE.Group;
+    rootMesh: THREE.Object3D; // top-level scene group — toggled for LOD visibility
     windPhase: number;     // per-plant phase offset so they sway out-of-sync
     windSpeed: number;     // 0.6–1.4 rad/s
     maxSway: number;       // max rotation amplitude (radians)
@@ -656,6 +666,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const lockPointer = useCallback(() => {
     if (mountRef.current) {
       mountRef.current.requestPointerLock();
+    }
+  }, []);
+
+  /** Start the game on mobile without requiring pointer-lock. */
+  const startMobileGame = useCallback(() => {
+    isLockedRef.current = true;
+    setShowIntro(false);
+    setShowWeaponSelect(false);
+    setGameStarted(true);
+    setGameState((s) => ({ ...s, isLocked: true }));
+    if (!gameEverStartedRef.current) {
+      gameEverStartedRef.current = true;
+      soundManager.init();
+    } else {
+      soundManager.resume();
+      prevTimeRef.current = performance.now();
+      restartAnimLoopRef.current?.();
     }
   }, []);
 
@@ -2198,6 +2225,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (result.foliageGroup.children.length > 0) {
         floraRef.current.push({
           foliageGroup: result.foliageGroup,
+          rootMesh: result.group,
           windPhase: treeRng() * Math.PI * 2,
           windSpeed: 0.65 + treeRng() * 0.7,
           maxSway: result.hasCollision ? 0.025 : 0.045, // large trees sway less
@@ -2234,6 +2262,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Bushes sway more than trees (flexible shrubs)
       floraRef.current.push({
         foliageGroup: result.foliageGroup,
+        rootMesh: result.group,
         windPhase: bushRng() * Math.PI * 2,
         windSpeed: 0.9 + bushRng() * 0.9,
         maxSway: 0.06 + bushRng() * 0.04,
@@ -3277,16 +3306,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // ── Flora (tree & bush foliage) wind sway ─────────────────────────────
-      // LOD: only animate plants within 80 units of the camera (standard 3D game
-      // practice — distant foliage motion is imperceptible at small screen size).
+      // ── Flora (tree & bush foliage) wind sway + visibility LOD ───────────
+      // Visibility culling: on mobile hide objects beyond a tight radius to keep
+      // the GPU load proportional to what the player can actually see.
       const LOD_FLORA_DIST_SQ = 80 * 80;
+      // On mobile use a shorter visibility radius; desktop shows full world.
+      const LOD_FLORA_VIS_SQ = IS_MOBILE ? 110 * 110 : 220 * 220;
       const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
       const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
       floraRef.current.forEach((flora) => {
         const dx = flora.posX - camPosX;
         const dz = flora.posZ - camPosZ;
-        if (dx * dx + dz * dz > LOD_FLORA_DIST_SQ) return;
+        const dSq = dx * dx + dz * dz;
+        // Visibility LOD — hide very distant plants
+        flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
+        if (dSq > LOD_FLORA_DIST_SQ) return;
         const t = elapsed * flora.windSpeed + flora.windPhase;
         // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
         flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
@@ -4549,6 +4583,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
       let closestAliveFoxDist = Infinity;
 
+      // LOD radius for entities — on mobile we hide entities beyond this distance
+      const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
+
       foxListRef.current.forEach((fox) => {
         const fm = fox.mesh;
 
@@ -4567,6 +4604,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         const distToPlayer = fm.position.distanceTo(playerPos);
+
+        // Visibility LOD for mobile
+        if (IS_MOBILE) {
+          const fdx = fm.position.x - playerPos.x;
+          const fdz = fm.position.z - playerPos.z;
+          fm.visible = fdx * fdx + fdz * fdz < LOD_ENTITY_VIS_SQ;
+          if (!fm.visible) return;
+        }
 
         // Track nearest alive fox for HP display
         if (distToPlayer < closestAliveFoxDist) {
@@ -4939,6 +4984,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (sheep === possessedSheepRef.current) return;
 
         const s = sheep.mesh;
+
+        // Visibility LOD for mobile — skip AI for hidden distant sheep
+        if (IS_MOBILE) {
+          const sdx = s.position.x - playerPos.x;
+          const sdz = s.position.z - playerPos.z;
+          const visibleNow = sdx * sdx + sdz * sdz < LOD_ENTITY_VIS_SQ;
+          s.visible = visibleNow;
+          if (!visibleNow) return; // skip AI updates for hidden sheep
+        }
 
         // ── Death animation ─────────────────────────────────────────────────
         if (sheep.isDying) {
@@ -5501,6 +5555,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         ref={mountRef}
         className="w-full h-full cursor-crosshair"
         onClick={() => {
+          // On mobile the game is started via startMobileGame(); canvas clicks are
+          // handled by MobileControls buttons — don't accidentally trigger attacks.
+          if (IS_MOBILE) return;
           if (isLockedRef.current) {
             // Attack only in explore mode; build mode is handled by onMouseDown.
             // Bow uses hold-and-release mechanic — the onClick path is a fallback
@@ -6347,8 +6404,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* Pause overlay — shown when game started but pointer is unlocked (and not chatting) */}
-      {gameStarted && !gameState.isLocked && !showIntro && !chatOpen && (
+      {/* Pause overlay — shown when game started but pointer is unlocked (and not chatting).
+          On mobile we never use pointer lock, so the pause overlay is suppressed. */}
+      {!IS_MOBILE && gameStarted && !gameState.isLocked && !showIntro && !chatOpen && (
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{
@@ -6754,23 +6812,40 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 gap: 10,
               }}
             >
-              <div className="flex gap-6 justify-center flex-wrap">
-                <span>🕹 <strong className="text-gray-300">WASD</strong> – pohyb</span>
-                <span>🖱 <strong className="text-gray-300">Myš</strong> – pohled</span>
-                <span>⬆ <strong className="text-gray-300">Mezerník</strong> – skok</span>
-                <span>💨 <strong className="text-gray-300">Shift</strong> – sprint</span>
-              </div>
-              <div className="flex gap-6 justify-center flex-wrap">
-                <span>⚔️ <strong className="text-gray-300">[F]/Drž klik</strong> – útok</span>
-                <span>🐑 <strong className="text-blue-300">[E]</strong> – vstoupit do ovce</span>
-                <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
-                <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
-              </div>
-              <div className="flex gap-6 justify-center flex-wrap">
-                <span>⛏ <strong className="text-cyan-400">[T]</strong> – terén (v stavění)</span>
-                <span>📷 <strong className="text-yellow-400">[V]</strong> – přepnout 1./3. osobu</span>
-                <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
-              </div>
+              {IS_MOBILE ? (
+                <>
+                  <div className="flex gap-6 justify-center flex-wrap">
+                    <span>🕹 <strong className="text-gray-300">Joystick vlevo</strong> – pohyb</span>
+                    <span>👆 <strong className="text-gray-300">Táhni vpravo</strong> – pohled</span>
+                  </div>
+                  <div className="flex gap-6 justify-center flex-wrap">
+                    <span>↑ <strong className="text-green-300">Zelené</strong> – skok</span>
+                    <span>⚔ <strong className="text-red-400">Červené</strong> – útok</span>
+                    <span>E <strong className="text-blue-400">Modré</strong> – interakce</span>
+                    <span>💨 <strong className="text-yellow-400">Žluté</strong> – sprint</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex gap-6 justify-center flex-wrap">
+                    <span>🕹 <strong className="text-gray-300">WASD</strong> – pohyb</span>
+                    <span>🖱 <strong className="text-gray-300">Myš</strong> – pohled</span>
+                    <span>⬆ <strong className="text-gray-300">Mezerník</strong> – skok</span>
+                    <span>💨 <strong className="text-gray-300">Shift</strong> – sprint</span>
+                  </div>
+                  <div className="flex gap-6 justify-center flex-wrap">
+                    <span>⚔️ <strong className="text-gray-300">[F]/Drž klik</strong> – útok</span>
+                    <span>🐑 <strong className="text-blue-300">[E]</strong> – vstoupit do ovce</span>
+                    <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
+                    <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
+                  </div>
+                  <div className="flex gap-6 justify-center flex-wrap">
+                    <span>⛏ <strong className="text-cyan-400">[T]</strong> – terén (v stavění)</span>
+                    <span>📷 <strong className="text-yellow-400">[V]</strong> – přepnout 1./3. osobu</span>
+                    <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
+                  </div>
+                </>
+              )}
             </div>
 
             <button
@@ -6796,8 +6871,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             selectedWeaponRef.current = weapon;
             swapWeaponMesh(weapon);
             setShowWeaponSelect(false);
-            lockPointer();
+            if (IS_MOBILE) {
+              startMobileGame();
+            } else {
+              lockPointer();
+            }
           }}
+        />
+      )}
+
+      {/* Mobile virtual controls — only rendered on touch devices */}
+      {IS_MOBILE && gameStarted && (
+        <MobileControls
+          keysRef={keysRef}
+          yawRef={yawRef}
+          pitchRef={pitchRef}
+          onAttack={() => doAttack()}
+          onInteract={() => {
+            // Simulate the E-key action by dispatching a synthetic keyboard event
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", { code: "KeyE", bubbles: true })
+            );
+            window.dispatchEvent(
+              new KeyboardEvent("keyup", { code: "KeyE", bubbles: true })
+            );
+          }}
+          visible={true}
         />
       )}
     </div>
