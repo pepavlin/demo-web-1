@@ -1818,7 +1818,8 @@ export function buildRocketMesh(): {
     launchPad.add(arm);
   });
 
-  group.add(launchPad);
+  // NOTE: launchPad is NOT added to group here — it is placed directly in the
+  // scene from Game3D.tsx so that it stays on the ground while the rocket flies.
 
   // ── Rocket body (cylinder, sits above the slab) ─────────────────────────────
   const bodyGeo = new THREE.CylinderGeometry(0.82, 0.88, 8.5, 16);

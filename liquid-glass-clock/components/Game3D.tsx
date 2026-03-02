@@ -2488,9 +2488,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const rz = ROCKET_SPAWN_Z;
       const groundY = getTerrainHeightSampled(rx, rz);
       const { group: rocketGroup, flameGroup, launchPad, exhaustParticles } = buildRocketMesh();
-      // Rocket sits on the launch pad which sits on the ground
+      // Rocket sits above the ground; launch pad stays fixed on the ground separately
       rocketGroup.position.set(rx, groundY, rz);
       scene.add(rocketGroup);
+      // Launch pad is added directly to the scene so it stays grounded while rocket flies
+      launchPad.position.set(rx, groundY, rz);
+      scene.add(launchPad);
 
       rocketDataRef.current = {
         mesh: rocketGroup,
@@ -2680,15 +2683,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         cameraModeRef.current = newMode;
         setCameraMode(newMode);
         if (weaponMeshRef.current) {
-          // Weapon hidden while possessed regardless of camera mode
-          weaponMeshRef.current.visible = newMode === "first" && !possessedSheepRef.current;
+          // Weapon hidden while possessed or on rocket regardless of camera mode
+          weaponMeshRef.current.visible = newMode === "first" && !possessedSheepRef.current && !onRocketRef.current;
         }
         if (playerBodyRef.current) {
-          // Player body only shown in 3rd-person when NOT possessing a sheep
-          playerBodyRef.current.visible = newMode === "third" && !possessedSheepRef.current;
+          // Player body only shown in 3rd-person when NOT possessing a sheep and NOT on rocket
+          playerBodyRef.current.visible = newMode === "third" && !possessedSheepRef.current && !onRocketRef.current;
         }
         // Snap camera back to eye-level when returning to first-person (explore mode only)
-        if (newMode === "first" && cameraRef.current && !possessedSheepRef.current) {
+        if (newMode === "first" && cameraRef.current && !possessedSheepRef.current && !onRocketRef.current) {
           cameraRef.current.position.set(
             playerBodyPosRef.current.x,
             playerBodyPosRef.current.y + PLAYER_HEIGHT,
@@ -3644,16 +3647,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
 
           if (rd.state === 'boarded' && isLockedRef.current) {
-            // Keep camera locked inside rocket cabin
-            cam.position.set(
-              rocketPos.x,
-              rd.groundY + ROCKET_CAM_HEIGHT,
-              rocketPos.z
-            );
-            playerBodyPosRef.current.copy(cam.position);
-            cam.rotation.order = "YXZ";
-            cam.rotation.y = yawRef.current;
-            cam.rotation.x = pitchRef.current;
+            // Keep camera locked to the rocket (1st or 3rd person)
+            if (cameraModeRef.current === "third") {
+              const behindX = Math.sin(yawRef.current) * (TP_DISTANCE + 4);
+              const behindZ = Math.cos(yawRef.current) * (TP_DISTANCE + 4);
+              cam.position.set(
+                rocketPos.x + behindX,
+                rd.groundY + TP_HEIGHT + 6,
+                rocketPos.z + behindZ
+              );
+              cam.lookAt(rocketPos.x, rd.groundY + 6, rocketPos.z);
+            } else {
+              cam.position.set(rocketPos.x, rd.groundY + ROCKET_CAM_HEIGHT, rocketPos.z);
+              cam.rotation.order = "YXZ";
+              cam.rotation.y = yawRef.current;
+              cam.rotation.x = pitchRef.current;
+            }
+            playerBodyPosRef.current.copy(rocketPos);
           }
 
           if (rd.state === 'countdown') {
@@ -3674,18 +3684,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               }
             }
 
-            // While counting down — keep camera in cabin, slight pre-ignition shaking
+            // While counting down — keep camera on rocket, slight pre-ignition shaking
             if (isLockedRef.current) {
               const shake = rd.countdown <= 1 ? 0.04 : 0.015;
-              cam.position.set(
-                rocketPos.x + (Math.random() - 0.5) * shake,
-                rd.groundY + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shake,
-                rocketPos.z + (Math.random() - 0.5) * shake
-              );
-              playerBodyPosRef.current.copy(cam.position);
-              cam.rotation.order = "YXZ";
-              cam.rotation.y = yawRef.current;
-              cam.rotation.x = pitchRef.current;
+              if (cameraModeRef.current === "third") {
+                const behindX = Math.sin(yawRef.current) * (TP_DISTANCE + 4);
+                const behindZ = Math.cos(yawRef.current) * (TP_DISTANCE + 4);
+                cam.position.set(
+                  rocketPos.x + behindX + (Math.random() - 0.5) * shake,
+                  rd.groundY + TP_HEIGHT + 6 + (Math.random() - 0.5) * shake,
+                  rocketPos.z + behindZ + (Math.random() - 0.5) * shake
+                );
+                cam.lookAt(rocketPos.x, rd.groundY + 6, rocketPos.z);
+              } else {
+                cam.position.set(
+                  rocketPos.x + (Math.random() - 0.5) * shake,
+                  rd.groundY + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shake,
+                  rocketPos.z + (Math.random() - 0.5) * shake
+                );
+                cam.rotation.order = "YXZ";
+                cam.rotation.y = yawRef.current;
+                cam.rotation.x = pitchRef.current;
+              }
+              playerBodyPosRef.current.copy(rocketPos);
             }
           }
 
@@ -3699,10 +3720,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ? 2 * t * t
               : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-            // Move rocket from ground toward mothership
+            // Move rocket from ground toward mothership — interpolate from spawn to target
             const targetX = 0;     // mothership X
             const targetZ = -60;   // mothership Z
-            rd.mesh.position.x = rocketPos.x + (targetX - ROCKET_SPAWN_X) * eased;
+            rd.mesh.position.x = ROCKET_SPAWN_X + (targetX - ROCKET_SPAWN_X) * eased;
             rd.mesh.position.y = rd.groundY + (ROCKET_TARGET_Y - rd.groundY) * eased;
             rd.mesh.position.z = ROCKET_SPAWN_Z + (targetZ - ROCKET_SPAWN_Z) * eased;
 
@@ -3721,18 +3742,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               puffMat.opacity = Math.max(0, 0.55 - i * 0.06 - eased * 0.3);
             });
 
-            // Camera shakes inside rocket during ascent
+            // Camera follows rocket during ascent — 1st or 3rd person
             if (isLockedRef.current) {
               const shakeMag = 0.04 * (1 - eased * 0.5);
-              cam.position.set(
-                rd.mesh.position.x + (Math.random() - 0.5) * shakeMag,
-                rd.mesh.position.y + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shakeMag,
-                rd.mesh.position.z + (Math.random() - 0.5) * shakeMag
-              );
-              playerBodyPosRef.current.copy(cam.position);
-              cam.rotation.order = "YXZ";
-              cam.rotation.y = yawRef.current;
-              cam.rotation.x = pitchRef.current;
+              if (cameraModeRef.current === "third") {
+                const behindX = Math.sin(yawRef.current) * (TP_DISTANCE + 4);
+                const behindZ = Math.cos(yawRef.current) * (TP_DISTANCE + 4);
+                cam.position.set(
+                  rd.mesh.position.x + behindX + (Math.random() - 0.5) * shakeMag,
+                  rd.mesh.position.y + TP_HEIGHT + 6 + (Math.random() - 0.5) * shakeMag,
+                  rd.mesh.position.z + behindZ + (Math.random() - 0.5) * shakeMag
+                );
+                cam.lookAt(rd.mesh.position.x, rd.mesh.position.y + 6, rd.mesh.position.z);
+              } else {
+                cam.position.set(
+                  rd.mesh.position.x + (Math.random() - 0.5) * shakeMag,
+                  rd.mesh.position.y + ROCKET_CAM_HEIGHT + (Math.random() - 0.5) * shakeMag,
+                  rd.mesh.position.z + (Math.random() - 0.5) * shakeMag
+                );
+                cam.rotation.order = "YXZ";
+                cam.rotation.y = yawRef.current;
+                cam.rotation.x = pitchRef.current;
+              }
+              playerBodyPosRef.current.copy(rd.mesh.position);
             }
 
             // Reached mothership

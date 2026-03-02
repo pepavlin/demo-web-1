@@ -928,13 +928,17 @@ describe("buildRocketMesh", () => {
       if ((child as THREE.Mesh).isMesh) meshCount++;
     });
     // At minimum: body, stripe×2, nosecone, tip, porthole rim, porthole glass,
-    // nozzle, 4 fins, 8 ladder rungs, 2 rails, flame parts, 8 exhaust puffs = 30+
+    // nozzle, 4 fins, 8 ladder rungs, 2 rails, flame parts, 8 exhaust puffs.
+    // Note: launchPad is no longer part of the group (it's added to the scene separately).
     expect(meshCount).toBeGreaterThanOrEqual(25);
   });
 
-  it("launchPad is a child of the main group", () => {
+  it("launchPad is NOT a child of the main group (it is placed separately in the scene)", () => {
     const { group, launchPad } = buildRocketMesh();
-    expect(group.children).toContain(launchPad);
+    // launchPad must be returned as a standalone Group so Game3D can place it
+    // directly in the scene — keeping it stationary while the rocket flies away.
+    expect(group.children).not.toContain(launchPad);
+    expect(launchPad).toBeInstanceOf(THREE.Group);
   });
 
   it("flameGroup is a child of the main group", () => {
