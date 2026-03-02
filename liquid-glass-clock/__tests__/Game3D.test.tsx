@@ -539,28 +539,28 @@ describe("Rocket system", () => {
     expect(queryByText(/Startujeme/)).toBeNull();
   });
 
-  it("arrived message is not visible at start", () => {
+  it("docking welcome message is not visible at start", () => {
     const { queryByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    expect(queryByText(/Přistáli jste u vesmírné lodi/)).toBeNull();
+    expect(queryByText(/Dokování úspěšné/)).toBeNull();
+  });
+
+  it("station welcome aboard text is not visible at start", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Vítejte na palubě Matky lodí/)).toBeNull();
   });
 
   // ── Space Station UI: initial state tests ─────────────────────────────────
-  it("space station entry prompt is not visible at start", () => {
-    const { queryByText } = render(<Game3D />);
-    act(() => { jest.advanceTimersByTime(0); });
-    expect(queryByText(/Vstoupit do vesmírné lodi/)).toBeNull();
-  });
-
   it("space station active banner is not visible at start", () => {
     const { queryByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
     expect(queryByText(/Vesmírná loď/)).toBeNull();
   });
 
-  it("airlock exit prompt is not visible at start", () => {
+  it("airlock return-to-Earth prompt is not visible at start", () => {
     const { queryByText } = render(<Game3D />);
     act(() => { jest.advanceTimersByTime(0); });
-    expect(queryByText(/opustit vesmírnou loď/)).toBeNull();
+    expect(queryByText(/vrátit se na Zemi/)).toBeNull();
   });
 });

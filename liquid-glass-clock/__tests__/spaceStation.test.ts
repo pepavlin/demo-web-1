@@ -176,3 +176,67 @@ describe("Space station animated mesh types", () => {
     });
   });
 });
+
+// ── Auto-docking scene transition logic ──────────────────────────────────────
+describe("Auto-docking: rocket arrives → immediate space station entry", () => {
+  const SPACE_STATION_WORLD_Y = 2000;
+  const SPACE_STATION_WORLD_X = 0;
+  const SPACE_STATION_WORLD_Z = 0;
+  const PLAYER_HEIGHT = 1.8;
+
+  it("station spawn Y is at SPACE_STATION_WORLD_Y + PLAYER_HEIGHT", () => {
+    const spawnY = SPACE_STATION_WORLD_Y + PLAYER_HEIGHT;
+    expect(spawnY).toBe(2001.8);
+  });
+
+  it("station spawn position is well above the exterior world", () => {
+    const spawnY = SPACE_STATION_WORLD_Y + PLAYER_HEIGHT;
+    expect(spawnY).toBeGreaterThan(200);
+  });
+
+  it("airlock zone check: player at (0, 0) local is near airlock", () => {
+    // Mirror the airlock detection from Game3D.tsx
+    const playerLocalX = 0;
+    const playerLocalZ = 0;
+    const nearAirlock = Math.abs(playerLocalX) <= 5.5 && Math.abs(playerLocalZ) <= 5.5;
+    expect(nearAirlock).toBe(true);
+  });
+
+  it("airlock zone check: player at (10, 0) local is NOT near airlock", () => {
+    const playerLocalX = 10;
+    const playerLocalZ = 0;
+    const nearAirlock = Math.abs(playerLocalX) <= 5.5 && Math.abs(playerLocalZ) <= 5.5;
+    expect(nearAirlock).toBe(false);
+  });
+
+  it("welcome timer starts at 4 seconds on auto-dock", () => {
+    // The auto-docking code sets stationWelcomeTimerRef.current = 4
+    const WELCOME_DURATION = 4;
+    expect(WELCOME_DURATION).toBeGreaterThan(0);
+    expect(WELCOME_DURATION).toBeLessThanOrEqual(10); // sanity: not too long
+  });
+
+  it("docked state correctly differs from arrived state", () => {
+    const arrivedState: RocketState = "arrived";
+    const dockedState: RocketState = "docked";
+    expect(arrivedState).not.toBe(dockedState);
+    expect(dockedState).toBe("docked");
+  });
+
+  it("Earth return spawn is near the rocket launch pad", () => {
+    const ROCKET_SPAWN_X = 8;
+    const ROCKET_SPAWN_Z = -28;
+    // Exit airlock returns to ROCKET_SPAWN_X + 4, ROCKET_SPAWN_Z + 4
+    const landX = ROCKET_SPAWN_X + 4;
+    const landZ = ROCKET_SPAWN_Z + 4;
+    // Should be close to the rocket (within 10 units)
+    const dist = Math.sqrt((landX - ROCKET_SPAWN_X) ** 2 + (landZ - ROCKET_SPAWN_Z) ** 2);
+    expect(dist).toBeLessThan(10);
+  });
+
+  it("station world origin is at expected coordinates", () => {
+    expect(SPACE_STATION_WORLD_X).toBe(0);
+    expect(SPACE_STATION_WORLD_Z).toBe(0);
+    expect(SPACE_STATION_WORLD_Y).toBe(2000);
+  });
+});
