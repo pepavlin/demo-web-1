@@ -485,6 +485,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [rocketArrived, setRocketArrived] = useState(false);
   const [inSpaceStation, setInSpaceStation] = useState(false);
   const [nearAirlockExit, setNearAirlockExit] = useState(false);
+  const [stationWelcome, setStationWelcome] = useState(false);
+  const stationWelcomeTimerRef = useRef(0);
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -2632,7 +2634,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           return;
         }
 
-        // ── Exit space station via airlock ───────────────────────────────────
+        // ── Exit space station via airlock — teleport back to Earth ─────────
         if (inSpaceStationRef.current && cameraRef.current) {
           const cam = cameraRef.current;
           const localX = cam.position.x - SPACE_STATION_WORLD_X;
@@ -2642,21 +2644,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             inSpaceStationRef.current = false;
             setInSpaceStation(false);
             setNearAirlockExit(false);
-            // Return player to mothership vicinity (outside rocket)
+            setStationWelcome(false);
+            stationWelcomeTimerRef.current = 0;
+            // Return player to Earth near the rocket launch pad
             const rd = rocketDataRef.current;
+            const landX = ROCKET_SPAWN_X + 4;
+            const landZ = ROCKET_SPAWN_Z + 4;
+            const landY = getTerrainHeightSampled(landX, landZ);
+            cam.position.set(landX, landY + PLAYER_HEIGHT, landZ);
             if (rd) {
-              cam.position.set(
-                rd.mesh.position.x + 5,
-                rd.mesh.position.y + ROCKET_CAM_HEIGHT + 2,
-                rd.mesh.position.z
-              );
-              rd.state = 'arrived';
-              setRocketArrived(true);
-              rocketArrivedRef.current = true;
+              rd.state = 'idle';
+              rd.launchProgress = 0;
+              rd.mesh.position.set(ROCKET_SPAWN_X, rd.groundY, ROCKET_SPAWN_Z);
             }
             playerBodyPosRef.current.copy(cam.position);
             playerRef.current.velY = 0;
-            playerRef.current.onGround = false;
+            playerRef.current.onGround = true;
             if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
             return;
           }
@@ -3319,6 +3322,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
+      // ── Station welcome message timer ────────────────────────────────────
+      if (stationWelcomeTimerRef.current > 0) {
+        stationWelcomeTimerRef.current -= dt;
+        if (stationWelcomeTimerRef.current <= 0) {
+          stationWelcomeTimerRef.current = 0;
+          setStationWelcome(false);
+        }
+      }
+
       // ── Space Station interior movement & animation ───────────────────────
       if (isLockedRef.current && inSpaceStationRef.current) {
         const cam = cameraRef.current!;
@@ -3958,33 +3970,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               playerBodyPosRef.current.copy(rd.mesh.position);
             }
 
-            // Reached mothership
+            // Reached mothership — auto-dock and enter station interior
             if (rd.launchProgress >= 1) {
-              rd.state = 'arrived';
+              rd.state = 'docked';
               rd.flameGroup.visible = false;
               rd.exhaustParticles.forEach((p) => { p.visible = false; });
               setRocketLaunching(false);
-              setRocketArrived(true);
-              rocketArrivedRef.current = true;
+              setRocketArrived(false);
+              rocketArrivedRef.current = false;
 
-              // Place the player standing on/near the mothership
+              // Auto-enter the space station interior (teleport to Y=2000 world)
+              inSpaceStationRef.current = true;
+              setInSpaceStation(true);
+              stationWelcomeTimerRef.current = 4; // show welcome for 4 seconds
+              setStationWelcome(true);
+
               if (cameraRef.current) {
                 cameraRef.current.position.set(
-                  rd.mesh.position.x + 5,
-                  rd.mesh.position.y + ROCKET_CAM_HEIGHT + 2,
-                  rd.mesh.position.z
+                  SPACE_STATION_WORLD_X + 0,
+                  SPACE_STATION_WORLD_Y + 1.8,
+                  SPACE_STATION_WORLD_Z + 0
                 );
                 playerBodyPosRef.current.copy(cameraRef.current.position);
                 playerRef.current.velY = 0;
-                playerRef.current.onGround = false;
+                playerRef.current.onGround = true;
               }
               onRocketRef.current = false;
               setOnRocket(false);
-              if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+              if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
             }
           }
 
-          if (rd.state === 'arrived') {
+          if (rd.state === 'arrived' || rd.state === 'docked') {
             // Keep rocket parked near mothership — gentle idle drift
             rd.mesh.position.y = ROCKET_TARGET_Y + Math.sin(elapsed * 0.4) * 0.8;
           }
@@ -5956,8 +5973,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ═══════════════ CENTER — Arrived at mothership message + enter prompt ═══════════════ */}
-      {rocketArrived && gameState.isLocked && (
+      {/* ═══════════════ CENTER — Welcome aboard message (auto-docking) ═══════════════ */}
+      {stationWelcome && gameState.isLocked && (
         <div className="fixed top-1/3 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-2xl text-white font-bold text-base"
@@ -5971,28 +5988,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             <div style={{ fontSize: "2rem", marginBottom: 6 }}>🛸</div>
-            Přistáli jste u vesmírné lodi!
-            <div style={{ color: "#93c5fd", fontSize: "0.8rem", marginTop: 6 }}>
+            Dokování úspěšné!
+            <div style={{ color: "#93c5fd", fontSize: "0.9rem", marginTop: 8 }}>
               Vítejte na palubě Matky lodí
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ BOTTOM — Enter space station prompt ═══════════════ */}
-      {rocketArrived && gameState.isLocked && (
-        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-xl text-white font-bold text-sm animate-pulse"
-            style={{
-              padding: "10px 28px",
-              background: "rgba(5,20,50,0.95)",
-              backdropFilter: "blur(12px)",
-              border: "1px solid rgba(80,160,255,0.60)",
-              boxShadow: "0 0 28px rgba(40,100,255,0.55)",
-            }}
-          >
-            🚪 [E] Vstoupit do vesmírné lodi
+            <div style={{ color: "#60a5fa", fontSize: "0.75rem", marginTop: 4 }}>
+              Prozkoumejte loď pomocí WASD
+            </div>
           </div>
         </div>
       )}
@@ -6028,7 +6030,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               boxShadow: "0 0 28px rgba(40,100,255,0.55)",
             }}
           >
-            🚪 [E] Airlock – opustit vesmírnou loď
+            🚀 [E] Airlock – vrátit se na Zemi
           </div>
         </div>
       )}
