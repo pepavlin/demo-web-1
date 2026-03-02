@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import {
   getTerrainHeight,
   getTerrainHeightSampled,
@@ -354,8 +357,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const bowChargeBarRef = useRef<HTMLDivElement | null>(null);
   /** Maximum hold time (seconds) to reach full power. */
   const BOW_MAX_CHARGE_TIME = 1.5;
-  /** THREE.Line that shows the predicted arrow trajectory arc while drawing. */
-  const trajectoryArcRef = useRef<THREE.Line | null>(null);
+  /** Line2 that shows the predicted arrow trajectory arc while drawing. */
+  const trajectoryArcRef = useRef<Line2 | null>(null);
 
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
   const bulletsRef = useRef<BulletData[]>([]);
@@ -1082,23 +1085,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     muzzleFlashRef.current = muzzleFlash;
 
     // ── Bow trajectory arc preview line ─────────────────────────────────────
-    // Pre-allocated geometry for up to TRAJ_ARC_POINTS steps; updated each frame
-    // while the bow is being drawn to give the player a trajectory preview.
+    // Uses Line2 (from three/examples/jsm/lines) which supports pixel-width lines,
+    // making the arc thick and always visible regardless of background.
     const TRAJ_ARC_POINTS = 80;
-    const trajGeom = new THREE.BufferGeometry();
-    const trajPositions = new Float32Array(TRAJ_ARC_POINTS * 3);
-    trajGeom.setAttribute("position", new THREE.BufferAttribute(trajPositions, 3));
-    trajGeom.setDrawRange(0, 0); // hidden until needed
-    const trajMat = new THREE.LineDashedMaterial({
-      color: 0xffee66,
-      opacity: 0.80,
-      transparent: true,
-      dashSize: 0.45,
-      gapSize: 0.25,
+    // Pre-fill with dummy positions; will be overwritten every frame
+    const trajInitPositions = new Float32Array(TRAJ_ARC_POINTS * 3);
+    const trajGeom = new LineGeometry();
+    trajGeom.setPositions(trajInitPositions);
+    const trajMat = new LineMaterial({
+      color: 0xffffff,       // white – maximum contrast against any background
+      linewidth: 3,          // pixels; requires resolution to be set
+      depthTest: false,      // always render in front of all geometry
+      transparent: false,
     });
-    const trajectoryArc = new THREE.Line(trajGeom, trajMat);
+    trajMat.resolution.set(window.innerWidth, window.innerHeight);
+    const trajectoryArc = new Line2(trajGeom, trajMat);
     trajectoryArc.visible = false;
-    trajectoryArc.renderOrder = 999; // draw on top to stay visible
+    trajectoryArc.renderOrder = 9999; // ensure on top of all other renderOrder objects
     scene.add(trajectoryArc);
     trajectoryArcRef.current = trajectoryArc;
 
@@ -4048,13 +4051,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const vel = fwd.clone().multiplyScalar(effectiveSpeed);
           const pos = startPos.clone();
 
-          const positions = arc.geometry.attributes.position.array as Float32Array;
+          // Line2 uses a flat Float32Array of XYZ triplets via setPositions()
+          const posArr = new Float32Array(TRAJ_ARC_POINTS * 3);
           let endIndex = TRAJ_ARC_POINTS;
 
           for (let i = 0; i < TRAJ_ARC_POINTS; i++) {
-            positions[i * 3]     = pos.x;
-            positions[i * 3 + 1] = pos.y;
-            positions[i * 3 + 2] = pos.z;
+            posArr[i * 3]     = pos.x;
+            posArr[i * 3 + 1] = pos.y;
+            posArr[i * 3 + 2] = pos.z;
 
             // Stop arc at terrain level
             const groundY = getTerrainHeightSampled(pos.x, pos.z);
@@ -4068,9 +4072,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             pos.addScaledVector(vel, TRAJ_DT);
           }
 
-          arc.geometry.setDrawRange(0, endIndex);
-          arc.geometry.attributes.position.needsUpdate = true;
-          arc.computeLineDistances(); // required for LineDashedMaterial
+          // Rebuild LineGeometry with the computed points (truncated to endIndex)
+          (arc.geometry as LineGeometry).setPositions(posArr.subarray(0, endIndex * 3));
+          arc.computeLineDistances();
           arc.visible = true;
         } else if (arc) {
           arc.visible = false;
@@ -5161,6 +5165,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       cameraRef.current.aspect = window.innerWidth / window.innerHeight;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(window.innerWidth, window.innerHeight);
+      // LineMaterial needs the renderer resolution to calculate pixel-width lines
+      if (trajectoryArcRef.current) {
+        (trajectoryArcRef.current.material as LineMaterial).resolution.set(
+          window.innerWidth,
+          window.innerHeight
+        );
+      }
     };
     window.addEventListener("resize", onResize);
 
@@ -5179,7 +5190,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (trajectoryArcRef.current) {
         scene.remove(trajectoryArcRef.current);
         trajectoryArcRef.current.geometry.dispose();
-        (trajectoryArcRef.current.material as THREE.LineDashedMaterial).dispose();
+        (trajectoryArcRef.current.material as LineMaterial).dispose();
         trajectoryArcRef.current = null;
       }
       // Clean up any live bullets from the scene
