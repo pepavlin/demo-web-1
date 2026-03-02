@@ -187,7 +187,7 @@ export interface GameState {
 }
 
 // ─── Rocket system ─────────────────────────────────────────────────────────
-export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived';
+export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived' | 'docked';
 
 export interface RocketData {
   /** Root group for the whole rocket (body + nose + fins + nozzle + window + ladder) */

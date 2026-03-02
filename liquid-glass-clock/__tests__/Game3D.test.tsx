@@ -544,4 +544,23 @@ describe("Rocket system", () => {
     act(() => { jest.advanceTimersByTime(0); });
     expect(queryByText(/Přistáli jste u vesmírné lodi/)).toBeNull();
   });
+
+  // ── Space Station UI: initial state tests ─────────────────────────────────
+  it("space station entry prompt is not visible at start", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Vstoupit do vesmírné lodi/)).toBeNull();
+  });
+
+  it("space station active banner is not visible at start", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Vesmírná loď/)).toBeNull();
+  });
+
+  it("airlock exit prompt is not visible at start", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/opustit vesmírnou loď/)).toBeNull();
+  });
 });

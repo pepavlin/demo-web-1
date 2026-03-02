@@ -1951,3 +1951,729 @@ export function buildRocketMesh(): {
 
   return { group, flameGroup, launchPad, exhaustParticles };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Space Station Interior
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SpaceStationInteriorResult {
+  group: THREE.Group;
+  /** Walkable AABB boxes in group-local space (used for collision). */
+  rooms: THREE.Box3[];
+  /** Player spawn position in group-local space (inside airlock). */
+  spawnPosition: THREE.Vector3;
+  /** Animated lights to flicker in animation loop. */
+  lights: { light: THREE.PointLight; baseIntensity: number; phase: number }[];
+  /** Animated holographic displays to rotate/pulse. */
+  animatedMeshes: { mesh: THREE.Mesh; type: 'hologram' | 'reactor' | 'panel' }[];
+}
+
+/**
+ * Build a walkable space-station interior.
+ *
+ * Room layout (X = right, Y = up, Z = forward/into corridor):
+ *
+ *   [Airlock] ──── [Main Corridor] ──── [Bridge]
+ *                        │
+ *               ┌────────┴────────┐
+ *          [Crew Quarters]  [Engineering Bay]
+ *
+ * The group origin is the centre of the Airlock floor.
+ * Rooms are defined so the player (PLAYER_HEIGHT = 1.8) can walk inside them.
+ */
+export function buildSpaceStationInterior(): SpaceStationInteriorResult {
+  const group = new THREE.Group();
+
+  // ── Shared materials ──────────────────────────────────────────────────────
+  const hullMat = new THREE.MeshStandardMaterial({
+    color: 0x1a2233,
+    roughness: 0.8,
+    metalness: 0.6,
+  });
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x1c2b3a,
+    roughness: 0.7,
+    metalness: 0.4,
+  });
+  const ceilingMat = new THREE.MeshStandardMaterial({
+    color: 0x111924,
+    roughness: 0.9,
+    metalness: 0.3,
+  });
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 0x1e3a5f,
+    roughness: 0.5,
+    metalness: 0.7,
+  });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: 0x2d6a9f,
+    roughness: 0.4,
+    metalness: 0.8,
+    emissive: new THREE.Color(0x0a2040),
+    emissiveIntensity: 0.5,
+  });
+  const windowMat = new THREE.MeshStandardMaterial({
+    color: 0x0a1830,
+    roughness: 0.0,
+    metalness: 0.1,
+    emissive: new THREE.Color(0x050d1a),
+    emissiveIntensity: 1.0,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const glowGreenMat = new THREE.MeshStandardMaterial({
+    color: 0x00ff88,
+    emissive: new THREE.Color(0x00ff88),
+    emissiveIntensity: 1.5,
+    roughness: 0.3,
+    metalness: 0.1,
+  });
+  const glowBlueMat = new THREE.MeshStandardMaterial({
+    color: 0x0088ff,
+    emissive: new THREE.Color(0x0055cc),
+    emissiveIntensity: 2.0,
+    roughness: 0.1,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.7,
+  });
+  const reactorMat = new THREE.MeshStandardMaterial({
+    color: 0xff6600,
+    emissive: new THREE.Color(0xff4400),
+    emissiveIntensity: 2.5,
+    roughness: 0.2,
+    metalness: 0.3,
+    transparent: true,
+    opacity: 0.8,
+  });
+  const pipeMat = new THREE.MeshStandardMaterial({
+    color: 0x3a4a5a,
+    roughness: 0.6,
+    metalness: 0.9,
+  });
+  const consoleMat = new THREE.MeshStandardMaterial({
+    color: 0x0d1f33,
+    roughness: 0.5,
+    metalness: 0.8,
+  });
+  const screenMat = new THREE.MeshStandardMaterial({
+    color: 0x001a33,
+    emissive: new THREE.Color(0x002266),
+    emissiveIntensity: 1.8,
+    roughness: 0.0,
+    metalness: 0.0,
+  });
+  const warningMat = new THREE.MeshStandardMaterial({
+    color: 0xff4400,
+    emissive: new THREE.Color(0xff2200),
+    emissiveIntensity: 1.2,
+    roughness: 0.4,
+    metalness: 0.3,
+  });
+  const doorFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x2a5080,
+    roughness: 0.4,
+    metalness: 0.9,
+    emissive: new THREE.Color(0x0a1830),
+    emissiveIntensity: 0.6,
+  });
+
+  // ── Room definitions (walkable AABB) ────────────────────────────────────
+  // Y=0 is the floor level; player height = 1.8
+  const rooms: THREE.Box3[] = [];
+  const lights: { light: THREE.PointLight; baseIntensity: number; phase: number }[] = [];
+  const animatedMeshes: { mesh: THREE.Mesh; type: 'hologram' | 'reactor' | 'panel' }[] = [];
+
+  // Helper: add a room box and build its visible walls/floor/ceiling
+  const addRoom = (
+    minX: number, minY: number, minZ: number,
+    maxX: number, maxY: number, maxZ: number,
+    _name: string
+  ) => {
+    rooms.push(new THREE.Box3(
+      new THREE.Vector3(minX, minY, minZ),
+      new THREE.Vector3(maxX, maxY, maxZ)
+    ));
+
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const d = maxZ - minZ;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const cz = (minZ + maxZ) / 2;
+
+    // Floor
+    const floorGeo = new THREE.BoxGeometry(w - 0.1, 0.12, d - 0.1);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.set(cx, minY + 0.06, cz);
+    group.add(floor);
+
+    // Ceiling
+    const ceilGeo = new THREE.BoxGeometry(w - 0.1, 0.12, d - 0.1);
+    const ceil = new THREE.Mesh(ceilGeo, ceilingMat);
+    ceil.position.set(cx, maxY - 0.06, cz);
+    group.add(ceil);
+
+    // Walls (hull panels — will be partially overridden with decorative meshes)
+    // Left wall (-X face)
+    const wallLGeo = new THREE.BoxGeometry(0.15, h, d);
+    const wallL = new THREE.Mesh(wallLGeo, hullMat);
+    wallL.position.set(minX + 0.07, cy, cz);
+    group.add(wallL);
+
+    // Right wall (+X face)
+    const wallR = new THREE.Mesh(wallLGeo, hullMat);
+    wallR.position.set(maxX - 0.07, cy, cz);
+    group.add(wallR);
+
+    // Front wall (+Z face)
+    const wallFGeo = new THREE.BoxGeometry(w, h, 0.15);
+    const wallF = new THREE.Mesh(wallFGeo, hullMat);
+    wallF.position.set(cx, cy, maxZ - 0.07);
+    group.add(wallF);
+
+    // Back wall (-Z face)
+    const wallB = new THREE.Mesh(wallFGeo, hullMat);
+    wallB.position.set(cx, cy, minZ + 0.07);
+    group.add(wallB);
+
+    // Floor accent strips
+    const stripGeo = new THREE.BoxGeometry(w - 0.5, 0.04, 0.08);
+    for (let i = 0; i < 3; i++) {
+      const strip = new THREE.Mesh(stripGeo, accentMat);
+      strip.position.set(cx, minY + 0.16, minZ + (d / 4) + i * (d / 4));
+      group.add(strip);
+    }
+
+    // Ceiling lights (strip)
+    const ceilLightGeo = new THREE.BoxGeometry(w * 0.7, 0.06, 0.25);
+    const ceilLight = new THREE.Mesh(ceilLightGeo, glowBlueMat);
+    ceilLight.position.set(cx, maxY - 0.1, cz);
+    group.add(ceilLight);
+
+    // Add a point light for this room
+    const pLight = new THREE.PointLight(0x4488ff, 1.5, Math.max(w, d) * 1.8);
+    pLight.position.set(cx, maxY - 0.5, cz);
+    group.add(pLight);
+    lights.push({ light: pLight, baseIntensity: 1.5, phase: Math.random() * Math.PI * 2 });
+  };
+
+  // Helper: add a door frame between rooms
+  const addDoorFrame = (cx: number, cy: number, cz: number, axis: 'x' | 'z') => {
+    const fw = axis === 'x' ? 0.2 : 2.2;
+    const fd = axis === 'x' ? 2.2 : 0.2;
+    // Left/right door pillars
+    const pillarGeo = new THREE.BoxGeometry(fw, 3.0, fd);
+    const leftPillar = new THREE.Mesh(pillarGeo, doorFrameMat);
+    if (axis === 'x') {
+      leftPillar.position.set(cx, cy + 0.5, cz - 1.4);
+    } else {
+      leftPillar.position.set(cx - 1.4, cy + 0.5, cz);
+    }
+    group.add(leftPillar);
+    const rightPillar = new THREE.Mesh(pillarGeo, doorFrameMat);
+    if (axis === 'x') {
+      rightPillar.position.set(cx, cy + 0.5, cz + 1.4);
+    } else {
+      rightPillar.position.set(cx + 1.4, cy + 0.5, cz);
+    }
+    group.add(rightPillar);
+    // Top beam
+    const beamGeo = new THREE.BoxGeometry(fw, 0.25, fd === 0.2 ? 3.0 : 0.2);
+    const topBeam = new THREE.Mesh(
+      axis === 'x' ? new THREE.BoxGeometry(0.2, 0.25, 3.0) : new THREE.BoxGeometry(3.0, 0.25, 0.2),
+      doorFrameMat
+    );
+    topBeam.position.set(cx, cy + 2.1, cz);
+    group.add(topBeam);
+    void beamGeo.dispose();
+    void beamGeo; // suppress unused warning
+  };
+
+  // Helper: add a console desk with screen
+  const addConsole = (x: number, y: number, z: number, rotY: number) => {
+    const deskGeo = new THREE.BoxGeometry(2.0, 0.8, 0.8);
+    const desk = new THREE.Mesh(deskGeo, consoleMat);
+    desk.position.set(x, y + 0.4, z);
+    desk.rotation.y = rotY;
+    group.add(desk);
+
+    const screenGeo = new THREE.BoxGeometry(1.5, 0.9, 0.06);
+    const screen = new THREE.Mesh(screenGeo, screenMat);
+    screen.position.set(x, y + 1.0, z);
+    screen.rotation.y = rotY;
+    // Tilt screen back
+    screen.rotation.x = -0.25;
+    group.add(screen);
+
+    // Small blinking indicators
+    const indicatorGeo = new THREE.SphereGeometry(0.05, 6, 6);
+    const colors = [0x00ff44, 0xff4400, 0x0066ff];
+    colors.forEach((col, i) => {
+      const ind = new THREE.Mesh(indicatorGeo, new THREE.MeshStandardMaterial({
+        color: col, emissive: new THREE.Color(col), emissiveIntensity: 2.0,
+      }));
+      const offsetX = -0.35 + i * 0.35;
+      ind.position.set(x + Math.cos(rotY) * offsetX, y + 0.85, z + Math.sin(rotY) * offsetX);
+      group.add(ind);
+      animatedMeshes.push({ mesh: ind, type: 'panel' });
+    });
+  };
+
+  // Helper: add a pipe segment
+  const addPipe = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, radius = 0.08) => {
+    const dir = new THREE.Vector3(x2 - x1, y2 - y1, z2 - z1);
+    const length = dir.length();
+    dir.normalize();
+    const pipeGeo = new THREE.CylinderGeometry(radius, radius, length, 8);
+    const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+    pipe.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+    pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    group.add(pipe);
+  };
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ROOM 1: Airlock (entry point, XZ centred at origin)
+  //  X: -5 .. 5, Y: 0 .. 4, Z: -5 .. 5
+  // ──────────────────────────────────────────────────────────────────────────
+  addRoom(-5, 0, -5, 5, 4.5, 5, 'Airlock');
+
+  // Airlock doors (visual only — outer door)
+  const outerDoorGeo = new THREE.BoxGeometry(0.12, 3.0, 2.8);
+  const outerDoorL = new THREE.Mesh(outerDoorGeo, doorFrameMat);
+  outerDoorL.position.set(-4.93, 1.5, -1.0);
+  group.add(outerDoorL);
+  const outerDoorR = new THREE.Mesh(outerDoorGeo, doorFrameMat);
+  outerDoorR.position.set(-4.93, 1.5, 1.0);
+  group.add(outerDoorR);
+
+  // Warning stripe on airlock floor
+  const warnGeo = new THREE.BoxGeometry(1.5, 0.02, 4.0);
+  const warnMesh = new THREE.Mesh(warnGeo, warningMat);
+  warnMesh.position.set(-3.5, 0.14, 0);
+  group.add(warnMesh);
+  animatedMeshes.push({ mesh: warnMesh, type: 'panel' });
+
+  // Airlock wall-mounted control panel (left wall)
+  const cpGeo = new THREE.BoxGeometry(0.08, 1.2, 0.8);
+  const cp = new THREE.Mesh(cpGeo, consoleMat);
+  cp.position.set(-4.9, 1.4, 3.5);
+  group.add(cp);
+  // Screen on control panel
+  const cpScreenGeo = new THREE.BoxGeometry(0.07, 0.7, 0.5);
+  const cpScreen = new THREE.Mesh(cpScreenGeo, screenMat);
+  cpScreen.position.set(-4.87, 1.6, 3.5);
+  group.add(cpScreen);
+  animatedMeshes.push({ mesh: cpScreen, type: 'panel' });
+
+  // Airlock status light (green = safe)
+  const statusLight = new THREE.PointLight(0x00ff44, 0.8, 6);
+  statusLight.position.set(0, 3.8, 0);
+  group.add(statusLight);
+  lights.push({ light: statusLight, baseIntensity: 0.8, phase: 0.5 });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ROOM 2: Main Corridor (connects airlock to bridge and side rooms)
+  //  X: 5 .. 35, Y: 0 .. 4, Z: -3 .. 3
+  // ──────────────────────────────────────────────────────────────────────────
+  addRoom(5, 0, -3, 35, 4.5, 3, 'Main Corridor');
+
+  // Door frames connecting airlock → corridor
+  addDoorFrame(5, 0.5, 0, 'x');
+  // Door frame at corridor → bridge
+  addDoorFrame(35, 0.5, 0, 'x');
+
+  // Ceiling pipes along corridor
+  addPipe(5, 4.0, 1.5, 35, 4.0, 1.5, 0.07);
+  addPipe(5, 4.0, -1.5, 35, 4.0, -1.5, 0.07);
+
+  // Pipes with glowing nodes at intervals
+  for (let px = 10; px <= 30; px += 10) {
+    const nodeGeo = new THREE.SphereGeometry(0.12, 8, 8);
+    const nodeTop = new THREE.Mesh(nodeGeo, glowBlueMat);
+    nodeTop.position.set(px, 4.0, 1.5);
+    group.add(nodeTop);
+    animatedMeshes.push({ mesh: nodeTop, type: 'panel' });
+    const nodeBot = new THREE.Mesh(nodeGeo, glowBlueMat);
+    nodeBot.position.set(px, 4.0, -1.5);
+    group.add(nodeBot);
+    animatedMeshes.push({ mesh: nodeBot, type: 'panel' });
+  }
+
+  // Storage lockers along right wall
+  for (let lx = 8; lx <= 32; lx += 6) {
+    const lockerGeo = new THREE.BoxGeometry(1.2, 2.6, 0.5);
+    const locker = new THREE.Mesh(lockerGeo, panelMat);
+    locker.position.set(lx, 1.3, 2.7);
+    group.add(locker);
+    const handleGeo = new THREE.BoxGeometry(0.08, 0.3, 0.06);
+    const handle = new THREE.Mesh(handleGeo, accentMat);
+    handle.position.set(lx + 0.2, 1.3, 2.46);
+    group.add(handle);
+  }
+
+  // Small windows along left wall (viewport into space)
+  for (let wx = 12; wx <= 30; wx += 9) {
+    const winGeo = new THREE.BoxGeometry(0.08, 1.2, 1.4);
+    const win = new THREE.Mesh(winGeo, windowMat);
+    win.position.set(5.1, 2.2, wx - 20); // left wall of corridor at X=5
+    // Actually corridor left wall is at X=5 (inner) — create window on it
+    // We'll offset correctly: left wall is Z=±3, not X=5...
+    // Corridor is X:5..35, Z:-3..3, so walls are at Z=-3 and Z=3, X=5 and X=35
+    win.position.set(wx, 2.2, 2.93);
+    group.add(win);
+
+    // Star field behind window (emissive plane)
+    const starBgGeo = new THREE.PlaneGeometry(1.3, 1.1);
+    const starBgMat = new THREE.MeshStandardMaterial({
+      color: 0x000010,
+      emissive: new THREE.Color(0x000520),
+      emissiveIntensity: 1.0,
+    });
+    const starBg = new THREE.Mesh(starBgGeo, starBgMat);
+    starBg.position.set(wx, 2.2, 2.80);
+    starBg.rotation.y = Math.PI;
+    group.add(starBg);
+
+    // A few stars on each window background
+    const starGeo = new THREE.SphereGeometry(0.015, 4, 4);
+    for (let s = 0; s < 12; s++) {
+      const star = new THREE.Mesh(starGeo, new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 3.0,
+      }));
+      star.position.set(
+        wx + (Math.random() - 0.5) * 1.2,
+        2.2 + (Math.random() - 0.5) * 1.0,
+        2.78
+      );
+      group.add(star);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ROOM 3: Bridge (command centre, at far end of corridor)
+  //  X: 35 .. 58, Y: -0.5 .. 6, Z: -12 .. 12
+  // ──────────────────────────────────────────────────────────────────────────
+  addRoom(35, 0, -12, 58, 6.0, 12, 'Bridge');
+
+  // Large panoramic window on far wall of bridge
+  const panoramaGeo = new THREE.BoxGeometry(0.12, 4.0, 18.0);
+  const panorama = new THREE.Mesh(panoramaGeo, windowMat);
+  panorama.position.set(57.93, 3.0, 0);
+  group.add(panorama);
+
+  // Stars visible through panoramic window
+  for (let s = 0; s < 80; s++) {
+    const sGeo = new THREE.SphereGeometry(0.025 + Math.random() * 0.03, 4, 4);
+    const sMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: new THREE.Color(s % 5 === 0 ? 0xffccaa : 0xffffff),
+      emissiveIntensity: 2.5 + Math.random() * 1.5,
+    });
+    const star = new THREE.Mesh(sGeo, sMat);
+    star.position.set(
+      57.8 + Math.random() * 0.3,
+      1.2 + Math.random() * 3.8,
+      -8.0 + Math.random() * 16.0
+    );
+    group.add(star);
+  }
+
+  // Planet visible through panoramic window (the planet below)
+  const planetGeo = new THREE.SphereGeometry(3.5, 24, 24);
+  const planetMat = new THREE.MeshStandardMaterial({
+    color: 0x2244aa,
+    emissive: new THREE.Color(0x112255),
+    emissiveIntensity: 0.4,
+    roughness: 0.9,
+  });
+  const planet = new THREE.Mesh(planetGeo, planetMat);
+  planet.position.set(62, -1, -5);
+  group.add(planet);
+
+  // Planet atmosphere glow
+  const atmoGeo = new THREE.SphereGeometry(3.9, 24, 24);
+  const atmoMat = new THREE.MeshStandardMaterial({
+    color: 0x88bbff,
+    emissive: new THREE.Color(0x4477cc),
+    emissiveIntensity: 0.8,
+    transparent: true,
+    opacity: 0.25,
+  });
+  const atmo = new THREE.Mesh(atmoGeo, atmoMat);
+  atmo.position.copy(planet.position);
+  group.add(atmo);
+
+  // Captain's chair (centre of bridge)
+  const chairBaseGeo = new THREE.CylinderGeometry(0.6, 0.7, 0.15, 12);
+  const chairBase = new THREE.Mesh(chairBaseGeo, consoleMat);
+  chairBase.position.set(46, 0.15, 0);
+  group.add(chairBase);
+  const seatGeo = new THREE.BoxGeometry(1.2, 0.18, 1.0);
+  const seat = new THREE.Mesh(seatGeo, panelMat);
+  seat.position.set(46, 0.85, 0);
+  group.add(seat);
+  const backGeo = new THREE.BoxGeometry(1.2, 1.2, 0.14);
+  const back = new THREE.Mesh(backGeo, panelMat);
+  back.position.set(46, 1.4, 0.5);
+  back.rotation.x = -0.15;
+  group.add(back);
+
+  // Armrests
+  const armGeo = new THREE.BoxGeometry(0.14, 0.1, 0.75);
+  const armL = new THREE.Mesh(armGeo, consoleMat);
+  armL.position.set(45.4, 1.0, 0);
+  group.add(armL);
+  const armR = new THREE.Mesh(armGeo, consoleMat);
+  armR.position.set(46.6, 1.0, 0);
+  group.add(armR);
+
+  // Bridge consoles in semicircle around captain's chair
+  const consoleAngles = [-0.8, -0.4, 0, 0.4, 0.8];
+  consoleAngles.forEach((angle) => {
+    const cx2 = 52 + Math.sin(angle) * 3;
+    const cz2 = Math.cos(angle) * 3;
+    addConsole(cx2, 0, cz2, Math.PI + angle);
+  });
+
+  // Holographic display in centre of bridge (above captain's chair)
+  const holoGeo = new THREE.TorusGeometry(1.2, 0.05, 8, 32);
+  const holoRing = new THREE.Mesh(holoGeo, glowBlueMat);
+  holoRing.position.set(46, 3.5, 0);
+  group.add(holoRing);
+  animatedMeshes.push({ mesh: holoRing, type: 'hologram' });
+
+  const holoSphereGeo = new THREE.SphereGeometry(0.6, 16, 16);
+  const holoSphere = new THREE.Mesh(holoSphereGeo, new THREE.MeshStandardMaterial({
+    color: 0x0044cc,
+    emissive: new THREE.Color(0x0022aa),
+    emissiveIntensity: 1.5,
+    transparent: true,
+    opacity: 0.45,
+    wireframe: false,
+  }));
+  holoSphere.position.set(46, 3.5, 0);
+  group.add(holoSphere);
+  animatedMeshes.push({ mesh: holoSphere, type: 'hologram' });
+
+  const holoWireGeo = new THREE.SphereGeometry(0.62, 10, 10);
+  const holoWire = new THREE.Mesh(holoWireGeo, new THREE.MeshStandardMaterial({
+    color: 0x0088ff,
+    emissive: new THREE.Color(0x0066dd),
+    emissiveIntensity: 2.0,
+    wireframe: true,
+  }));
+  holoWire.position.set(46, 3.5, 0);
+  group.add(holoWire);
+  animatedMeshes.push({ mesh: holoWire, type: 'hologram' });
+
+  // Bridge overhead lights (stronger)
+  const bridgeLight = new THREE.PointLight(0x3366ff, 2.0, 28);
+  bridgeLight.position.set(46, 5.5, 0);
+  group.add(bridgeLight);
+  lights.push({ light: bridgeLight, baseIntensity: 2.0, phase: 1.0 });
+
+  const bridgeAccentLight = new THREE.PointLight(0x00aaff, 1.2, 20);
+  bridgeAccentLight.position.set(52, 5.0, 0);
+  group.add(bridgeAccentLight);
+  lights.push({ light: bridgeAccentLight, baseIntensity: 1.2, phase: 2.1 });
+
+  // Wall display panels on bridge sides
+  for (let pz = -9; pz <= 9; pz += 6) {
+    const dispGeo = new THREE.BoxGeometry(0.1, 2.8, 3.2);
+    const disp = new THREE.Mesh(dispGeo, screenMat);
+    disp.position.set(35.1, 2.5, pz);
+    group.add(disp);
+    animatedMeshes.push({ mesh: disp, type: 'panel' });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ROOM 4: Crew Quarters (connected from main corridor, +Z side)
+  //  X: 10 .. 28, Y: 0 .. 4.5, Z: 3 .. 20
+  // ──────────────────────────────────────────────────────────────────────────
+  addRoom(10, 0, 3, 28, 4.5, 20, 'Crew Quarters');
+
+  // Door frame connecting corridor → crew quarters
+  addDoorFrame(19, 0.5, 3, 'z');
+
+  // Four bunk beds
+  const bunkPositions = [[13, 6], [13, 16], [22, 6], [22, 16]] as [number, number][];
+  bunkPositions.forEach(([bx, bz]) => {
+    // Lower bunk
+    const mattressGeo = new THREE.BoxGeometry(1.8, 0.2, 0.9);
+    const mattressMat = new THREE.MeshStandardMaterial({ color: 0x334466, roughness: 0.9 });
+    const mattress = new THREE.Mesh(mattressGeo, mattressMat);
+    mattress.position.set(bx, 0.55, bz);
+    group.add(mattress);
+    const frameGeo = new THREE.BoxGeometry(1.9, 0.08, 1.0);
+    const frame = new THREE.Mesh(frameGeo, consoleMat);
+    frame.position.set(bx, 0.35, bz);
+    group.add(frame);
+    // Upper bunk
+    const mattressU = new THREE.Mesh(mattressGeo, mattressMat);
+    mattressU.position.set(bx, 1.75, bz);
+    group.add(mattressU);
+    const frameU = new THREE.Mesh(frameGeo, consoleMat);
+    frameU.position.set(bx, 1.55, bz);
+    group.add(frameU);
+    // Ladder
+    for (let rung = 0; rung < 3; rung++) {
+      const rungGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.85, 6);
+      const rungMesh = new THREE.Mesh(rungGeo, pipeMat);
+      rungMesh.rotation.z = Math.PI / 2;
+      rungMesh.position.set(bx + 1.0, 0.55 + rung * 0.4, bz + 0.47);
+      group.add(rungMesh);
+    }
+  });
+
+  // Personal locker wall
+  for (let lz = 5; lz <= 18; lz += 4.5) {
+    const lockerGeo2 = new THREE.BoxGeometry(0.45, 2.8, 1.4);
+    const locker2 = new THREE.Mesh(lockerGeo2, panelMat);
+    locker2.position.set(27.7, 1.4, lz);
+    group.add(locker2);
+    // Locker screen/indicator
+    const locScreenGeo = new THREE.BoxGeometry(0.08, 0.35, 0.55);
+    const locScreen = new THREE.Mesh(locScreenGeo, screenMat);
+    locScreen.position.set(27.48, 1.8, lz);
+    group.add(locScreen);
+    animatedMeshes.push({ mesh: locScreen, type: 'panel' });
+  }
+
+  // Reading light above each bunk
+  bunkPositions.forEach(([bx, bz]) => {
+    const readLight = new THREE.PointLight(0xffcc88, 0.6, 4);
+    readLight.position.set(bx, 2.5, bz);
+    group.add(readLight);
+    lights.push({ light: readLight, baseIntensity: 0.6, phase: Math.random() * Math.PI * 2 });
+  });
+
+  // Small round window in crew quarters
+  const crewWinGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.12, 20);
+  const crewWin = new THREE.Mesh(crewWinGeo, windowMat);
+  crewWin.rotation.z = Math.PI / 2;
+  crewWin.position.set(10.06, 2.4, 11.5);
+  group.add(crewWin);
+  for (let s = 0; s < 15; s++) {
+    const sGeo2 = new THREE.SphereGeometry(0.018, 4, 4);
+    const star2 = new THREE.Mesh(sGeo2, new THREE.MeshStandardMaterial({
+      color: 0xffffff, emissive: new THREE.Color(0xffffff), emissiveIntensity: 3.0,
+    }));
+    star2.position.set(
+      9.9,
+      2.4 + (Math.random() - 0.5) * 0.9,
+      11.5 + (Math.random() - 0.5) * 0.9
+    );
+    group.add(star2);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ROOM 5: Engineering Bay (connected from main corridor, -Z side)
+  //  X: 8 .. 32, Y: 0 .. 5.5, Z: -22 .. -3
+  // ──────────────────────────────────────────────────────────────────────────
+  addRoom(8, 0, -22, 32, 5.5, -3, 'Engineering Bay');
+
+  // Door frame connecting corridor → engineering
+  addDoorFrame(19, 0.5, -3, 'z');
+
+  // Central reactor column
+  const reactorColGeo = new THREE.CylinderGeometry(1.0, 1.2, 4.5, 16);
+  const reactorCol = new THREE.Mesh(reactorColGeo, new THREE.MeshStandardMaterial({
+    color: 0x1a1a2e,
+    roughness: 0.7,
+    metalness: 0.9,
+  }));
+  reactorCol.position.set(20, 0, -12);
+  group.add(reactorCol);
+
+  // Reactor core (glowing)
+  const reactorCoreGeo = new THREE.SphereGeometry(0.7, 20, 20);
+  const reactorCore = new THREE.Mesh(reactorCoreGeo, reactorMat);
+  reactorCore.position.set(20, 2.2, -12);
+  group.add(reactorCore);
+  animatedMeshes.push({ mesh: reactorCore, type: 'reactor' });
+
+  // Reactor energy rings
+  for (let ring = 0; ring < 3; ring++) {
+    const ringGeo = new THREE.TorusGeometry(1.0 + ring * 0.35, 0.06, 8, 32);
+    const ringMesh = new THREE.Mesh(ringGeo, glowBlueMat);
+    ringMesh.position.set(20, 1.2 + ring * 0.9, -12);
+    ringMesh.rotation.x = (ring * Math.PI) / 5;
+    group.add(ringMesh);
+    animatedMeshes.push({ mesh: ringMesh, type: 'reactor' });
+  }
+
+  // Reactor glow light
+  const reactorLight = new THREE.PointLight(0xff6600, 3.5, 22);
+  reactorLight.position.set(20, 2.2, -12);
+  group.add(reactorLight);
+  lights.push({ light: reactorLight, baseIntensity: 3.5, phase: 0 });
+
+  // Pipe network around reactor
+  addPipe(20, 4.0, -12, 8.2, 4.0, -12, 0.1);
+  addPipe(20, 4.0, -12, 31.8, 4.0, -12, 0.1);
+  addPipe(20, 4.0, -12, 20, 0.1, -12, 0.1);
+  addPipe(8.2, 0.5, -5, 8.2, 4.0, -12, 0.08);
+  addPipe(31.8, 0.5, -5, 31.8, 4.0, -12, 0.08);
+
+  // Glowing pipe joints
+  const pipeJointGeo = new THREE.SphereGeometry(0.13, 8, 8);
+  [[8.2, 4.0, -12], [31.8, 4.0, -12], [20, 4.0, -5], [20, 4.0, -20]].forEach(([jx, jy, jz]) => {
+    const joint = new THREE.Mesh(pipeJointGeo, glowGreenMat);
+    joint.position.set(jx, jy, jz);
+    group.add(joint);
+    animatedMeshes.push({ mesh: joint, type: 'reactor' });
+  });
+
+  // Engineering consoles
+  addConsole(12, 0, -5.5, Math.PI * 0.5);
+  addConsole(28, 0, -5.5, -Math.PI * 0.5);
+  addConsole(12, 0, -20, Math.PI * 0.5);
+  addConsole(28, 0, -20, -Math.PI * 0.5);
+
+  // Equipment racks
+  for (let ex = 10; ex <= 30; ex += 5) {
+    const rackGeo = new THREE.BoxGeometry(1.0, 3.2, 0.45);
+    const rack = new THREE.Mesh(rackGeo, panelMat);
+    rack.position.set(ex, 1.6, -21.7);
+    group.add(rack);
+    // LEDs on rack
+    for (let led = 0; led < 4; led++) {
+      const ledGeo = new THREE.SphereGeometry(0.04, 4, 4);
+      const ledMesh = new THREE.Mesh(ledGeo, new THREE.MeshStandardMaterial({
+        color: led % 2 === 0 ? 0x00ff44 : 0x0055ff,
+        emissive: new THREE.Color(led % 2 === 0 ? 0x00ff44 : 0x0055ff),
+        emissiveIntensity: 2.5,
+      }));
+      ledMesh.position.set(ex - 0.3 + led * 0.2, 1.0 + led * 0.5, -21.5);
+      group.add(ledMesh);
+      animatedMeshes.push({ mesh: ledMesh, type: 'panel' });
+    }
+  }
+
+  // Engineering bay extra lights
+  const engLight1 = new THREE.PointLight(0xff4400, 1.2, 18);
+  engLight1.position.set(13, 5.0, -12);
+  group.add(engLight1);
+  lights.push({ light: engLight1, baseIntensity: 1.2, phase: 0.7 });
+  const engLight2 = new THREE.PointLight(0xff4400, 1.2, 18);
+  engLight2.position.set(27, 5.0, -12);
+  group.add(engLight2);
+  lights.push({ light: engLight2, baseIntensity: 1.2, phase: 2.3 });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Global ambient fill for the interior
+  // ──────────────────────────────────────────────────────────────────────────
+  const ambientLight = new THREE.AmbientLight(0x102040, 0.8);
+  group.add(ambientLight);
+
+  return {
+    group,
+    rooms,
+    spawnPosition: new THREE.Vector3(0, 1.8, 0), // inside airlock, standing height
+    lights,
+    animatedMeshes,
+  };
+}

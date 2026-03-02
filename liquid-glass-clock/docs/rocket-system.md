@@ -18,7 +18,8 @@ A single rocket sits on a launch pad near the world center (X=8, Z=-28). The pla
 | `boarded` | Player is inside the rocket; launch banner visible; Space to launch, E to exit |
 | `countdown` | 3 → 2 → 1 countdown displayed; engine ignites; rocket shakes |
 | `launching` | Rocket moves upward toward Mothership (12-second flight) |
-| `arrived` | Rocket docked near Mothership; player exits to space |
+| `arrived` | Rocket docked near Mothership; player prompted to enter the space station |
+| `docked` | Player has left the rocket and entered the space station interior |
 
 ---
 
@@ -40,7 +41,7 @@ A single rocket sits on a launch pad near the world center (X=8, Z=-28). The pla
 ### Data Type (gameTypes.ts)
 
 ```typescript
-export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived';
+export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived' | 'docked';
 
 export interface RocketData {
   mesh: THREE.Group;         // root group
@@ -81,8 +82,9 @@ Handles all rocket state transitions each frame:
 1. **idle** — proximity detection, sets `nearRocketForBoardRef` and `nearRocketPrompt`
 2. **boarded** — camera locked inside cabin at `groundY + ROCKET_CAM_HEIGHT`
 3. **countdown** — 1-second ticks via `countdownTimer`, pre-ignition camera shake
-4. **launching** — ease-in-out flight from `groundY` → `ROCKET_TARGET_Y`, flame animation, camera shake during ascent; on arrival: player placed near Mothership, `rocketArrived` shown
-5. **arrived** — rocket parked near Mothership with subtle vertical drift
+4. **launching** — ease-in-out flight from `groundY` → `ROCKET_TARGET_Y`, flame animation, camera shake during ascent; on arrival: player placed near Mothership, `rocketArrived` shown; `rocketArrivedRef` synced
+5. **arrived** — rocket parked near Mothership with subtle vertical drift; player shown entry prompt
+6. **docked** — player has entered the space station interior (see `space-station.md`)
 
 ### Controls
 
@@ -90,6 +92,7 @@ Handles all rocket state transitions each frame:
 |-----|--------|
 | `E` | Board rocket (when nearby in idle state) |
 | `E` | Exit rocket (when in idle/boarded state) |
+| `E` | Enter space station (when `arrived` at Mothership) |
 | `Space` | Initiate countdown (when boarded) |
 
 ---
@@ -105,6 +108,9 @@ All UI respects `gameState.isLocked` (only shown when pointer is locked).
 | Large countdown number (3/2/1) | `rocketCountdown !== null` |
 | `🔥 Startujeme! Letíme k vesmírné lodi...` | `rocketLaunching` |
 | `🛸 Přistáli jste u vesmírné lodi!` | `rocketArrived` |
+| `🚪 [E] Vstoupit do vesmírné lodi` | `rocketArrived` (below screen) |
+| `🛸 Vesmírná loď · WASD – pohyb · Mezerník – skok` | `inSpaceStation` (top banner) |
+| `🚪 [E] Airlock – opustit vesmírnou loď` | `inSpaceStation && nearAirlockExit` |
 
 ---
 

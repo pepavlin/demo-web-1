@@ -41,6 +41,7 @@ import {
   buildCatapultMesh,
   buildMotherShipMesh,
   buildRocketMesh,
+  buildSpaceStationInterior,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -1009,5 +1010,133 @@ describe("buildRocketMesh", () => {
       });
       expect(found).toBe(true);
     });
+  });
+});
+
+describe("buildSpaceStationInterior", () => {
+  it("returns the expected shape (group, rooms, spawnPosition, lights, animatedMeshes)", () => {
+    const result = buildSpaceStationInterior();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.rooms)).toBe(true);
+    expect(result.spawnPosition).toBeInstanceOf(THREE.Vector3);
+    expect(Array.isArray(result.lights)).toBe(true);
+    expect(Array.isArray(result.animatedMeshes)).toBe(true);
+  });
+
+  it("has at least 5 rooms (airlock, corridor, bridge, crew, engineering)", () => {
+    const { rooms } = buildSpaceStationInterior();
+    expect(rooms.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("all rooms are valid non-empty THREE.Box3 instances", () => {
+    const { rooms } = buildSpaceStationInterior();
+    rooms.forEach((room) => {
+      expect(room).toBeInstanceOf(THREE.Box3);
+      expect(room.isEmpty()).toBe(false);
+      // Each room must have positive size in all axes
+      const size = new THREE.Vector3();
+      room.getSize(size);
+      expect(size.x).toBeGreaterThan(0);
+      expect(size.y).toBeGreaterThan(0);
+      expect(size.z).toBeGreaterThan(0);
+    });
+  });
+
+  it("spawn position is inside the first room (airlock)", () => {
+    const { rooms, spawnPosition } = buildSpaceStationInterior();
+    const airlockRoom = rooms[0];
+    // Spawn XZ should be within the airlock footprint
+    expect(spawnPosition.x).toBeGreaterThanOrEqual(airlockRoom.min.x);
+    expect(spawnPosition.x).toBeLessThanOrEqual(airlockRoom.max.x);
+    expect(spawnPosition.z).toBeGreaterThanOrEqual(airlockRoom.min.z);
+    expect(spawnPosition.z).toBeLessThanOrEqual(airlockRoom.max.z);
+  });
+
+  it("spawn Y is at player standing height (> 0 and <= max room height)", () => {
+    const { spawnPosition } = buildSpaceStationInterior();
+    // Expect spawn Y to be approximately PLAYER_HEIGHT (1.8)
+    expect(spawnPosition.y).toBeGreaterThan(1.5);
+    expect(spawnPosition.y).toBeLessThan(4.0);
+  });
+
+  it("group has many children (walls, floors, ceilings, props)", () => {
+    const { group } = buildSpaceStationInterior();
+    // Each room adds floor + ceiling + 4 walls + strips + lights + more
+    // Expect at least 50 child objects across the full station
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThan(50);
+  });
+
+  it("lights array contains PointLight references with positive base intensity", () => {
+    const { lights } = buildSpaceStationInterior();
+    expect(lights.length).toBeGreaterThan(0);
+    lights.forEach(({ light, baseIntensity, phase }) => {
+      expect(light).toBeInstanceOf(THREE.PointLight);
+      expect(baseIntensity).toBeGreaterThan(0);
+      expect(typeof phase).toBe("number");
+    });
+  });
+
+  it("every light in lights array is a child of the group", () => {
+    const { group, lights } = buildSpaceStationInterior();
+    lights.forEach(({ light }) => {
+      let found = false;
+      group.traverse((child) => {
+        if (child === light) found = true;
+      });
+      expect(found).toBe(true);
+    });
+  });
+
+  it("animatedMeshes contains Mesh references with valid type strings", () => {
+    const { animatedMeshes } = buildSpaceStationInterior();
+    expect(animatedMeshes.length).toBeGreaterThan(0);
+    const validTypes = new Set(["hologram", "reactor", "panel"]);
+    animatedMeshes.forEach(({ mesh, type }) => {
+      expect(mesh).toBeInstanceOf(THREE.Mesh);
+      expect(validTypes.has(type)).toBe(true);
+    });
+  });
+
+  it("has at least one hologram, one reactor, and one panel type mesh", () => {
+    const { animatedMeshes } = buildSpaceStationInterior();
+    const types = animatedMeshes.map((m) => m.type);
+    expect(types).toContain("hologram");
+    expect(types).toContain("reactor");
+    expect(types).toContain("panel");
+  });
+
+  it("every animatedMesh is a descendant of the group", () => {
+    const { group, animatedMeshes } = buildSpaceStationInterior();
+    animatedMeshes.forEach(({ mesh }) => {
+      let found = false;
+      group.traverse((child) => {
+        if (child === mesh) found = true;
+      });
+      expect(found).toBe(true);
+    });
+  });
+
+  it("airlock room is centred near origin (spawn area)", () => {
+    const { rooms } = buildSpaceStationInterior();
+    const airlock = rooms[0];
+    const center = new THREE.Vector3();
+    airlock.getCenter(center);
+    // Airlock should be centred at or near XZ=0
+    expect(Math.abs(center.x)).toBeLessThan(5);
+    expect(Math.abs(center.z)).toBeLessThan(5);
+  });
+
+  it("bridge room is the furthest room from origin in X", () => {
+    const { rooms } = buildSpaceStationInterior();
+    let maxX = -Infinity;
+    rooms.forEach((room) => {
+      if (room.max.x > maxX) maxX = room.max.x;
+    });
+    // Bridge extends to X ≥ 55 (defined as X: 35..58)
+    expect(maxX).toBeGreaterThanOrEqual(50);
   });
 });
