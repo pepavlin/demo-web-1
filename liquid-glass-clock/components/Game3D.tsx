@@ -58,6 +58,8 @@ import {
   buildCatapultMesh,
   buildMotherShipMesh,
   buildRocketMesh,
+  buildSpaceStationInterior,
+  type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
@@ -159,6 +161,12 @@ const ROCKET_SPAWN_Z = -28;
 const ROCKET_TARGET_Y = 165;
 /** How many seconds the full launch flight takes */
 const ROCKET_FLIGHT_DURATION = 12;
+
+// ─── Space Station Constants ───────────────────────────────────────────────────
+/** World-space Y at which the station interior group is placed (far above exterior, fully fogged). */
+const SPACE_STATION_WORLD_Y = 2000;
+const SPACE_STATION_WORLD_X = 0;
+const SPACE_STATION_WORLD_Z = 0;
 
 // ─── Swim Constants ───────────────────────────────────────────────────────────
 const SWIM_SPEED = 5.5;         // units/second when swimming in water
@@ -431,6 +439,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const rocketDataRef = useRef<RocketData | null>(null);
   const onRocketRef = useRef(false);
   const nearRocketForBoardRef = useRef(false);
+  const rocketArrivedRef = useRef(false);
+
+  // ─── Space Station Refs ───────────────────────────────────────────────────────
+  const spaceStationGroupRef = useRef<THREE.Group | null>(null);
+  const spaceStationRoomsRef = useRef<THREE.Box3[]>([]);
+  const spaceStationLightsRef = useRef<SpaceStationInteriorResult['lights']>([]);
+  const spaceStationAnimMeshesRef = useRef<SpaceStationInteriorResult['animatedMeshes']>([]);
+  const inSpaceStationRef = useRef(false);
 
   // ─── Camera Mode Refs ────────────────────────────────────────────────────────
   const cameraModeRef = useRef<"first" | "third">("first");
@@ -467,6 +483,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [rocketCountdown, setRocketCountdown] = useState<number | null>(null);
   const [rocketLaunching, setRocketLaunching] = useState(false);
   const [rocketArrived, setRocketArrived] = useState(false);
+  const [inSpaceStation, setInSpaceStation] = useState(false);
+  const [nearAirlockExit, setNearAirlockExit] = useState(false);
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -2511,6 +2529,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       };
     }
 
+    // ── Space Station Interior ─────────────────────────────────────────────────
+    {
+      const stationResult = buildSpaceStationInterior();
+      stationResult.group.position.set(
+        SPACE_STATION_WORLD_X,
+        SPACE_STATION_WORLD_Y,
+        SPACE_STATION_WORLD_Z
+      );
+      scene.add(stationResult.group);
+      spaceStationGroupRef.current = stationResult.group;
+      spaceStationRoomsRef.current = stationResult.rooms;
+      spaceStationLightsRef.current = stationResult.lights;
+      spaceStationAnimMeshesRef.current = stationResult.animatedMeshes;
+    }
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
@@ -2577,8 +2610,58 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         doAttack();
       }
 
-      // E key: board/exit boat, board rocket, OR possess/unpossess nearby sheep
+      // E key: board/exit boat, board rocket, enter/exit space station, OR possess/unpossess nearby sheep
       if (e.type === "keydown" && e.code === "KeyE") {
+        // ── Enter space station (when rocket has arrived at mothership) ───────
+        if (rocketArrivedRef.current && !inSpaceStationRef.current && cameraRef.current) {
+          inSpaceStationRef.current = true;
+          setInSpaceStation(true);
+          setRocketArrived(false);
+          rocketArrivedRef.current = false;
+          const cam = cameraRef.current;
+          // Teleport player into station airlock
+          cam.position.set(
+            SPACE_STATION_WORLD_X + 0,
+            SPACE_STATION_WORLD_Y + 1.8,
+            SPACE_STATION_WORLD_Z + 0
+          );
+          playerBodyPosRef.current.copy(cam.position);
+          playerRef.current.velY = 0;
+          playerRef.current.onGround = true;
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+          return;
+        }
+
+        // ── Exit space station via airlock ───────────────────────────────────
+        if (inSpaceStationRef.current && cameraRef.current) {
+          const cam = cameraRef.current;
+          const localX = cam.position.x - SPACE_STATION_WORLD_X;
+          const localZ = cam.position.z - SPACE_STATION_WORLD_Z;
+          const nearAirlock = Math.abs(localX) <= 5.5 && Math.abs(localZ) <= 5.5;
+          if (nearAirlock) {
+            inSpaceStationRef.current = false;
+            setInSpaceStation(false);
+            setNearAirlockExit(false);
+            // Return player to mothership vicinity (outside rocket)
+            const rd = rocketDataRef.current;
+            if (rd) {
+              cam.position.set(
+                rd.mesh.position.x + 5,
+                rd.mesh.position.y + ROCKET_CAM_HEIGHT + 2,
+                rd.mesh.position.z
+              );
+              rd.state = 'arrived';
+              setRocketArrived(true);
+              rocketArrivedRef.current = true;
+            }
+            playerBodyPosRef.current.copy(cam.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = false;
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+            return;
+          }
+        }
+
         if (onRocketRef.current) {
           // ── Exit rocket (only allowed while idle/boarded, not during launch) ─
           const rd = rocketDataRef.current;
@@ -3236,8 +3319,113 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
+      // ── Space Station interior movement & animation ───────────────────────
+      if (isLockedRef.current && inSpaceStationRef.current) {
+        const cam = cameraRef.current!;
+        const keys = keysRef.current;
+
+        const speed = MOVE_SPEED;
+        const forward = new THREE.Vector3(-Math.sin(yawRef.current), 0, -Math.cos(yawRef.current));
+        const right = new THREE.Vector3(Math.cos(yawRef.current), 0, -Math.sin(yawRef.current));
+        const move = new THREE.Vector3();
+
+        if (keys["KeyW"] || keys["ArrowUp"]) move.addScaledVector(forward, speed * dt);
+        if (keys["KeyS"] || keys["ArrowDown"]) move.addScaledVector(forward, -speed * dt);
+        if (keys["KeyA"] || keys["ArrowLeft"]) move.addScaledVector(right, -speed * dt);
+        if (keys["KeyD"] || keys["ArrowRight"]) move.addScaledVector(right, speed * dt);
+
+        const prevPos = cam.position.clone();
+        cam.position.add(move);
+
+        // Collision: check if player is inside any room (XZ plane)
+        const isInRoom = (px: number, pz: number) =>
+          spaceStationRoomsRef.current.some(
+            (room) =>
+              px >= room.min.x - PLAYER_RADIUS + SPACE_STATION_WORLD_X &&
+              px <= room.max.x + PLAYER_RADIUS + SPACE_STATION_WORLD_X &&
+              pz >= room.min.z - PLAYER_RADIUS + SPACE_STATION_WORLD_Z &&
+              pz <= room.max.z + PLAYER_RADIUS + SPACE_STATION_WORLD_Z
+          );
+
+        if (!isInRoom(cam.position.x, cam.position.z)) {
+          // Try X-only movement
+          cam.position.x = prevPos.x + move.x;
+          cam.position.z = prevPos.z;
+          if (!isInRoom(cam.position.x, cam.position.z)) {
+            cam.position.x = prevPos.x;
+            // Try Z-only movement
+            cam.position.z = prevPos.z + move.z;
+            if (!isInRoom(cam.position.x, cam.position.z)) {
+              cam.position.z = prevPos.z;
+            }
+          }
+        }
+
+        // Vertical physics (gravity + floor)
+        const player = playerRef.current;
+        const stationFloorY = SPACE_STATION_WORLD_Y + PLAYER_HEIGHT;
+        if (!player.onGround) {
+          player.velY += GRAVITY * dt;
+        }
+        cam.position.y += player.velY * dt;
+        if (cam.position.y <= stationFloorY) {
+          cam.position.y = stationFloorY;
+          player.velY = 0;
+          player.onGround = true;
+        } else {
+          player.onGround = false;
+        }
+        // Ceiling clamp
+        if (cam.position.y > SPACE_STATION_WORLD_Y + 5.8) {
+          cam.position.y = SPACE_STATION_WORLD_Y + 5.8;
+          player.velY = 0;
+        }
+        // Jump
+        if (keys["Space"] && player.onGround) {
+          player.velY = JUMP_FORCE;
+          player.onGround = false;
+        }
+
+        playerBodyPosRef.current.copy(cam.position);
+        cam.rotation.order = "YXZ";
+        cam.rotation.y = yawRef.current;
+        cam.rotation.x = pitchRef.current;
+
+        // Airlock proximity check for exit prompt
+        const localX = cam.position.x - SPACE_STATION_WORLD_X;
+        const localZ = cam.position.z - SPACE_STATION_WORLD_Z;
+        const isNearAirlock = Math.abs(localX) <= 5.5 && Math.abs(localZ) <= 5.5;
+        setNearAirlockExit(isNearAirlock);
+
+        // Animate station lights (flicker)
+        spaceStationLightsRef.current.forEach(({ light, baseIntensity, phase }) => {
+          light.intensity = baseIntensity * (0.88 + Math.sin(elapsed * (1.1 + phase * 0.3) + phase) * 0.12);
+        });
+
+        // Animate hologram/reactor/panel meshes
+        spaceStationAnimMeshesRef.current.forEach(({ mesh, type }) => {
+          if (type === 'hologram') {
+            mesh.rotation.y += dt * 0.8;
+            const scale = 0.95 + Math.sin(elapsed * 1.5) * 0.05;
+            mesh.scale.setScalar(scale);
+          } else if (type === 'reactor') {
+            mesh.rotation.y += dt * 1.2;
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat.emissiveIntensity !== undefined) {
+              mat.emissiveIntensity = 2.0 + Math.sin(elapsed * 3.0) * 1.0;
+            }
+          } else if (type === 'panel') {
+            // Blink indicators
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat.emissiveIntensity !== undefined) {
+              mat.emissiveIntensity = Math.random() > 0.02 ? mat.emissiveIntensity : (mat.emissiveIntensity > 0.5 ? 0.0 : 2.5);
+            }
+          }
+        });
+      }
+
       // ── Player movement (only when NOT possessing an entity or on boat) ─────
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current) {
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -3777,6 +3965,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               rd.exhaustParticles.forEach((p) => { p.visible = false; });
               setRocketLaunching(false);
               setRocketArrived(true);
+              rocketArrivedRef.current = true;
 
               // Place the player standing on/near the mothership
               if (cameraRef.current) {
@@ -5767,7 +5956,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ═══════════════ CENTER — Arrived at mothership message ═══════════════ */}
+      {/* ═══════════════ CENTER — Arrived at mothership message + enter prompt ═══════════════ */}
       {rocketArrived && gameState.isLocked && (
         <div className="fixed top-1/3 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
@@ -5786,6 +5975,60 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             <div style={{ color: "#93c5fd", fontSize: "0.8rem", marginTop: 6 }}>
               Vítejte na palubě Matky lodí
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Enter space station prompt ═══════════════ */}
+      {rocketArrived && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,20,50,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(80,160,255,0.60)",
+              boxShadow: "0 0 28px rgba(40,100,255,0.55)",
+            }}
+          >
+            🚪 [E] Vstoupit do vesmírné lodi
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ TOP — Space station active banner ═══════════════ */}
+      {inSpaceStation && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,20,50,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(60,140,255,0.45)",
+              boxShadow: "0 0 22px rgba(30,80,255,0.40)",
+            }}
+          >
+            🛸 Vesmírná loď &nbsp;·&nbsp; <span style={{ color: "#93c5fd" }}>WASD – pohyb &nbsp;·&nbsp; Mezerník – skok</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Airlock exit prompt ═══════════════ */}
+      {inSpaceStation && nearAirlockExit && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,20,50,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(80,160,255,0.60)",
+              boxShadow: "0 0 28px rgba(40,100,255,0.55)",
+            }}
+          >
+            🚪 [E] Airlock – opustit vesmírnou loď
           </div>
         </div>
       )}
