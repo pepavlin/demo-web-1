@@ -489,3 +489,59 @@ describe("Game3D component", () => {
     expect(mz).toBeLessThanOrEqual(W);
   });
 });
+
+// ─── Rocket System ────────────────────────────────────────────────────────────
+describe("Rocket system", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Object.defineProperty(window, "innerWidth", {
+      writable: true,
+      configurable: true,
+      value: 1280,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      writable: true,
+      configurable: true,
+      value: 800,
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("renders Game3D without rocket-related crashes", () => {
+    expect(() => render(<Game3D />)).not.toThrow();
+  });
+
+  it("rocket boarding prompt is not visible when pointer is not locked", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    // The boarding prompt should not appear until isLocked && nearRocket
+    expect(queryByText(/Nastoupit do rakety/)).toBeNull();
+  });
+
+  it("on-rocket banner is not visible before player boards", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/V raketě/)).toBeNull();
+  });
+
+  it("launch prompt text is not visible before boarding", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Odpálit/)).toBeNull();
+  });
+
+  it("launching banner is not visible before launch", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Startujeme/)).toBeNull();
+  });
+
+  it("arrived message is not visible at start", () => {
+    const { queryByText } = render(<Game3D />);
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(queryByText(/Přistáli jste u vesmírné lodi/)).toBeNull();
+  });
+});
