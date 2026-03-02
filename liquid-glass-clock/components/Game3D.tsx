@@ -312,6 +312,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // Sun visuals
   const sunDiscRef = useRef<THREE.Mesh | null>(null);
   const sunCoronaRef = useRef<THREE.Mesh | null>(null);
+  // Moon visuals
+  const moonDiscRef = useRef<THREE.Mesh | null>(null);
+  const moonGlowRef = useRef<THREE.Mesh | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const grassMatRef = useRef<THREE.ShaderMaterial | null>(null);
   const waterMatRef = useRef<THREE.ShaderMaterial | null>(null);
@@ -1162,6 +1165,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(sunCorona);
     sunCoronaRef.current = sunCorona;
 
+    // ── Visible moon disc ────────────────────────────────────────────────────
+    const moonDiscGeo = new THREE.SphereGeometry(7, 24, 24);
+    const moonDiscMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0.88, 0.92, 1.0), // cool white with slight blue tint
+      transparent: true,
+      opacity: 0.0,
+    });
+    const moonDisc = new THREE.Mesh(moonDiscGeo, moonDiscMat);
+    scene.add(moonDisc);
+    moonDiscRef.current = moonDisc;
+
+    // Moon glow halo — soft blue-white corona around the moon
+    const moonGlowGeo = new THREE.SphereGeometry(18, 16, 16);
+    const moonGlowMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0.55, 0.65, 1.0), // diffuse blue-white
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+    });
+    const moonGlow = new THREE.Mesh(moonGlowGeo, moonGlowMat);
+    scene.add(moonGlow);
+    moonGlowRef.current = moonGlow;
 
     // ── Stars ───────────────────────────────────────────────────────────────
     const starPositions: number[] = [];
@@ -2948,6 +2973,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         moonRef.current.intensity =
           smoothstep(0.82, 0.9, dayFraction) * 0.35 +
           smoothstep(0.18, 0.1, dayFraction) * 0.35;
+
+        // ── Visible moon disc + glow ─────────────────────────────────────────
+        if (moonDiscRef.current && moonGlowRef.current) {
+          const moonDir = moonRef.current.position.clone().normalize();
+          moonDiscRef.current.position.copy(moonDir.multiplyScalar(450));
+          moonGlowRef.current.position.copy(moonDir.multiplyScalar(448));
+
+          // Fade moon in/out with night factor (1=night, 0=day)
+          const moonOpacity = nightFactor;
+          const moonDiscMat = moonDiscRef.current.material as THREE.MeshBasicMaterial;
+          const moonGlowMat = moonGlowRef.current.material as THREE.MeshBasicMaterial;
+
+          moonDiscRef.current.visible = moonOpacity > 0.01;
+          moonGlowRef.current.visible = moonOpacity > 0.01;
+          moonDiscMat.opacity = moonOpacity;
+          // Subtle pulse on glow (slower than sun corona)
+          moonGlowMat.opacity = moonOpacity * (0.06 + Math.sin(elapsed * 0.25) * 0.015);
+        }
       }
 
       if (ambientRef.current) {
