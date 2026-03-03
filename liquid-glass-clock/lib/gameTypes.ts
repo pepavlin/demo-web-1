@@ -106,6 +106,10 @@ export interface FoxData {
   isAlive: boolean;
   attackCooldown: number;
   hitFlashTimer: number;
+  /** Cached nearest sheep target — refreshed every ~0.25 s to avoid O(n²) per-frame search. */
+  cachedNearestSheep: SheepData | null;
+  /** Countdown until next nearest-sheep search. */
+  sheepSearchTimer: number;
 }
 
 export interface CoinData {
