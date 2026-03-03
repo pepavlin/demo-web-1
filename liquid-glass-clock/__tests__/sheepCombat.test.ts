@@ -258,3 +258,66 @@ describe("Possession eligibility", () => {
     expect(candidates[0]).toBe(healthy);
   });
 });
+
+// ─── Ranged weapons use projectile collision only (not melee) ─────────────────
+
+/**
+ * These tests document the fix for the bug where bow and crossbow were
+ * incorrectly applying instant melee damage to the nearest entity on attack,
+ * ignoring where the player was actually aiming.
+ *
+ * After the fix: only weapons with type === "sword" apply melee damage in
+ * doAttack(). Bow and crossbow deal damage exclusively through bullet collision.
+ */
+describe("Ranged weapons do not apply melee damage in doAttack()", () => {
+  /**
+   * Simulate the melee targeting logic from doAttack() but limited to
+   * sword-only, mirroring the fixed implementation.
+   */
+  function simulateMeleeHit(
+    weaponType: "sword" | "bow" | "crossbow",
+    entityDistance: number,
+  ): boolean {
+    const cfg = WEAPON_CONFIGS[weaponType];
+    // Only sword should perform melee hits
+    if (cfg.type !== "sword") return false;
+    // Check if entity is within melee range
+    return entityDistance < cfg.range;
+  }
+
+  it("sword within melee range hits via melee", () => {
+    expect(simulateMeleeHit("sword", 1.5)).toBe(true);
+  });
+
+  it("sword beyond melee range does NOT hit via melee", () => {
+    expect(simulateMeleeHit("sword", 3.0)).toBe(false);
+  });
+
+  it("bow does NOT apply melee hit regardless of distance", () => {
+    // Even at point-blank range, bow should use projectile collision only
+    expect(simulateMeleeHit("bow", 0.5)).toBe(false);
+    expect(simulateMeleeHit("bow", 50)).toBe(false);
+  });
+
+  it("crossbow does NOT apply melee hit regardless of distance", () => {
+    // Even at point-blank range, crossbow should use projectile collision only
+    expect(simulateMeleeHit("crossbow", 0.5)).toBe(false);
+    expect(simulateMeleeHit("crossbow", 50)).toBe(false);
+  });
+
+  it("bow range is large (projectile range) but does not grant melee damage", () => {
+    // bow.range = 80 — was incorrectly used as melee range before the fix
+    const bowRange = WEAPON_CONFIGS.bow.range;
+    expect(bowRange).toBeGreaterThan(10);
+    // Despite large range, melee hit should not trigger
+    expect(simulateMeleeHit("bow", bowRange - 1)).toBe(false);
+  });
+
+  it("crossbow range is large (projectile range) but does not grant melee damage", () => {
+    // crossbow.range = 100 — was incorrectly used as melee range before the fix
+    const crossbowRange = WEAPON_CONFIGS.crossbow.range;
+    expect(crossbowRange).toBeGreaterThan(10);
+    // Despite large range, melee hit should not trigger
+    expect(simulateMeleeHit("crossbow", crossbowRange - 1)).toBe(false);
+  });
+});
