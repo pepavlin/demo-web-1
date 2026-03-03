@@ -9,6 +9,7 @@ interface MobileControlsProps {
   onAttack: () => void;
   onInteract: () => void;
   visible: boolean;
+  onChatOpen?: () => void;
 }
 
 const JOYSTICK_RADIUS = 55; // visual radius of the joystick base (px)
@@ -21,6 +22,7 @@ export default function MobileControls({
   onAttack,
   onInteract,
   visible,
+  onChatOpen,
 }: MobileControlsProps) {
   const joystickKnobRef = useRef<HTMLDivElement | null>(null);
 
@@ -248,6 +250,16 @@ export default function MobileControls({
             keysRef.current["ShiftLeft"] = false;
           }}
         />
+
+        {/* Chat */}
+        {onChatOpen && (
+          <ActionButton
+            color="#a78bfa"
+            label="💬"
+            onPressStart={onChatOpen}
+            onPressEnd={() => {}}
+          />
+        )}
       </div>
 
       {/* ── Hint label for look zone ─────────────────────────────────────── */}
