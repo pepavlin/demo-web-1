@@ -2650,6 +2650,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           setInSpaceStation(true);
           setRocketArrived(false);
           rocketArrivedRef.current = false;
+          // Player leaves the rocket and enters the station
+          onRocketRef.current = false;
+          setOnRocket(false);
+          stationWelcomeTimerRef.current = 4;
+          setStationWelcome(true);
           const cam = cameraRef.current;
           // Teleport player into station airlock
           cam.position.set(
@@ -3471,8 +3476,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // ── Player movement (only when NOT possessing an entity or on boat) ─────
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current) {
+      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, or in station) ─────
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -4005,40 +4010,43 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               playerBodyPosRef.current.copy(rd.mesh.position);
             }
 
-            // Reached mothership — auto-dock and enter station interior
+            // Reached mothership — park rocket and let player decide to enter via E
             if (rd.launchProgress >= 1) {
-              rd.state = 'docked';
+              rd.state = 'arrived';
               rd.flameGroup.visible = false;
               rd.exhaustParticles.forEach((p) => { p.visible = false; });
               setRocketLaunching(false);
-              setRocketArrived(false);
-              rocketArrivedRef.current = false;
-
-              // Auto-enter the space station interior (teleport to Y=2000 world)
-              inSpaceStationRef.current = true;
-              setInSpaceStation(true);
-              stationWelcomeTimerRef.current = 4; // show welcome for 4 seconds
-              setStationWelcome(true);
-
-              if (cameraRef.current) {
-                cameraRef.current.position.set(
-                  SPACE_STATION_WORLD_X + 0,
-                  SPACE_STATION_WORLD_Y + 1.8,
-                  SPACE_STATION_WORLD_Z + 0
-                );
-                playerBodyPosRef.current.copy(cameraRef.current.position);
-                playerRef.current.velY = 0;
-                playerRef.current.onGround = true;
-              }
-              onRocketRef.current = false;
-              setOnRocket(false);
-              if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+              // Signal that player is now at the mothership (E key will enter station)
+              rocketArrivedRef.current = true;
+              setRocketArrived(true);
+              // Player stays on rocket (onRocketRef stays true) — camera handled in 'arrived' block below
             }
           }
 
           if (rd.state === 'arrived' || rd.state === 'docked') {
             // Keep rocket parked near mothership — gentle idle drift
             rd.mesh.position.y = ROCKET_TARGET_Y + Math.sin(elapsed * 0.4) * 0.8;
+
+            // If player is still aboard (arrived, not yet entered station), keep camera locked to rocket
+            if (onRocketRef.current && isLockedRef.current) {
+              if (cameraModeRef.current === "third") {
+                const behindX = Math.sin(yawRef.current) * (TP_DISTANCE + 4);
+                const behindZ = Math.cos(yawRef.current) * (TP_DISTANCE + 4);
+                cam.position.set(
+                  rd.mesh.position.x + behindX,
+                  rd.mesh.position.y + TP_HEIGHT + 6,
+                  rd.mesh.position.z + behindZ
+                );
+                cam.lookAt(rd.mesh.position.x, rd.mesh.position.y + 6, rd.mesh.position.z);
+              } else {
+                cam.position.set(rd.mesh.position.x, rd.mesh.position.y + ROCKET_CAM_HEIGHT, rd.mesh.position.z);
+                cam.rotation.order = "YXZ";
+                cam.rotation.y = yawRef.current;
+                cam.rotation.x = pitchRef.current;
+              }
+              playerBodyPosRef.current.copy(rd.mesh.position);
+              playerRef.current.velY = 0;
+            }
           }
         }
       }
@@ -5974,7 +5982,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       )}
 
       {/* ═══════════════ CENTER TOP — On-rocket active banner ═══════════════ */}
-      {onRocket && !rocketLaunching && rocketCountdown === null && gameState.isLocked && (
+      {onRocket && !rocketLaunching && rocketCountdown === null && !rocketArrived && gameState.isLocked && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
@@ -5987,6 +5995,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🚀 V raketě &nbsp;·&nbsp; <span style={{ color: "#fdba74" }}>[Space] Odpálit</span> &nbsp;·&nbsp; <span style={{ color: "#fca5a5" }}>[E] Vystoupit</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Arrived at mothership prompt ═══════════════ */}
+      {rocketArrived && onRocket && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(0,10,60,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(100,160,255,0.60)",
+              boxShadow: "0 0 28px rgba(80,120,255,0.55)",
+            }}
+          >
+            🛸 Dosaženo vesmírné lodi! &nbsp;·&nbsp; <span style={{ color: "#93c5fd" }}>[E] Navštívit vesmírnou loď</span>
           </div>
         </div>
       )}
