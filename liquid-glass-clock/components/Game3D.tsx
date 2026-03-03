@@ -908,6 +908,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         lifetime: BULLET_LIFETIME,
         useGravity: isBow,
         power: isBow ? powerMultiplier : undefined,
+        weaponType: selectedWeaponRef.current,
       });
     }
 
@@ -4464,8 +4465,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (!fox.isAlive) continue;
           const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
           if (dist < BULLET_HIT_RADIUS) {
+            // Use the weapon that fired this bullet (not the currently selected weapon)
+            const weaponKey = bullet.weaponType ?? selectedWeaponRef.current;
+            const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
             // Scale bow arrow damage by the draw power stored on the bullet
-            const baseDmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
             const dmg = bullet.power !== undefined
               ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
               : baseDmg;
@@ -4492,7 +4495,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             if (!cat.isAlive) continue;
             const dist = bullet.mesh.position.distanceTo(cat.mesh.position);
             if (dist < CATAPULT_HIT_RADIUS) {
-              const baseDmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              // Use the weapon that fired this bullet (not the currently selected weapon)
+              const weaponKey = bullet.weaponType ?? selectedWeaponRef.current;
+              const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
               const dmg = bullet.power !== undefined
                 ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
                 : baseDmg;
@@ -4519,11 +4524,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             if (!sheep.isAlive || sheep.isDying) continue;
             const dist = bullet.mesh.position.distanceTo(sheep.mesh.position);
             if (dist < BULLET_HIT_RADIUS * 1.2) {
-              const dmg = WEAPON_CONFIGS[selectedWeaponRef.current].damage;
+              // Use the weapon that fired this bullet (not the currently selected weapon)
+              const weaponKey = bullet.weaponType ?? selectedWeaponRef.current;
+              const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
+              // Apply bow power scaling the same way fox hits do
+              const dmg = bullet.power !== undefined
+                ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+                : baseDmg;
               sheep.hp = Math.max(0, sheep.hp - dmg);
               sheep.hitFlashTimer = 0.25;
               flashSheepMesh(sheep.mesh);
-              soundManager.playFoxHit();
+              soundManager.playArrowHit();
+              soundManager.playSheepBleat(0.8);
               setAttackEffect(`-${dmg}`);
               setTimeout(() => setAttackEffect(null), 700);
               if (sheep.hp <= 0 && !sheep.isDying) {

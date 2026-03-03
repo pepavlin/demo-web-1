@@ -121,6 +121,20 @@ describe("SheepData combat fields", () => {
 
 // ─── Weapon damage against sheep ─────────────────────────────────────────────
 
+/**
+ * Mirrors the fixed bullet-sheep collision damage formula from Game3D.tsx.
+ * Bow damage is scaled by draw power; other weapons use flat base damage.
+ */
+function calcProjectileDmgOnSheep(
+  weaponType: "sword" | "bow" | "crossbow",
+  power?: number,
+): number {
+  const baseDmg = WEAPON_CONFIGS[weaponType].damage;
+  return power !== undefined
+    ? Math.round(baseDmg * (0.5 + 0.5 * power))
+    : baseDmg;
+}
+
 describe("Weapon damage kills sheep in expected hits", () => {
   it("sword (55 dmg) one-shots sheep with 30 maxHp", () => {
     const sheep = makeSheepData({ hp: 30 });
@@ -138,6 +152,46 @@ describe("Weapon damage kills sheep in expected hits", () => {
     const sheep = makeSheepData({ hp: 30 });
     sheep.hp = Math.max(0, sheep.hp - WEAPON_CONFIGS.crossbow.damage);
     expect(sheep.hp).toBe(0);
+  });
+});
+
+// ─── Bow power scaling applies to sheep (same as foxes) ─────────────────────
+
+describe("Bow power scaling on sheep projectile hits", () => {
+  it("full-power bow arrow (power=1.0) deals full 40 damage", () => {
+    const dmg = calcProjectileDmgOnSheep("bow", 1.0);
+    expect(dmg).toBe(40);
+  });
+
+  it("half-power bow arrow (power=0.5) deals 75% of 40 = 30 damage", () => {
+    const dmg = calcProjectileDmgOnSheep("bow", 0.5);
+    expect(dmg).toBe(30);
+  });
+
+  it("minimum-power bow arrow (power=0.1) deals 55% of 40 = 22 damage", () => {
+    const dmg = calcProjectileDmgOnSheep("bow", 0.1);
+    expect(dmg).toBe(Math.round(40 * 0.55));
+  });
+
+  it("crossbow bolt (no power) deals flat 85 damage", () => {
+    const dmg = calcProjectileDmgOnSheep("crossbow", undefined);
+    expect(dmg).toBe(85);
+  });
+
+  it("weak bow arrow (power=0.1) does NOT one-shot sheep with 30 hp", () => {
+    const sheep = makeSheepData({ hp: 30 });
+    const dmg = calcProjectileDmgOnSheep("bow", 0.1);
+    sheep.hp = Math.max(0, sheep.hp - dmg);
+    expect(sheep.hp).toBeGreaterThan(0);
+  });
+
+  it("damage scales monotonically with draw power", () => {
+    const powers = [0.1, 0.25, 0.5, 0.75, 1.0];
+    for (let i = 1; i < powers.length; i++) {
+      const dmgLow = calcProjectileDmgOnSheep("bow", powers[i - 1]);
+      const dmgHigh = calcProjectileDmgOnSheep("bow", powers[i]);
+      expect(dmgHigh).toBeGreaterThanOrEqual(dmgLow);
+    }
   });
 });
 

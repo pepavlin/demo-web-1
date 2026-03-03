@@ -279,6 +279,19 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => soundManager.playAttack("crossbow")).not.toThrow();
   });
 
+  it("playArrowHit()", () => {
+    expect(() => soundManager.playArrowHit()).not.toThrow();
+  });
+
+  it("playArrowHit() creates audio nodes (crack + thud)", () => {
+    const prevCalls = mockCtx.createBufferSource.mock.calls.length;
+    const prevOscCalls = mockCtx.createOscillator.mock.calls.length;
+    soundManager.playArrowHit();
+    // Expects at least one noise source (crack) and one oscillator (thud)
+    expect(mockCtx.createBufferSource.mock.calls.length).toBeGreaterThan(prevCalls);
+    expect(mockCtx.createOscillator.mock.calls.length).toBeGreaterThan(prevOscCalls);
+  });
+
   it("playFoxHit()", () => {
     expect(() => soundManager.playFoxHit()).not.toThrow();
   });
@@ -359,6 +372,10 @@ describe("SoundManager – graceful no-ops before init", () => {
 
   it("playAttack('crossbow') before init does not throw", () => {
     expect(() => soundManager.playAttack("crossbow")).not.toThrow();
+  });
+
+  it("playArrowHit() before init does not throw", () => {
+    expect(() => soundManager.playArrowHit()).not.toThrow();
   });
 
   it("playFoxHit() before init does not throw", () => {
