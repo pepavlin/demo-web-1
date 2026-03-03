@@ -77,6 +77,7 @@ import {
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
 import WeaponSelect from "./WeaponSelect";
 import MobileControls from "./MobileControls";
+import ChatPanel from "./ChatPanel";
 
 // ─── Mobile detection ────────────────────────────────────────────────────────
 // Evaluated once at module initialisation on the client.  Returns false during
@@ -556,9 +557,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
   // ─── Chat state ──────────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; name: string; color: number; text: string; ts: number }>>([]);
-  const [chatInput, setChatInput] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
-  const chatInputRef = useRef<HTMLInputElement>(null);
   const sendChatRef = useRef<((text: string) => void) | null>(null);
 
   // ─── Show a multiplayer notification for 4 seconds ───────────────────────────
@@ -2847,7 +2846,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         e.preventDefault();
         document.exitPointerLock();
         setChatOpen(true);
-        setTimeout(() => chatInputRef.current?.focus(), 50);
       }
 
       // Digit keys 1–3 — select weapon in explore mode
@@ -6643,101 +6641,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ─── Chat panel ───────────────────────────────────────────────────────── */}
       {gameStarted && (
-        <div
-          data-testid="chat-panel"
-          style={{
-            position: "fixed",
-            bottom: chatMessages.length > 0 || chatOpen ? 20 : -200,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 65,
-            width: 380,
-            maxWidth: "90vw",
-            transition: "bottom 0.3s ease",
-            pointerEvents: chatOpen ? "auto" : "none",
+        <ChatPanel
+          messages={chatMessages}
+          onSend={(text) => sendChatRef.current?.(text)}
+          isOpen={chatOpen}
+          onOpen={() => {
+            document.exitPointerLock();
+            setChatOpen(true);
           }}
-        >
-          {/* Chat message log */}
-          {chatMessages.length > 0 && (
-            <div
-              style={{
-                marginBottom: 6,
-                maxHeight: 150,
-                overflowY: "auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: 3,
-              }}
-            >
-              {chatMessages.slice(-8).map((msg, i) => (
-                <div
-                  key={`${msg.ts}-${i}`}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    background: "rgba(5,8,20,0.78)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    backdropFilter: "blur(8px)",
-                    fontSize: 12,
-                    color: "rgba(255,255,255,0.88)",
-                    display: "flex",
-                    gap: 6,
-                    alignItems: "baseline",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      color: `#${msg.color.toString(16).padStart(6, "0")}`,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {msg.name}:
-                  </span>
-                  <span style={{ wordBreak: "break-word" }}>{msg.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Chat input (visible when chatOpen or game paused) */}
-          {chatOpen && (
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                ref={chatInputRef}
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value.slice(0, 120))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const text = chatInput.trim();
-                    if (text) sendChatRef.current?.(text);
-                    setChatInput("");
-                    setChatOpen(false);
-                    lockPointer();
-                  }
-                  if (e.key === "Escape") {
-                    setChatInput("");
-                    setChatOpen(false);
-                    lockPointer();
-                  }
-                }}
-                placeholder="Zpráva… (Enter odešle, Esc zruší)"
-                maxLength={120}
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  background: "rgba(5,8,20,0.92)",
-                  border: "1px solid rgba(74,158,255,0.5)",
-                  color: "white",
-                  fontSize: 13,
-                  outline: "none",
-                }}
-              />
-            </div>
-          )}
-        </div>
+          onClose={() => {
+            setChatOpen(false);
+            lockPointer();
+          }}
+        />
       )}
 
       {/* ─── Sound mute button ─────────────────────────────────────────────── */}
@@ -6923,6 +6839,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               new KeyboardEvent("keyup", { code: "KeyE", bubbles: true })
             );
           }}
+          onChatOpen={() => setChatOpen(true)}
           visible={true}
         />
       )}
