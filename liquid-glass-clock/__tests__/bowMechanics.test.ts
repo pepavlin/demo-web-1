@@ -80,7 +80,7 @@ function simulateTrajectoryArc(
 // ── BulletData interface ──────────────────────────────────────────────────────
 
 describe("BulletData interface – new fields", () => {
-  it("accepts isStuck, stuckLifetime, and power as optional fields", () => {
+  it("accepts isStuck, stuckLifetime, power, and weaponType as optional fields", () => {
     // Build a minimal BulletData object with all new fields populated.
     const bullet: BulletData = {
       mesh: new THREE.Object3D(),
@@ -90,11 +90,13 @@ describe("BulletData interface – new fields", () => {
       isStuck: false,
       stuckLifetime: 12,
       power: 0.75,
+      weaponType: "bow",
     };
 
     expect(bullet.isStuck).toBe(false);
     expect(bullet.stuckLifetime).toBe(12);
     expect(bullet.power).toBe(0.75);
+    expect(bullet.weaponType).toBe("bow");
   });
 
   it("works without the optional fields (backwards compat)", () => {
@@ -107,6 +109,64 @@ describe("BulletData interface – new fields", () => {
     expect(bullet.isStuck).toBeUndefined();
     expect(bullet.stuckLifetime).toBeUndefined();
     expect(bullet.power).toBeUndefined();
+    expect(bullet.weaponType).toBeUndefined();
+  });
+
+  it("stores 'crossbow' weaponType for crossbow bolts", () => {
+    const bolt: BulletData = {
+      mesh: new THREE.Object3D(),
+      velocity: new THREE.Vector3(0, 0, -90),
+      lifetime: 3,
+      useGravity: false,
+      weaponType: "crossbow",
+    };
+    expect(bolt.weaponType).toBe("crossbow");
+    expect(bolt.power).toBeUndefined(); // crossbow doesn't use power scaling
+  });
+});
+
+// ── weaponType-aware damage calculation ───────────────────────────────────────
+
+describe("weaponType-aware damage calculation", () => {
+  /**
+   * Mirrors the fixed collision handler logic:
+   * use bullet.weaponType if available, fall back to a provided currentWeapon.
+   */
+  function calcBulletDamage(
+    bullet: Pick<BulletData, "weaponType" | "power">,
+    currentWeapon: "sword" | "bow" | "crossbow",
+  ): number {
+    const weaponKey = bullet.weaponType ?? currentWeapon;
+    const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
+    return bullet.power !== undefined
+      ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+      : baseDmg;
+  }
+
+  it("uses bullet.weaponType over the currently selected weapon", () => {
+    // Arrow fired with bow but player switched to crossbow before impact
+    const dmg = calcBulletDamage({ weaponType: "bow", power: 1.0 }, "crossbow");
+    expect(dmg).toBe(WEAPON_CONFIGS.bow.damage); // 40, not 85
+  });
+
+  it("falls back to current weapon when weaponType is undefined", () => {
+    const dmg = calcBulletDamage({ weaponType: undefined, power: undefined }, "crossbow");
+    expect(dmg).toBe(WEAPON_CONFIGS.crossbow.damage); // 85
+  });
+
+  it("bow arrow at full power deals full bow damage", () => {
+    const dmg = calcBulletDamage({ weaponType: "bow", power: 1.0 }, "bow");
+    expect(dmg).toBe(WEAPON_CONFIGS.bow.damage); // 40
+  });
+
+  it("bow arrow at half power deals 75% bow damage", () => {
+    const dmg = calcBulletDamage({ weaponType: "bow", power: 0.5 }, "bow");
+    expect(dmg).toBe(Math.round(WEAPON_CONFIGS.bow.damage * 0.75)); // 30
+  });
+
+  it("crossbow bolt at full power deals full crossbow damage", () => {
+    const dmg = calcBulletDamage({ weaponType: "crossbow", power: 1.0 }, "crossbow");
+    expect(dmg).toBe(WEAPON_CONFIGS.crossbow.damage); // 85
   });
 });
 

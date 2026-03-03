@@ -605,6 +605,46 @@ class SoundManager {
     boltSrc.stop(t + 0.18);
   }
 
+  /**
+   * Arrow impact sound – sharp thwack when an arrow embeds in flesh/animal.
+   * Combines a brief high-frequency crack (impact transient) with a low-mid thud
+   * (body resonance), giving the distinctive sound of an arrow hitting a target.
+   */
+  playArrowHit(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Sharp impact crack – short highpass noise (arrow tip impact)
+    const crackSrc = ctx.createBufferSource();
+    crackSrc.buffer = this._noiseBuffer(0.06);
+    const crackFlt = ctx.createBiquadFilter();
+    crackFlt.type = "highpass";
+    crackFlt.frequency.value = 2200 + Math.random() * 600;
+    crackFlt.Q.value = 0.5;
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0.35, t);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    crackSrc.connect(crackFlt);
+    crackFlt.connect(crackEnv);
+    crackEnv.connect(this.sfxGain);
+    crackSrc.start(t);
+    crackSrc.stop(t + 0.06);
+
+    // Body thud – low-mid sine decay (flesh/body resonance)
+    const thudOsc = ctx.createOscillator();
+    thudOsc.type = "sine";
+    thudOsc.frequency.setValueAtTime(200 + Math.random() * 40, t + 0.005);
+    thudOsc.frequency.exponentialRampToValueAtTime(80, t + 0.1);
+    const thudEnv = ctx.createGain();
+    thudEnv.gain.setValueAtTime(0.22, t + 0.005);
+    thudEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    thudOsc.connect(thudEnv);
+    thudEnv.connect(this.sfxGain);
+    thudOsc.start(t + 0.005);
+    thudOsc.stop(t + 0.14);
+  }
+
   /** Impact thud played when a bullet / melee hit lands on a fox. */
   playFoxHit(): void {
     if (!this.ctx || !this.sfxGain) return;

@@ -126,6 +126,12 @@ export interface BulletData {
   stuckLifetime?: number;
   /** Power multiplier used when the arrow was fired (0.1–1.0 for bow charge). */
   power?: number;
+  /**
+   * The weapon type that fired this bullet.
+   * Stored at fire time so damage calculations remain correct even if the
+   * player switches weapons while the projectile is in flight.
+   */
+  weaponType?: WeaponType;
 }
 
 export interface CatapultData {
