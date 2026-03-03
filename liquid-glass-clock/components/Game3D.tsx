@@ -413,6 +413,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const placedBlocksDataRef = useRef<PlacedBlockData[]>([]);
   const ghostMeshRef = useRef<THREE.Mesh | null>(null);
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
+  const terrainMatRef = useRef<THREE.ShaderMaterial | null>(null);
   const sculptIndicatorRef = useRef<THREE.Mesh | null>(null);
   const buildRaycasterRef = useRef(new THREE.Raycaster());
 
@@ -1315,43 +1316,151 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
     terrainGeo.computeVertexNormals();
 
-    // Smooth terrain color gradient: deep water → beach → grass → highland → rock
-    const lerpC = (a: number[], b: number[], t: number) => {
-      const tc = Math.max(0, Math.min(1, t));
-      return [a[0] + (b[0] - a[0]) * tc, a[1] + (b[1] - a[1]) * tc, a[2] + (b[2] - a[2]) * tc];
-    };
-    const deepWater   = [0.12, 0.22, 0.50];
-    const shallowWater= [0.22, 0.44, 0.68];
-    const sand        = [0.74, 0.68, 0.44];
-    const brightGrass = [0.40, 0.68, 0.22];
-    const midGrass    = [0.30, 0.54, 0.17];
-    const darkGrass   = [0.23, 0.43, 0.13];
-    const rockBrown   = [0.50, 0.42, 0.30];
-    const rockGray    = [0.62, 0.59, 0.56];
+    const terrainMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uSunDir:       { value: new THREE.Vector3(0.58, 0.77, 0.27) },
+        uSunColor:     { value: new THREE.Color(1.0, 0.95, 0.80) },
+        uSunIntensity: { value: 1.0 },
+        uAmbientColor: { value: new THREE.Color(0.30, 0.38, 0.52) },
+      },
+      vertexShader: /* glsl */`
+        varying vec3 vWorldPos;
+        varying vec3 vNormal;
+        varying float vHeight;
+        void main() {
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vWorldPos = worldPos.xyz;
+          vNormal   = normalize(normalMatrix * normal);
+          vHeight   = position.y;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform vec3  uSunDir;
+        uniform vec3  uSunColor;
+        uniform float uSunIntensity;
+        uniform vec3  uAmbientColor;
 
-    const colors = new Float32Array(positions.count * 3);
-    for (let i = 0; i < positions.count; i++) {
-      const y = positions.getY(i);
-      let col: number[];
-      if (y < -3)        col = deepWater;
-      else if (y < -0.5) col = lerpC(deepWater, shallowWater, (y + 3) / 2.5);
-      else if (y < 0.4)  col = lerpC(shallowWater, sand, (y + 0.5) / 0.9);
-      else if (y < 2.5)  col = lerpC(sand, brightGrass, (y - 0.4) / 2.1);
-      else if (y < 7)    col = lerpC(brightGrass, midGrass, (y - 2.5) / 4.5);
-      else if (y < 17)   col = lerpC(midGrass, darkGrass, (y - 7) / 10);
-      else if (y < 28)   col = lerpC(darkGrass, rockBrown, (y - 17) / 11);
-      else               col = lerpC(rockBrown, rockGray, Math.min(1, (y - 28) / 12));
-      colors[i * 3] = col[0];
-      colors[i * 3 + 1] = col[1];
-      colors[i * 3 + 2] = col[2];
-    }
-    terrainGeo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        varying vec3  vWorldPos;
+        varying vec3  vNormal;
+        varying float vHeight;
 
-    const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+        // ── Noise ────────────────────────────────────────────────────────────────
+        vec2 hash2(vec2 p) {
+          p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+          return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+        }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          float a = dot(hash2(i + vec2(0.0, 0.0)), f - vec2(0.0, 0.0));
+          float b = dot(hash2(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0));
+          float c = dot(hash2(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0));
+          float d = dot(hash2(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0));
+          return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.5 + 0.5;
+        }
+        float fbm(vec2 p) {
+          float v = 0.0, a = 0.5;
+          for (int i = 0; i < 5; i++) {
+            v += a * vnoise(p);
+            p  = p * 2.0 + vec2(3.7, 1.3);
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        // ── Biome palette ─────────────────────────────────────────────────────────
+        const vec3 cDeepWater    = vec3(0.10, 0.18, 0.44);
+        const vec3 cShallowWater = vec3(0.20, 0.40, 0.65);
+        const vec3 cSand         = vec3(0.78, 0.72, 0.48);
+        const vec3 cSandDark     = vec3(0.62, 0.54, 0.32);
+        const vec3 cBrightGrass  = vec3(0.38, 0.65, 0.20);
+        const vec3 cMidGrass     = vec3(0.28, 0.52, 0.15);
+        const vec3 cDarkGrass    = vec3(0.21, 0.40, 0.11);
+        const vec3 cDryGrass     = vec3(0.55, 0.52, 0.28);
+        const vec3 cRockBrown    = vec3(0.48, 0.40, 0.28);
+        const vec3 cRockGray     = vec3(0.58, 0.55, 0.52);
+        const vec3 cRockLight    = vec3(0.70, 0.66, 0.60);
+        const vec3 cSnow         = vec3(0.90, 0.92, 0.96);
+
+        void main() {
+          vec2 uv = vWorldPos.xz;
+
+          // ── Multi-scale noise ───────────────────────────────────────────────────
+          float macro  = fbm(uv * 0.025);   // large patches  (~40 unit scale)
+          float meso   = fbm(uv * 0.10);    // medium detail  (~10 unit scale)
+          float micro  = vnoise(uv * 0.55); // fine grain     (~ 2 unit scale)
+          float crack  = fbm(uv * 0.40);    // rock / cliff cracks
+
+          // Noise-wobbled height for jagged biome borders
+          float hWobble = vHeight + (macro * 2.0 - 1.0) * 2.2
+                                  + (meso  * 2.0 - 1.0) * 0.7;
+
+          // ── Biome color ────────────────────────────────────────────────────────
+          vec3 col;
+          if (hWobble < -3.0) {
+            col = cDeepWater;
+          } else if (hWobble < -0.5) {
+            float t = clamp((hWobble + 3.0) / 2.5, 0.0, 1.0);
+            col = mix(cDeepWater, cShallowWater, t);
+          } else if (hWobble < 0.4) {
+            float t = clamp((hWobble + 0.5) / 0.9, 0.0, 1.0);
+            // Sand variation: lighter/darker patches
+            vec3 sandVar = mix(cSandDark, cSand, vnoise(uv * 1.8));
+            col = mix(cShallowWater, sandVar, t);
+          } else if (hWobble < 2.5) {
+            float t = clamp((hWobble - 0.4) / 2.1, 0.0, 1.0);
+            // Patchy transition from sand to grass (dry tufts)
+            vec3 grassVar = mix(cBrightGrass, cDryGrass, meso * 0.5);
+            col = mix(cSand, grassVar, t);
+          } else if (hWobble < 7.0) {
+            float t = clamp((hWobble - 2.5) / 4.5, 0.0, 1.0);
+            // Bright → mid grass: patchy colour variation from noise
+            vec3 g1 = mix(cBrightGrass, cDryGrass,   macro * 0.35);
+            vec3 g2 = mix(cMidGrass,    cBrightGrass, meso  * 0.40);
+            col = mix(g1, g2, t + (micro - 0.5) * 0.25);
+          } else if (hWobble < 17.0) {
+            float t = clamp((hWobble - 7.0) / 10.0, 0.0, 1.0);
+            vec3 g1 = mix(cMidGrass,  cBrightGrass, micro * 0.25);
+            vec3 g2 = mix(cDarkGrass, cMidGrass,    meso  * 0.30);
+            col = mix(g1, g2, t + (macro - 0.5) * 0.20);
+          } else if (hWobble < 28.0) {
+            float t = clamp((hWobble - 17.0) / 11.0, 0.0, 1.0);
+            vec3 rockVar = mix(cRockBrown, cRockGray, vnoise(uv * 1.2));
+            col = mix(cDarkGrass, rockVar, t);
+          } else {
+            float t = clamp((hWobble - 28.0) / 12.0, 0.0, 1.0);
+            vec3 rockVar = mix(cRockBrown, cRockLight, vnoise(uv * 1.5));
+            col = mix(rockVar, cSnow, t);
+          }
+
+          // ── Slope → cliff rock overlay ────────────────────────────────────────
+          float slope     = 1.0 - vNormal.y;
+          float rockBlend = smoothstep(0.38, 0.65, slope);
+          if (rockBlend > 0.001 && vHeight > 0.5) {
+            float crackDetail = crack * 0.5 + 0.5;
+            vec3  cliffCol    = mix(cRockBrown, cRockGray, vnoise(uv * 0.9 + vec2(7.3, 2.1)));
+            cliffCol *= mix(0.72, 1.05, crackDetail); // darker cracks, lighter faces
+            col = mix(col, cliffCol, rockBlend);
+          }
+
+          // ── Micro-shading: subtle brightness variation ─────────────────────────
+          col *= 0.90 + micro * 0.18;
+
+          // ── Lambert lighting ──────────────────────────────────────────────────
+          float diffuse  = max(0.0, dot(vNormal, normalize(uSunDir)));
+          vec3  litColor = col * (uAmbientColor + uSunColor * diffuse * uSunIntensity);
+
+          gl_FragColor = vec4(clamp(litColor, 0.0, 1.0), 1.0);
+        }
+      `,
+    });
     const terrain = new THREE.Mesh(terrainGeo, terrainMat);
     terrain.receiveShadow = true;
     scene.add(terrain);
     terrainMeshRef.current = terrain;
+    terrainMatRef.current  = terrainMat;
 
     // ── Building system: ghost block + sculpt indicator ──────────────────────
     const ghost = buildGhostMesh("wood");
@@ -3263,6 +3372,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               lightningFlashRef.current * 0.9;
           }
         }
+      }
+
+      // ── Terrain lighting ──────────────────────────────────────────────────
+      if (terrainMatRef.current && sunRef.current) {
+        const tm = terrainMatRef.current;
+        tm.uniforms.uSunDir.value.copy(sunRef.current.position).normalize();
+        const si = getSunIntensity(dayFraction);
+        tm.uniforms.uSunIntensity.value = si;
+        const isGolden = dayFraction < 0.32 || dayFraction > 0.68;
+        if (si > 0) {
+          if (isGolden) tm.uniforms.uSunColor.value.setRGB(1.0, 0.62, 0.18);
+          else          tm.uniforms.uSunColor.value.setRGB(1.0, 0.95, 0.80);
+        } else {
+          tm.uniforms.uSunColor.value.setRGB(0.15, 0.18, 0.30);
+        }
+        // Ambient brightens a bit at golden hour
+        const ambR = 0.25 + si * 0.08;
+        const ambG = 0.32 + si * 0.08;
+        const ambB = 0.48 + (1.0 - si) * 0.08;
+        tm.uniforms.uAmbientColor.value.setRGB(ambR, ambG, ambB);
       }
 
       // ── Grass wind & lighting ─────────────────────────────────────────────
