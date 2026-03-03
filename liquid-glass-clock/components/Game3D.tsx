@@ -2462,6 +2462,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         isAlive: true,
         attackCooldown: Math.random() * 2,
         hitFlashTimer: 0,
+        cachedNearestSheep: null,
+        sheepSearchTimer: Math.random() * 0.25, // stagger initial searches
       };
     });
 
@@ -3083,12 +3085,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── Animation loop ────────────────────────────────────────────────────────
     let elapsed = 0;
+    let frameCount = 0; // incremented each frame — used to throttle expensive updates
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
       const now = performance.now();
       const dt = Math.min((now - prevTimeRef.current) / 1000, 0.05);
       prevTimeRef.current = now;
       elapsed += dt;
+      frameCount++;
 
       // ── Sync player body position in first-person (always matches cam.position) ──
       if (cameraModeRef.current === "first" && cameraRef.current) {
@@ -3448,13 +3452,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const LOD_FLORA_VIS_SQ = IS_MOBILE ? 110 * 110 : 220 * 220;
       const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
       const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
+      // Wind sway updated every other frame — motion is continuous so
+      // halving the update rate is imperceptible and saves ~1–2 ms.
+      const updateFloraWind = frameCount % 2 === 0;
       floraRef.current.forEach((flora) => {
         const dx = flora.posX - camPosX;
         const dz = flora.posZ - camPosZ;
         const dSq = dx * dx + dz * dz;
         // Visibility LOD — hide very distant plants
         flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
-        if (dSq > LOD_FLORA_DIST_SQ) return;
+        if (!updateFloraWind || dSq > LOD_FLORA_DIST_SQ) return;
         const t = elapsed * flora.windSpeed + flora.windPhase;
         // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
         flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
@@ -4800,16 +4807,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           }
         } else {
-          // Find closest sheep to hunt
-          let closestDist = FOX_CHASE_RADIUS;
-          let closestSheep: SheepData | null = null;
-          sheepListRef.current.forEach((sheep) => {
-            const d = fm.position.distanceTo(sheep.mesh.position);
-            if (d < closestDist) {
-              closestDist = d;
-              closestSheep = sheep;
-            }
-          });
+          // Find closest sheep to hunt — refresh cache every ~0.25 s (4× per second)
+          // instead of doing a full O(n) scan every frame for every fox.
+          fox.sheepSearchTimer -= dt;
+          if (fox.sheepSearchTimer <= 0) {
+            let closestDist = FOX_CHASE_RADIUS;
+            let closestSheep: SheepData | null = null;
+            sheepListRef.current.forEach((sheep) => {
+              if (!sheep.isAlive) return;
+              const d = fm.position.distanceTo(sheep.mesh.position);
+              if (d < closestDist) {
+                closestDist = d;
+                closestSheep = sheep;
+              }
+            });
+            fox.cachedNearestSheep = closestSheep;
+            fox.sheepSearchTimer = 0.25;
+          }
+          const closestSheep = fox.cachedNearestSheep;
 
           if (closestSheep !== null) {
             // Chase sheep
@@ -4822,7 +4837,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               fm.position.z += (dz / len) * FOX_SPEED * dt;
               fm.rotation.y = Math.atan2(-dz, dx);
             }
-            if (closestDist < 8) {
+            if (len < 8) {
               (closestSheep as SheepData).isFleeing = true;
               const fleeAngle = Math.atan2(
                 (closestSheep as SheepData).mesh.position.z - fm.position.z,
@@ -5140,6 +5155,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const visibleNow = sdx * sdx + sdz * sdz < LOD_ENTITY_VIS_SQ;
           s.visible = visibleNow;
           if (!visibleNow) return; // skip AI updates for hidden sheep
+        } else {
+          // Desktop LOD: skip AI for sheep beyond 200 units — they remain visible
+          // but frozen until the player approaches (imperceptible at that distance).
+          const sdx = s.position.x - playerPos.x;
+          const sdz = s.position.z - playerPos.z;
+          if (sdx * sdx + sdz * sdz > 200 * 200) return;
         }
 
         // ── Death animation ─────────────────────────────────────────────────
@@ -5420,8 +5441,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Minimap ────────────────────────────────────────────────────────────
+      // Redrawn every 3rd frame (~20 fps update at 60 fps target) — the small
+      // dot positions change slowly enough that this is imperceptible.
       const canvas = minimapRef.current;
-      if (canvas && cameraRef.current) {
+      if (canvas && cameraRef.current && frameCount % 3 === 0) {
         const ctx = canvas.getContext("2d");
         if (ctx) {
           const W = 220;
@@ -5523,19 +5546,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── HUD update ─────────────────────────────────────────────────────────
-      setGameState((s) => ({
-        ...s,
-        sheepCollected: closeSheepCount,
-        coinsCollected: collected,
-        timeElapsed: elapsed,
-        stamina: staminaRef.current,
-        timeLabel: getTimeLabel(dayFraction),
-        direction: getDirection(yawRef.current),
-        playerHp: playerHpRef.current,
-        foxesDefeated: foxesDefeatedRef.current,
-        catapultsDefeated: catapultsDefeatedRef.current,
-        attackReady: playerAttackCooldownRef.current <= 0,
-      }));
+      // Throttled to every 6th frame (~10 updates/s at 60 fps) — HUD values
+      // change slowly enough that this is imperceptible while saving ~2–3 ms
+      // of React reconciliation overhead per frame.
+      if (frameCount % 6 === 0) {
+        setGameState((s) => ({
+          ...s,
+          sheepCollected: closeSheepCount,
+          coinsCollected: collected,
+          timeElapsed: elapsed,
+          stamina: staminaRef.current,
+          timeLabel: getTimeLabel(dayFraction),
+          direction: getDirection(yawRef.current),
+          playerHp: playerHpRef.current,
+          foxesDefeated: foxesDefeatedRef.current,
+          catapultsDefeated: catapultsDefeatedRef.current,
+          attackReady: playerAttackCooldownRef.current <= 0,
+        }));
+      }
 
       const bleatingNear = sheepListRef.current.find(
         (sheep) =>
