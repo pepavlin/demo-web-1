@@ -912,34 +912,36 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
-    // ── Melee hit (sword always; ranged weapons also hit if close enough) ───
+    // ── Melee hit (sword only — ranged weapons deal damage through projectile collision) ───
     const playerPos = cam.position;
-    let closest: (typeof foxListRef.current)[0] | null = null;
-    let closestDist = weaponCfg.range;
+    if (weaponCfg.type === "sword") {
+      let closest: (typeof foxListRef.current)[0] | null = null;
+      let closestDist = weaponCfg.range;
 
-    foxListRef.current.forEach((fox) => {
-      if (!fox.isAlive) return;
-      const d = fox.mesh.position.distanceTo(playerPos);
-      if (d < closestDist) {
-        closestDist = d;
-        closest = fox;
-      }
-    });
+      foxListRef.current.forEach((fox) => {
+        if (!fox.isAlive) return;
+        const d = fox.mesh.position.distanceTo(playerPos);
+        if (d < closestDist) {
+          closestDist = d;
+          closest = fox;
+        }
+      });
 
-    if (closest) {
-      const fox = closest as (typeof foxListRef.current)[0];
-      fox.hp = Math.max(0, fox.hp - weaponCfg.damage);
-      fox.hitFlashTimer = 0.25;
-      flashFoxMesh(fox.mesh);
-      soundManager.playFoxHit();
+      if (closest) {
+        const fox = closest as (typeof foxListRef.current)[0];
+        fox.hp = Math.max(0, fox.hp - weaponCfg.damage);
+        fox.hitFlashTimer = 0.25;
+        flashFoxMesh(fox.mesh);
+        soundManager.playFoxHit();
 
-      setAttackEffect(`-${weaponCfg.damage}`);
-      setTimeout(() => setAttackEffect(null), 700);
+        setAttackEffect(`-${weaponCfg.damage}`);
+        setTimeout(() => setAttackEffect(null), 700);
 
-      if (fox.hp <= 0) {
-        fox.isAlive = false;
-        foxesDefeatedRef.current++;
-        soundManager.playFoxDeath();
+        if (fox.hp <= 0) {
+          fox.isAlive = false;
+          foxesDefeatedRef.current++;
+          soundManager.playFoxDeath();
+        }
       }
     }
 
@@ -972,10 +974,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
     }
 
-    // ── Melee hit on sheep ───────────────────────────────────────────────────
-    // Sheep can be hit with any weapon at melee range (same range as fox check)
+    // ── Melee hit on sheep (sword only — ranged weapons use projectile collision) ──
     if (!sceneRef.current) return;
-    {
+    if (weaponCfg.type === "sword") {
       let closestSheep: SheepData | null = null;
       let closestSheepDist = weaponCfg.range;
 
