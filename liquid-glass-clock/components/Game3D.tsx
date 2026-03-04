@@ -16,6 +16,7 @@ import {
   TERRAIN_SEGMENTS,
   WATER_LEVEL,
 } from "@/lib/terrainUtils";
+import { createTerrainTexture } from "@/lib/terrainTextures";
 import {
   BlockMaterial,
   BuildMode,
@@ -1299,6 +1300,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(galaxy);
     galaxyRef.current = galaxy;
 
+    // ── Terrain textures (see lib/terrainTextures.ts) ────────────────────────
+    // Procedural canvas textures for each biome; sampled via triplanar mapping
+    // in the fragment shader to add surface micro-detail without external assets.
+    const terrainTexGrass = createTerrainTexture("grass");
+    const terrainTexRock  = createTerrainTexture("rock");
+    const terrainTexSand  = createTerrainTexture("sand");
+    const terrainTexSnow  = createTerrainTexture("snow");
+    const terrainTexDirt  = createTerrainTexture("dirt");
+
     // ── Terrain ─────────────────────────────────────────────────────────────
     const terrainGeo = new THREE.PlaneGeometry(
       WORLD_SIZE,
@@ -1322,6 +1332,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uSunColor:     { value: new THREE.Color(1.0, 0.95, 0.80) },
         uSunIntensity: { value: 1.0 },
         uAmbientColor: { value: new THREE.Color(0.30, 0.38, 0.52) },
+        // Biome detail textures
+        uTexGrass:     { value: terrainTexGrass },
+        uTexRock:      { value: terrainTexRock  },
+        uTexSand:      { value: terrainTexSand  },
+        uTexSnow:      { value: terrainTexSnow  },
+        uTexDirt:      { value: terrainTexDirt  },
+        // Texture tiling scale (world units per tile repeat)
+        uTexScale:     { value: 1.0 / 8.0 },
+        // Texture blend strength (0 = no texture, 1 = full texture)
+        uTexStrength:  { value: 0.40 },
       },
       vertexShader: /* glsl */`
         varying vec3 vWorldPos;
@@ -1340,6 +1360,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uniform vec3  uSunColor;
         uniform float uSunIntensity;
         uniform vec3  uAmbientColor;
+
+        // Biome textures
+        uniform sampler2D uTexGrass;
+        uniform sampler2D uTexRock;
+        uniform sampler2D uTexSand;
+        uniform sampler2D uTexSnow;
+        uniform sampler2D uTexDirt;
+        uniform float     uTexScale;
+        uniform float     uTexStrength;
 
         varying vec3  vWorldPos;
         varying vec3  vNormal;
@@ -1368,6 +1397,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             a *= 0.5;
           }
           return v;
+        }
+
+        // ── Triplanar texture sampling ────────────────────────────────────────────
+        // Blends top-projection with side-projections on steep slopes for
+        // seamless texturing regardless of surface orientation.
+        vec3 triplanar(sampler2D tex, vec3 worldPos, vec3 normal, float scale) {
+          vec2 uvXZ = worldPos.xz * scale;
+          vec2 uvXY = worldPos.xy * scale;
+          vec2 uvZY = worldPos.zy * scale;
+          vec3 blendW = abs(normal);
+          blendW = pow(blendW, vec3(4.0));
+          blendW /= (blendW.x + blendW.y + blendW.z + 0.0001);
+          vec3 tXZ = texture2D(tex, uvXZ).rgb;
+          vec3 tXY = texture2D(tex, uvXY).rgb;
+          vec3 tZY = texture2D(tex, uvZY).rgb;
+          return tXZ * blendW.y + tXY * blendW.z + tZY * blendW.x;
         }
 
         // ── Biome palette ─────────────────────────────────────────────────────────
@@ -1399,40 +1444,60 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           // ── Biome color ────────────────────────────────────────────────────────
           vec3 col;
+
+          // Biome texture weights (sum used for triplanar blending)
+          float wGrass = 0.0;
+          float wRock  = 0.0;
+          float wSand  = 0.0;
+          float wSnow  = 0.0;
+          float wDirt  = 0.0;
+
           if (hWobble < -3.0) {
             col = cDeepWater;
+            // Water: no texture blend (handled by water plane above)
           } else if (hWobble < -0.5) {
             float t = clamp((hWobble + 3.0) / 2.5, 0.0, 1.0);
             col = mix(cDeepWater, cShallowWater, t);
+            wSand = t * 0.4;
           } else if (hWobble < 0.4) {
             float t = clamp((hWobble + 0.5) / 0.9, 0.0, 1.0);
             // Sand variation: lighter/darker patches
             vec3 sandVar = mix(cSandDark, cSand, vnoise(uv * 1.8));
             col = mix(cShallowWater, sandVar, t);
+            wSand = t;
           } else if (hWobble < 2.5) {
             float t = clamp((hWobble - 0.4) / 2.1, 0.0, 1.0);
             // Patchy transition from sand to grass (dry tufts)
             vec3 grassVar = mix(cBrightGrass, cDryGrass, meso * 0.5);
             col = mix(cSand, grassVar, t);
+            wSand  = 1.0 - t;
+            wGrass = t;
           } else if (hWobble < 7.0) {
             float t = clamp((hWobble - 2.5) / 4.5, 0.0, 1.0);
             // Bright → mid grass: patchy colour variation from noise
             vec3 g1 = mix(cBrightGrass, cDryGrass,   macro * 0.35);
             vec3 g2 = mix(cMidGrass,    cBrightGrass, meso  * 0.40);
             col = mix(g1, g2, t + (micro - 0.5) * 0.25);
+            wGrass = 1.0;
           } else if (hWobble < 17.0) {
             float t = clamp((hWobble - 7.0) / 10.0, 0.0, 1.0);
             vec3 g1 = mix(cMidGrass,  cBrightGrass, micro * 0.25);
             vec3 g2 = mix(cDarkGrass, cMidGrass,    meso  * 0.30);
             col = mix(g1, g2, t + (macro - 0.5) * 0.20);
+            wGrass = 1.0 - t * 0.5;
+            wDirt  = t * 0.5;
           } else if (hWobble < 28.0) {
             float t = clamp((hWobble - 17.0) / 11.0, 0.0, 1.0);
             vec3 rockVar = mix(cRockBrown, cRockGray, vnoise(uv * 1.2));
             col = mix(cDarkGrass, rockVar, t);
+            wDirt = 1.0 - t;
+            wRock = t;
           } else {
             float t = clamp((hWobble - 28.0) / 12.0, 0.0, 1.0);
             vec3 rockVar = mix(cRockBrown, cRockLight, vnoise(uv * 1.5));
             col = mix(rockVar, cSnow, t);
+            wRock = 1.0 - t;
+            wSnow = t;
           }
 
           // ── Slope → cliff rock overlay ────────────────────────────────────────
@@ -1443,6 +1508,48 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             vec3  cliffCol    = mix(cRockBrown, cRockGray, vnoise(uv * 0.9 + vec2(7.3, 2.1)));
             cliffCol *= mix(0.72, 1.05, crackDetail); // darker cracks, lighter faces
             col = mix(col, cliffCol, rockBlend);
+            // Shift texture weights towards rock on steep slopes
+            float rShift = rockBlend;
+            wGrass *= (1.0 - rShift);
+            wSand  *= (1.0 - rShift);
+            wDirt  *= (1.0 - rShift * 0.5);
+            wSnow  *= (1.0 - rShift * 0.7);
+            wRock  = clamp(wRock + rShift, 0.0, 1.0);
+          }
+
+          // ── Texture detail sampling (triplanar projection) ────────────────────
+          // Biome textures provide surface micro-detail to break up flat-colour look.
+          // Each texture is sampled at two scales and blended.
+          float totalW = wGrass + wRock + wSand + wSnow + wDirt + 0.0001;
+          vec3 texDetail = vec3(0.5); // neutral grey (no detail)
+
+          if (uTexStrength > 0.001) {
+            vec3 tGrass = triplanar(uTexGrass, vWorldPos, vNormal, uTexScale);
+            vec3 tRock  = triplanar(uTexRock,  vWorldPos, vNormal, uTexScale * 0.6);
+            vec3 tSand  = triplanar(uTexSand,  vWorldPos, vNormal, uTexScale * 1.2);
+            vec3 tSnow  = triplanar(uTexSnow,  vWorldPos, vNormal, uTexScale * 0.8);
+            vec3 tDirt  = triplanar(uTexDirt,  vWorldPos, vNormal, uTexScale * 0.9);
+
+            texDetail = (tGrass * wGrass + tRock * wRock + tSand * wSand
+                         + tSnow * wSnow + tDirt * wDirt) / totalW;
+
+            // Apply second (coarser) scale for depth
+            vec3 tGrass2 = triplanar(uTexGrass, vWorldPos, vNormal, uTexScale * 0.25);
+            vec3 tRock2  = triplanar(uTexRock,  vWorldPos, vNormal, uTexScale * 0.20);
+            vec3 tSand2  = triplanar(uTexSand,  vWorldPos, vNormal, uTexScale * 0.30);
+            vec3 tSnow2  = triplanar(uTexSnow,  vWorldPos, vNormal, uTexScale * 0.22);
+            vec3 tDirt2  = triplanar(uTexDirt,  vWorldPos, vNormal, uTexScale * 0.24);
+
+            vec3 texCoarse = (tGrass2 * wGrass + tRock2 * wRock + tSand2 * wSand
+                              + tSnow2 * wSnow + tDirt2 * wDirt) / totalW;
+
+            // Combine fine and coarse detail
+            texDetail = texDetail * 0.65 + texCoarse * 0.35;
+
+            // Remap: centre at 0.5 so blend is multiplicative-neutral
+            // col * (1 + strength*(detail - 0.5)*2) keeps average brightness
+            float detailFactor = 1.0 + uTexStrength * (texDetail.r * 0.4 + texDetail.g * 0.4 + texDetail.b * 0.2 - 0.5) * 2.0;
+            col *= clamp(detailFactor, 0.55, 1.55);
           }
 
           // ── Micro-shading: subtle brightness variation ─────────────────────────
@@ -5660,6 +5767,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (rainRef.current) { scene.remove(rainRef.current); rainRef.current = null; }
       if (lightningBoltRef.current) { scene.remove(lightningBoltRef.current); lightningBoltRef.current = null; }
       soundManager.destroy();
+      // Dispose procedural terrain textures
+      terrainTexGrass.dispose();
+      terrainTexRock.dispose();
+      terrainTexSand.dispose();
+      terrainTexSnow.dispose();
+      terrainTexDirt.dispose();
       renderer.dispose();
       if (mountNode) {
         mountNode.removeChild(renderer.domElement);
