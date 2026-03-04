@@ -71,7 +71,18 @@ export interface WeaponConfig {
 ### Game Loop (`components/Game3D.tsx`)
 
 - **`swapWeaponMesh(type)`** — replaces the camera-parented weapon group when switching.
-- **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits.
+- **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits. **Blocked** when possessing a sheep, on a boat, on the rocket, or inside the space station.
 - **Weapon sway** — per-weapon base position constants for idle sway animation.
 - **HUD** — weapon slots show emoji (⚔️ 🏹 🎯) with active weapon highlighted.
 - **Scroll wheel / [1][2][3]** — cycle or select weapons during gameplay.
+
+### State guards
+
+`doAttack()` exits early (no sound, no cooldown, no projectile) if any of these states are active:
+
+| State | Reason |
+|-------|--------|
+| `possessedSheepRef.current !== null` | Player is controlling a sheep body — no human weapons available |
+| `onBoatRef.current` | Steering the boat — combat disabled |
+| `onRocketRef.current` | Inside rocket cabin — combat disabled |
+| `inSpaceStationRef.current` | Inside space station — combat disabled |

@@ -124,6 +124,7 @@ const FOX_MAX_HP = 60;
 const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
 const FOX_ATTACK_RANGE = 2.5;
 const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
+const COIN_HEAL_AMOUNT = 20; // HP restored when collecting a coin
 
 // ─── Catapult Constants ────────────────────────────────────────────────────────
 const CATAPULT_COUNT = 6;
@@ -854,6 +855,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (!isLockedRef.current) return;
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
+    // Cannot attack while controlling a vehicle, possessing a sheep, or in the space station
+    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || inSpaceStationRef.current) return;
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
 
@@ -4499,6 +4502,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           coinsCollectedRef.current++;
           collected = coinsCollectedRef.current;
           soundManager.playCoinCollect();
+          // Coins restore player HP — connects the collection mechanic to the combat system
+          const healedAmount = Math.min(COIN_HEAL_AMOUNT, PLAYER_MAX_HP - playerHpRef.current);
+          if (healedAmount > 0) {
+            playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + COIN_HEAL_AMOUNT);
+            setAttackEffect(`+${healedAmount} HP`);
+            setTimeout(() => setAttackEffect(null), 700);
+          }
         }
       });
 
@@ -4908,7 +4918,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             fox.attackCooldown -= dt;
             if (fox.attackCooldown <= 0) {
               fox.attackCooldown = 1.0;
-              if (!gameOver) {
+              // No damage during rocket flight or in space station — player is physically elsewhere
+              if (!gameOver && !onRocketRef.current && !inSpaceStationRef.current) {
                 playerHpRef.current = Math.max(0, playerHpRef.current - FOX_ATTACK_DAMAGE);
                 setHitFlash(true);
                 setTimeout(() => setHitFlash(false), 300);
@@ -5166,8 +5177,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           return;
         }
 
-        // Check player collision
-        if (!gameOver) {
+        // Check player collision — no damage when player is in rocket or space station
+        if (!gameOver && !onRocketRef.current && !inSpaceStationRef.current) {
           const distToPlayer = ball.mesh.position.distanceTo(playerPos);
           if (distToPlayer < CANNONBALL_HIT_RADIUS) {
             playerHpRef.current = Math.max(0, playerHpRef.current - CANNONBALL_DAMAGE);
@@ -5376,7 +5387,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           closeSheepCount++;
         }
 
-        const fleeingFromPlayer = dist < SHEEP_FLEE_RADIUS;
+        // Sheep flee from the player body, but NOT when player is possessing a sheep
+        // (controlled sheep moves naturally among others, not as a scary human presence)
+        const fleeingFromPlayer = !possessedSheepRef.current && dist < SHEEP_FLEE_RADIUS;
         if (!sheep.isFleeing) sheep.isFleeing = fleeingFromPlayer;
 
         let movingSpeed = SHEEP_SPEED;
@@ -6565,7 +6578,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           <div
             className="font-bold text-2xl animate-bounce"
             style={{
-              color: attackEffect === "Miss" ? "#9ca3af" : "#fbbf24",
+              color: attackEffect === "Miss" ? "#9ca3af" : attackEffect?.startsWith("+") ? "#4ade80" : "#fbbf24",
               textShadow: "0 0 10px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.6)",
             }}
           >
@@ -6779,11 +6792,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
             </p>
             {gameState.catapultsDefeated > 0 && (
-              <p className="text-gray-500 text-xs" style={{ marginBottom: 28 }}>
+              <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
                 Zničil jsi <span className="font-bold" style={{ color: "#fbbf24" }}>{gameState.catapultsDefeated}</span> katapultů
               </p>
             )}
-            {gameState.catapultsDefeated === 0 && <div style={{ marginBottom: 28 }} />}
+            <p className="text-gray-500 text-xs" style={{ marginBottom: 28 }}>
+              Sebral jsi <span className="text-yellow-300 font-bold">{gameState.coinsCollected}</span> mincí z <span className="text-gray-400">{gameState.totalCoins}</span>
+            </p>
             <button
               className="bg-red-700 hover:bg-red-600 transition-colors text-white font-bold rounded-xl text-lg w-full"
               style={{ padding: "14px 32px" }}
