@@ -240,3 +240,49 @@ describe("Auto-docking: rocket arrives → immediate space station entry", () =>
     expect(SPACE_STATION_WORLD_Y).toBe(2000);
   });
 });
+
+// ── Rocket E-key exit guard: only exit in idle/boarded state ─────────────────
+describe("Rocket E-key exit guard", () => {
+  /**
+   * Mirrors the logic in Game3D.tsx: pressing E while on rocket should
+   * only detach the player when the rocket is in 'idle' or 'boarded' state.
+   * During 'launching', 'countdown', 'arrived', and 'docked' the E key must
+   * be a no-op on this branch (arrived is handled by the station-entry block).
+   */
+  type RocketStateType = "idle" | "boarded" | "countdown" | "launching" | "arrived" | "docked";
+
+  function canExitRocket(state: RocketStateType): boolean {
+    return state === "idle" || state === "boarded";
+  }
+
+  it("allows exit while idle", () => {
+    expect(canExitRocket("idle")).toBe(true);
+  });
+
+  it("allows exit while boarded (pre-launch)", () => {
+    expect(canExitRocket("boarded")).toBe(true);
+  });
+
+  it("does NOT allow exit while in countdown", () => {
+    expect(canExitRocket("countdown")).toBe(false);
+  });
+
+  it("does NOT allow exit while launching — prevents mid-flight ejection", () => {
+    expect(canExitRocket("launching")).toBe(false);
+  });
+
+  it("does NOT allow exit while arrived — station-entry branch handles this", () => {
+    expect(canExitRocket("arrived")).toBe(false);
+  });
+
+  it("does NOT allow exit while docked", () => {
+    expect(canExitRocket("docked")).toBe(false);
+  });
+
+  it("exactly two states allow rocket exit", () => {
+    const allStates: RocketStateType[] = ["idle", "boarded", "countdown", "launching", "arrived", "docked"];
+    const exitableStates = allStates.filter(canExitRocket);
+    expect(exitableStates).toHaveLength(2);
+    expect(exitableStates).toEqual(["idle", "boarded"]);
+  });
+});
