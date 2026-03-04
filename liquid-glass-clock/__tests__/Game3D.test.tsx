@@ -162,9 +162,10 @@ describe("Game3D component", () => {
     expect(() => render(<Game3D />)).not.toThrow();
   });
 
-  it("renders dense grass scene without crashing (GRASS_COUNT=60000)", () => {
-    // Ensures the grass (60 000 blades, 11–22 per cluster) still
+  it("renders dense grass scene without crashing (GRASS_COUNT=180000)", () => {
+    // Ensures the grass (180 000 blades, 11–22 per cluster, adaptive planes)
     // initialises without errors or memory overflows in the test environment.
+    // Test env uses 2000 blades to stay within memory limits.
     expect(() => render(<Game3D />)).not.toThrow();
   });
 
