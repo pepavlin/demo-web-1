@@ -1647,13 +1647,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Grass ───────────────────────────────────────────────────────────────
     {
       // Realistic grass: each blade uses a quadratic bezier curve baked into
-      // vertex positions, 3 planes with random Y-rotation (120° apart) for
-      // full volumetric appearance from all camera angles, true pointed tip,
-      // and 9 height bands for ultra-smooth curvature. Different cluster archetypes
-      // (short tuft / mixed meadow / tall reed) add habitat variety. A 4th plane
-      // is added to tall blades for a richer silhouette from all camera angles.
-      // Use a reduced count in test environments to keep memory within limits.
-      const GRASS_COUNT = process.env.NODE_ENV === "test" ? 2000 : 60000;
+      // vertex positions, 2-4 planes per blade (adaptive to height), true pointed
+      // tip, and 7 height bands for smooth curvature. Short blades (hScale < 0.80)
+      // use 2 planes to save GPU verts — 3× blade density compensates visually.
+      // Medium blades get 3 planes (120° apart), tall reeds get a 4th plane.
+      // Different cluster archetypes (short tuft / mixed meadow / tall reed) add
+      // habitat variety. Use a reduced count in test environments for memory limits.
+      const GRASS_COUNT = process.env.NODE_ENV === "test" ? 2000 : 180000;
       const BLADE_H_BASE = 0.76;   // slightly taller for lush appearance
       const BLADE_W_BASE = 0.086;  // narrower base for more realistic slender blades
       let gSeed = 7391;
@@ -1679,12 +1679,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const CLUSTER_RADIUS = 0.65;  // tighter clusters for denser appearance
       const BLADES_MIN = 11;        // at least 11 blades per cluster
       const BLADES_MAX = 22;        // up to 22 for very dense tufts
-      // Height band t-values: 9 bands give 8 regular quads + 1 tip triangle per plane.
-      // Dense at base (short segments) for accurate root curvature, spaced wider
-      // toward tip where the bezier curve is more linear — maximises smoothness
-      // at the most visually prominent part (the bend). Extra bands add detail to
-      // the mid-blade curve which is where the natural drape is most visible.
-      const H_LEVELS = [0, 0.04, 0.11, 0.20, 0.31, 0.44, 0.58, 0.72, 0.85, 0.94, 1.0];
+      // Height band t-values: 7 bands give 6 regular quads + 1 tip triangle per plane.
+      // Reduced from 11 to 8 entries (7 segments) to cut per-blade vertex count by ~30%
+      // while tripling blade count — density compensates for slightly simpler curves.
+      // Still denser at base for accurate root curvature where the bend is most visible.
+      const H_LEVELS = [0, 0.06, 0.18, 0.34, 0.52, 0.72, 0.88, 1.0];
       let placed = 0;
       let tries = 0;
 
@@ -1895,17 +1894,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           };
 
-          // Three planes spaced ~120° apart with slight asymmetric jitter —
-          // breaks the too-perfect star look and feels more organic.
+          // Plane count adapts to blade height — short blades (hScale < 0.80) get
+          // 2 planes at 90° apart: density from 3× more blades compensates for
+          // one fewer cross-section. Medium blades keep 3 planes (120° apart).
           // Tall blades (hScale > 1.25) get a 4th plane at ~90° offset so the
           // silhouette looks full from all camera angles, not just head-on.
           const planeJitter = (gRng() - 0.5) * 0.28;
           pushPlane(rotY);
-          pushPlane(rotY + Math.PI / 3 * 2 + planeJitter);
-          pushPlane(rotY + Math.PI / 3 * 4 - planeJitter * 0.5);
-          // 4th plane only for tall reeds/long grass — adds volumetric depth
-          if (hScale > 1.25) {
-            pushPlane(rotY + Math.PI / 2 + planeJitter * 0.3);
+          if (hScale < 0.80) {
+            // 2 planes at 90° — saves ~33% vertices for short grass which is
+            // visually compensated by the 3× blade density increase.
+            pushPlane(rotY + Math.PI / 2 + planeJitter);
+          } else {
+            // 3 planes for medium/tall grass — full volumetric appearance
+            pushPlane(rotY + Math.PI / 3 * 2 + planeJitter);
+            pushPlane(rotY + Math.PI / 3 * 4 - planeJitter * 0.5);
+            // 4th plane only for tall reeds/long grass — adds volumetric depth
+            if (hScale > 1.25) {
+              pushPlane(rotY + Math.PI / 2 + planeJitter * 0.3);
+            }
           }
 
           placed++;
