@@ -91,7 +91,7 @@ Handles all rocket state transitions each frame:
 | Key | Action |
 |-----|--------|
 | `E` | Board rocket (when nearby in idle state) |
-| `E` | Exit rocket (when in idle/boarded state) |
+| `E` | Exit rocket (only in idle/boarded state — no-op during launch/countdown/arrived/docked) |
 | `E` | Enter space station (when `arrived` at Mothership) |
 | `Space` | Initiate countdown (when boarded) |
 

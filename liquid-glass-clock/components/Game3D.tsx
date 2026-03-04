@@ -2926,7 +2926,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         if (onRocketRef.current) {
-          // ── Exit rocket (only allowed while idle/boarded, not during launch) ─
+          // ── Exit rocket (only allowed while idle/boarded, not during launch/arrival) ─
           const rd = rocketDataRef.current;
           if (rd && (rd.state === 'idle' || rd.state === 'boarded') && cameraRef.current) {
             // Place player at the base of the rocket
@@ -2938,11 +2938,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             playerRef.current.velY = 0;
             playerRef.current.onGround = true;
             rd.state = 'idle';
+            // Only detach player from rocket when exiting in idle/boarded state.
+            // During launch/countdown/arrived/docked the E key is a no-op here
+            // (arrived is handled by the space-station entry block above).
+            onRocketRef.current = false;
+            setOnRocket(false);
+            setRocketCountdown(null);
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
           }
-          onRocketRef.current = false;
-          setOnRocket(false);
-          setRocketCountdown(null);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
         } else if (nearRocketForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current) {
           // ── Board the rocket ────────────────────────────────────────────────
           const rd = rocketDataRef.current;
