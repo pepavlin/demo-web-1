@@ -2073,7 +2073,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Old: ~180k blades × 3 planes × 7 segments ≈ 7M+ triangles + heavy shader
       // New:  ~60k tufts × 2 quads × 2 triangles  ≈ 240k triangles + lean shader
       const GRASS_COUNT = process.env.NODE_ENV === "test" ? 500 : 60000;
-      const BLADE_H = 1.1;  // base tuft height (world units)
+      const BLADE_H = 0.37;  // base tuft height (world units) — ~3× shorter than original 1.1
       const BLADE_W = 0.55; // base tuft width  (wider than individual blade to fill field)
       let gSeed = 7391;
       const gRng = () => {
@@ -2114,32 +2114,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const tiltX = (gRng() - 0.5) * 0.20 + 0.04;
         const tiltZ = (gRng() - 0.5) * 0.20;
 
-        // ── Colour: same 6 archetypes as before, terrain-zone + patch-hash ─
+        // ── Colour: terrain-zone + patch-hash colour variation ──────────────
         const pH     = posHash(Math.floor(wx / 14),  Math.floor(wz / 14));
         const pHFine = posHash(Math.floor(wx / 3.5), Math.floor(wz / 3.5));
         const isValley  = wy < 3.5;
         const isHigh    = wy > 8;
         const colorRoll = gRng();
         const lushBoost = isValley ? 0.18 : 0.0;
-        const dryBoost  = isHigh   ? 0.18 : 0.0;
-        const patchBias = (pH - 0.5) * 0.16;
+        // Reduced dryBoost (was 0.18) — previously caused up to ~50% brown grass at altitude
+        const dryBoost  = isHigh   ? 0.06 : 0.0;
+        // Reduced patchBias strength (was 0.16) — patches no longer go fully brown
+        const patchBias = (pH - 0.5) * 0.06;
 
         let rB: number, gB: number, bB: number; // root colour
         let rT: number, gT: number, bT: number; // tip colour
-        if (colorRoll < 0.05 + dryBoost + patchBias) {
-          // Straw / bleached dry
+        if (colorRoll < 0.02 + dryBoost + patchBias) {
+          // Straw / bleached dry (rare accent only)
           rB = 0.22 + gRng()*0.08 + pHFine*0.04; gB = 0.20 + gRng()*0.08; bB = 0.01;
           rT = 0.58 + gRng()*0.14;                gT = 0.42 + gRng()*0.10; bT = 0.02;
-        } else if (colorRoll < 0.13 + dryBoost + patchBias) {
-          // Autumn rust
-          rB = 0.18 + gRng()*0.07; gB = 0.18 + gRng()*0.08; bB = 0.01;
-          rT = 0.62 + gRng()*0.16; gT = 0.28 + gRng()*0.10; bT = 0.01;
-        } else if (colorRoll < 0.24 + dryBoost + patchBias) {
-          // Olive / yellowish
-          rB = 0.12 + gRng()*0.06; gB = 0.28 + gRng()*0.10 + pHFine*0.04; bB = 0.02;
-          rT = 0.36 + gRng()*0.12; gT = 0.50 + gRng()*0.14;                bT = 0.03;
+        } else if (colorRoll < 0.05 + dryBoost + patchBias) {
+          // Autumn rust (very rare)
+          rB = 0.14 + gRng()*0.06; gB = 0.20 + gRng()*0.08; bB = 0.01;
+          rT = 0.38 + gRng()*0.12; gT = 0.35 + gRng()*0.10; bT = 0.01;
+        } else if (colorRoll < 0.14 + dryBoost + patchBias) {
+          // Olive / yellowish-green
+          rB = 0.08 + gRng()*0.05; gB = 0.28 + gRng()*0.10 + pHFine*0.04; bB = 0.02;
+          rT = 0.24 + gRng()*0.10; gT = 0.52 + gRng()*0.14;                bT = 0.03;
         } else if (colorRoll < 0.55 + lushBoost - patchBias) {
-          // Bright fresh green
+          // Bright fresh green (dominant)
           rB = 0.02 + gRng()*0.03; gB = 0.28 + gRng()*0.10 + pHFine*0.05; bB = 0.03;
           rT = 0.14 + gRng()*0.09; gT = 0.72 + gRng()*0.16;                bT = 0.05;
         } else if (colorRoll < 0.82 + lushBoost - patchBias) {
