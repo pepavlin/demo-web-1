@@ -2735,3 +2735,383 @@ export function buildPumpkinMesh(scale = 1.0): THREE.Group {
   group.scale.setScalar(scale);
   return group;
 }
+
+// ─── Spider ───────────────────────────────────────────────────────────────────
+
+/**
+ * Builds a spider mesh with 8 legs and glowing red eyes.
+ * The returned group is centered at ground level (y = 0 at the belly).
+ * Scale the group externally to get small / medium / large variants.
+ */
+export function buildSpiderMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const bodyMat = new THREE.MeshLambertMaterial({ color: 0x1a0a0a }); // near-black dark brown
+  const legMat  = new THREE.MeshLambertMaterial({ color: 0x2a0f0f }); // slightly lighter
+  const eyeMat  = new THREE.MeshLambertMaterial({ color: 0xff2020, emissive: new THREE.Color(0xff0000), emissiveIntensity: 0.6 });
+
+  // ── Abdomen (rear body) ─────────────────────────────────────────────────────
+  const abdomenGeo = new THREE.SphereGeometry(0.55, 10, 8);
+  const abdomen = new THREE.Mesh(abdomenGeo, bodyMat);
+  abdomen.scale.set(1, 0.85, 1.2);
+  abdomen.position.set(-0.55, 0.42, 0);
+  abdomen.castShadow = true;
+  group.add(abdomen);
+
+  // ── Cephalothorax (front body / head) ──────────────────────────────────────
+  const cephGeo = new THREE.SphereGeometry(0.40, 10, 8);
+  const ceph = new THREE.Mesh(cephGeo, bodyMat);
+  ceph.scale.set(1, 0.8, 0.9);
+  ceph.position.set(0.15, 0.38, 0);
+  ceph.castShadow = true;
+  group.add(ceph);
+
+  // ── Eyes (8 small glowing red spheres arranged on front) ───────────────────
+  const eyeGeo = new THREE.SphereGeometry(0.055, 5, 4);
+  const eyePositions = [
+    [0.52,  0.58,  0.14],
+    [0.52,  0.58, -0.14],
+    [0.50,  0.62,  0.07],
+    [0.50,  0.62, -0.07],
+    [0.48,  0.56,  0.22],
+    [0.48,  0.56, -0.22],
+    [0.46,  0.50,  0.18],
+    [0.46,  0.50, -0.18],
+  ];
+  eyePositions.forEach(([x, y, z]) => {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(x, y, z);
+    group.add(eye);
+  });
+
+  // ── Legs (8 legs, 4 on each side) ──────────────────────────────────────────
+  const legSegGeo = new THREE.CylinderGeometry(0.045, 0.035, 0.7, 5);
+  const legTipGeo = new THREE.CylinderGeometry(0.03, 0.01, 0.55, 5);
+
+  const legSideZ = [0.30, 0.12, -0.12, -0.30]; // 4 attachment points per side
+
+  for (let side = 0; side < 2; side++) {
+    const sideSign = side === 0 ? 1 : -1;
+    legSideZ.forEach((zOffset, i) => {
+      const legGroup = new THREE.Group();
+      legGroup.position.set(-0.05 + i * 0.12, 0.38, sideSign * Math.abs(zOffset));
+
+      // Upper leg segment
+      const upper = new THREE.Mesh(legSegGeo, legMat);
+      upper.rotation.z = sideSign * (0.7 + i * 0.12); // angle outward
+      upper.rotation.x = (i - 1.5) * 0.18;
+      upper.position.set(sideSign * 0.3, -0.1, 0);
+      upper.castShadow = true;
+      legGroup.add(upper);
+
+      // Lower leg segment (angled down to ground)
+      const lower = new THREE.Mesh(legTipGeo, legMat);
+      lower.rotation.z = sideSign * (-0.5);
+      lower.rotation.x = (i - 1.5) * 0.15;
+      lower.position.set(sideSign * 0.65, -0.42, 0);
+      lower.castShadow = true;
+      legGroup.add(lower);
+
+      group.add(legGroup);
+    });
+  }
+
+  // ── Chelicerae (fangs) ──────────────────────────────────────────────────────
+  const fangGeo = new THREE.CylinderGeometry(0.025, 0.01, 0.22, 4);
+  const fangMat = new THREE.MeshLambertMaterial({ color: 0x4a1010 });
+  [-0.08, 0.08].forEach((zOff) => {
+    const fang = new THREE.Mesh(fangGeo, fangMat);
+    fang.position.set(0.52, 0.28, zOff);
+    fang.rotation.z = 0.5;
+    group.add(fang);
+  });
+
+  return group;
+}
+
+// ─── Cave ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds a cave entrance + interior chamber.
+ * The group origin is at the center of the cave entrance at ground level (y = 0).
+ * Interior depth runs along -Z axis (into the cave).
+ */
+export function buildCaveMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const stoneMat  = new THREE.MeshLambertMaterial({ color: 0x5a5055 });  // dark grey-purple stone
+  const darkMat   = new THREE.MeshLambertMaterial({ color: 0x2a2530 });  // deep shadow interior
+  const floorMat  = new THREE.MeshLambertMaterial({ color: 0x484048 });  // cave floor
+
+  // ── Entrance arch (several large stone blocks forming a jagged opening) ─────
+  const archPositions: Array<[number, number, number, number, number, number]> = [
+    // [x, y, z, sx, sy, sz]  — box extents for each stone block of the arch
+    [-4.5, 2.5,  0,   1.2, 3.5, 2.0], // left pillar
+    [ 4.5, 2.5,  0,   1.2, 3.5, 2.0], // right pillar
+    [ 0,   6.2,  0,  10.0, 1.8, 2.2], // top lintel
+    [-3.0, 5.0,  0,   2.8, 1.2, 1.8], // top-left fill
+    [ 3.0, 5.0,  0,   2.8, 1.2, 1.8], // top-right fill
+    [-5.2, 0.8,  0,   1.0, 2.2, 1.8], // base left bump
+    [ 5.2, 0.8,  0,   1.0, 2.2, 1.8], // base right bump
+  ];
+
+  archPositions.forEach(([x, y, z, sx, sy, sz]) => {
+    const geo = new THREE.BoxGeometry(sx, sy, sz);
+    const mesh = new THREE.Mesh(geo, stoneMat);
+    mesh.position.set(x, y, z);
+    // Add slight random rotation for jagged natural look
+    mesh.rotation.z = (Math.random() - 0.5) * 0.12;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // ── Interior walls (left, right, ceiling) ──────────────────────────────────
+  const interiorDepth = 22;
+  const interiorWidth = 9;
+  const interiorHeight = 5.5;
+
+  // Left wall
+  const leftWall = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, interiorHeight + 2, interiorDepth),
+    stoneMat
+  );
+  leftWall.position.set(-interiorWidth / 2 - 0.75, interiorHeight / 2, -interiorDepth / 2);
+  leftWall.receiveShadow = true;
+  group.add(leftWall);
+
+  // Right wall
+  const rightWall = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, interiorHeight + 2, interiorDepth),
+    stoneMat
+  );
+  rightWall.position.set(interiorWidth / 2 + 0.75, interiorHeight / 2, -interiorDepth / 2);
+  rightWall.receiveShadow = true;
+  group.add(rightWall);
+
+  // Ceiling
+  const ceiling = new THREE.Mesh(
+    new THREE.BoxGeometry(interiorWidth + 3, 1.8, interiorDepth),
+    darkMat
+  );
+  ceiling.position.set(0, interiorHeight + 0.9, -interiorDepth / 2);
+  ceiling.receiveShadow = true;
+  group.add(ceiling);
+
+  // Back wall
+  const backWall = new THREE.Mesh(
+    new THREE.BoxGeometry(interiorWidth + 3, interiorHeight + 3, 2.0),
+    stoneMat
+  );
+  backWall.position.set(0, interiorHeight / 2, -interiorDepth - 1);
+  backWall.receiveShadow = true;
+  group.add(backWall);
+
+  // Floor
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(interiorWidth + 3, 0.5, interiorDepth + 2),
+    floorMat
+  );
+  floor.position.set(0, -0.25, -interiorDepth / 2);
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // ── Stalactites hanging from ceiling ──────────────────────────────────────
+  const stalMat = new THREE.MeshLambertMaterial({ color: 0x504a55 });
+  const stalPositions: Array<[number, number]> = [
+    [-2.5, -5], [-1.0, -8], [1.5, -6], [3.0, -10],
+    [-3.5, -13], [0.5, -15], [2.5, -18], [-1.8, -20],
+  ];
+  stalPositions.forEach(([sx, sz]) => {
+    const height = 0.6 + Math.random() * 1.2;
+    const stalGeo = new THREE.ConeGeometry(0.18, height, 6);
+    const stal = new THREE.Mesh(stalGeo, stalMat);
+    stal.position.set(sx, interiorHeight - 0.05, sz);
+    stal.rotation.z = Math.PI; // point downward
+    stal.castShadow = true;
+    group.add(stal);
+  });
+
+  // ── Stalagmites on floor ──────────────────────────────────────────────────
+  const stagPositions: Array<[number, number]> = [
+    [-4.0, -4], [3.8, -7], [-3.5, -16], [4.2, -19],
+  ];
+  stagPositions.forEach(([sx, sz]) => {
+    const height = 0.4 + Math.random() * 0.8;
+    const stagGeo = new THREE.ConeGeometry(0.14, height, 6);
+    const stag = new THREE.Mesh(stagGeo, stalMat);
+    stag.position.set(sx, height / 2, sz);
+    stag.castShadow = true;
+    group.add(stag);
+  });
+
+  return group;
+}
+
+// ─── Cave Torch ───────────────────────────────────────────────────────────────
+
+/**
+ * Builds a wall-mounted torch mesh.
+ * Returns the group (attach a PointLight separately).
+ * Origin is at the torch base (wall mount point).
+ */
+export function buildTorchMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const stickMat  = new THREE.MeshLambertMaterial({ color: 0x5c3a1e }); // dark wood
+  const bandMat   = new THREE.MeshLambertMaterial({ color: 0x8b6914 }); // iron band
+  const flameMat  = new THREE.MeshLambertMaterial({
+    color: 0xff8800,
+    emissive: new THREE.Color(0xff6600),
+    emissiveIntensity: 0.9,
+  });
+  const glowMat   = new THREE.MeshLambertMaterial({
+    color: 0xffcc44,
+    emissive: new THREE.Color(0xffaa00),
+    emissiveIntensity: 0.7,
+    transparent: true,
+    opacity: 0.7,
+  });
+
+  // Stick
+  const stickGeo = new THREE.CylinderGeometry(0.055, 0.045, 0.7, 7);
+  const stick = new THREE.Mesh(stickGeo, stickMat);
+  stick.position.y = 0.35;
+  stick.castShadow = true;
+  group.add(stick);
+
+  // Iron band (bracket)
+  const bandGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.08, 8);
+  const band = new THREE.Mesh(bandGeo, bandMat);
+  band.position.y = 0.15;
+  group.add(band);
+
+  // Flame (orange teardrop-like scaled sphere)
+  const flameGeo = new THREE.SphereGeometry(0.13, 7, 6);
+  const flame = new THREE.Mesh(flameGeo, flameMat);
+  flame.scale.set(1, 1.6, 1);
+  flame.position.y = 0.78;
+  flame.name = "flame"; // for animation reference
+  group.add(flame);
+
+  // Inner brighter core
+  const coreGeo = new THREE.SphereGeometry(0.07, 5, 4);
+  const core = new THREE.Mesh(coreGeo, glowMat);
+  core.scale.set(1, 1.4, 1);
+  core.position.y = 0.80;
+  group.add(core);
+
+  return group;
+}
+
+// ─── Treasure Chest ───────────────────────────────────────────────────────────
+
+/**
+ * Builds a treasure chest mesh.
+ * Returns `{ group, lidGroup }` — rotate `lidGroup.rotation.x` to open the lid.
+ * The chest origin is at the base (y = 0 = ground level).
+ */
+export function buildTreasureChestMesh(): { group: THREE.Group; lidGroup: THREE.Group } {
+  const group = new THREE.Group();
+
+  const woodMat  = new THREE.MeshLambertMaterial({ color: 0x5c3317 }); // dark oak
+  const ironMat  = new THREE.MeshLambertMaterial({ color: 0x4a4a4a }); // iron fittings
+  const goldMat  = new THREE.MeshLambertMaterial({ color: 0xd4a017, emissive: new THREE.Color(0x8b6914), emissiveIntensity: 0.3 });
+  const gemMat   = new THREE.MeshLambertMaterial({ color: 0x00ccff, emissive: new THREE.Color(0x0088ff), emissiveIntensity: 0.5 });
+  const interiorMat = new THREE.MeshLambertMaterial({ color: 0x2a1a08 }); // dark interior
+
+  // ── Base ───────────────────────────────────────────────────────────────────
+  const baseGeo = new THREE.BoxGeometry(1.4, 0.8, 0.9);
+  const base = new THREE.Mesh(baseGeo, woodMat);
+  base.position.y = 0.4;
+  base.castShadow = true;
+  base.receiveShadow = true;
+  group.add(base);
+
+  // Interior visible when open (dark box inside)
+  const interiorGeo = new THREE.BoxGeometry(1.2, 0.6, 0.7);
+  const interior = new THREE.Mesh(interiorGeo, interiorMat);
+  interior.position.y = 0.4;
+  group.add(interior);
+
+  // ── Iron corner reinforcements ─────────────────────────────────────────────
+  const cornerPositions: Array<[number, number, number]> = [
+    [ 0.65, 0.4,  0.43],
+    [-0.65, 0.4,  0.43],
+    [ 0.65, 0.4, -0.43],
+    [-0.65, 0.4, -0.43],
+  ];
+  cornerPositions.forEach(([x, y, z]) => {
+    const cornerGeo = new THREE.BoxGeometry(0.12, 0.72, 0.12);
+    const corner = new THREE.Mesh(cornerGeo, ironMat);
+    corner.position.set(x, y, z);
+    group.add(corner);
+  });
+
+  // Horizontal iron bands
+  [0.2, 0.62].forEach((yBand) => {
+    const bandGeo = new THREE.BoxGeometry(1.52, 0.06, 0.06);
+    const bandFront = new THREE.Mesh(bandGeo, ironMat);
+    bandFront.position.set(0, yBand, 0.46);
+    group.add(bandFront);
+    const bandBack = new THREE.Mesh(bandGeo, ironMat);
+    bandBack.position.set(0, yBand, -0.46);
+    group.add(bandBack);
+  });
+
+  // ── Lid group (pivot at hinge — back top of base) ─────────────────────────
+  const lidGroup = new THREE.Group();
+  // Pivot point is at back edge of the chest, top of the base
+  lidGroup.position.set(0, 0.82, -0.43);
+
+  const lidGeo = new THREE.BoxGeometry(1.4, 0.38, 0.9);
+  const lid = new THREE.Mesh(lidGeo, woodMat);
+  lid.position.set(0, 0.19, 0.02);
+  lid.castShadow = true;
+  lidGroup.add(lid);
+
+  // Lid iron band
+  const lidBandGeo = new THREE.BoxGeometry(1.52, 0.06, 0.06);
+  const lidBandFront = new THREE.Mesh(lidBandGeo, ironMat);
+  lidBandFront.position.set(0, 0.19, 0.47);
+  lidGroup.add(lidBandFront);
+
+  // Lid arch (rounded top strip)
+  const lidArchGeo = new THREE.CylinderGeometry(0.20, 0.20, 1.42, 8, 1, false, 0, Math.PI);
+  const lidArch = new THREE.Mesh(lidArchGeo, woodMat);
+  lidArch.rotation.z = Math.PI / 2;
+  lidArch.position.set(0, 0.20, 0.02);
+  lidArch.castShadow = true;
+  lidGroup.add(lidArch);
+
+  group.add(lidGroup);
+
+  // ── Lock clasp ─────────────────────────────────────────────────────────────
+  const lockGeo = new THREE.BoxGeometry(0.18, 0.18, 0.08);
+  const lock = new THREE.Mesh(lockGeo, goldMat);
+  lock.position.set(0, 0.55, 0.48);
+  group.add(lock);
+
+  // ── Gold coins / gems visible inside when opened ──────────────────────────
+  // (positioned inside chest — revealed when lid opens)
+  const coinGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.02, 8);
+  const coinPositions: Array<[number, number, number]> = [
+    [0.2, 0.05, 0.1], [-0.2, 0.05, 0.0], [0.0, 0.05, 0.08],
+    [0.35, 0.05, -0.05], [-0.35, 0.05, 0.12],
+  ];
+  coinPositions.forEach(([x, y, z]) => {
+    const coin = new THREE.Mesh(coinGeo, goldMat);
+    coin.position.set(x, y, z);
+    coin.rotation.x = Math.PI / 2 + (Math.random() - 0.5) * 0.4;
+    group.add(coin);
+  });
+
+  // Gem
+  const gemGeo = new THREE.OctahedronGeometry(0.10, 0);
+  const gem = new THREE.Mesh(gemGeo, gemMat);
+  gem.position.set(-0.1, 0.18, 0.05);
+  gem.rotation.y = 0.8;
+  group.add(gem);
+
+  return { group, lidGroup };
+}

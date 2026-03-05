@@ -63,11 +63,15 @@ import {
   buildRocketMesh,
   buildSpaceStationInterior,
   buildPumpkinMesh,
+  buildSpiderMesh,
+  buildCaveMesh,
+  buildTorchMesh,
+  buildTreasureChestMesh,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, WorldItem, PlacedWorldItemData, WorldItemType } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData } from "@/lib/gameTypes";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -81,7 +85,7 @@ import {
   SAILBOAT_CAM_DIST,
   type HarborShipData,
 } from "@/lib/harborSystem";
-import { WEAPON_CONFIGS } from "@/lib/gameTypes";
+import { WEAPON_CONFIGS, SPIDER_TYPE_CONFIGS, type SpiderType } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
   type WeatherState,
@@ -198,6 +202,27 @@ const ROCKET_FLIGHT_DURATION = 12;
 const SPACE_STATION_WORLD_Y = 2000;
 const SPACE_STATION_WORLD_X = 0;
 const SPACE_STATION_WORLD_Z = 0;
+
+// ─── Cave Constants ────────────────────────────────────────────────────────────
+/** Fixed world-space position of the cave entrance centre. */
+const CAVE_X = -95;
+const CAVE_Z = -85;
+/** Distance from cave centre within which spiders become aggressive. */
+const SPIDER_AGGRO_RADIUS = 28;
+/** Spiders stay within this radius of cave centre (territory boundary). */
+const CAVE_TERRITORY_RADIUS = 35;
+/** Spider counts per type (desktop / mobile). */
+const SPIDER_COUNTS: Record<SpiderType, [number, number]> = {
+  small:  [5, 2],
+  medium: [3, 1],
+  large:  [2, 1],
+};
+/** Coins awarded when the treasure chest is opened. */
+const CHEST_REWARD_COINS = 20;
+/** How close the player must be to open the chest. */
+const CHEST_OPEN_RADIUS = 2.5;
+/** Torch flicker speed multiplier. */
+const TORCH_FLICKER_SPEED = 4.5;
 
 // ─── Swim Constants ───────────────────────────────────────────────────────────
 const SWIM_SPEED = 5.5;         // units/second when swimming in water
@@ -420,6 +445,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const cannonballsRef = useRef<CannonballData[]>([]);
   const impactEffectsRef = useRef<ImpactEffect[]>([]);
 
+  // ─── Cave / Spider / Chest Refs ───────────────────────────────────────────────
+  const spiderListRef = useRef<SpiderData[]>([]);
+  const caveTorchesRef = useRef<CaveTorchData[]>([]);
+  const treasureChestRef = useRef<TreasureChestData | null>(null);
+  const spidersDefeatedRef = useRef(0);
+
   // ─── Blood Particle Refs ──────────────────────────────────────────────────────
   const bloodParticlesRef = useRef<BloodParticle[]>([]);
 
@@ -563,6 +594,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     playerHp: PLAYER_MAX_HP,
     foxesDefeated: 0,
     catapultsDefeated: 0,
+    spidersDefeated: 0,
     attackReady: true,
   });
   const [nearCatapultHp, setNearCatapultHp] = useState<{ hp: number; maxHp: number } | null>(null);
@@ -579,6 +611,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const isSwimmingRef = useRef(false);
   const [attackEffect, setAttackEffect] = useState<string | null>(null);
   const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
+  const [nearSpiderHp, setNearSpiderHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
+  const [chestOpenedMsg, setChestOpenedMsg] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const implementBufferRef = useRef<string>("");
 
@@ -774,6 +808,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (mat.emissive) {
           mat.emissive.set(0xff2200);
           setTimeout(() => mat.emissive.set(0x000000), 220);
+        }
+      }
+    });
+  }
+
+  // ─── Flash spider mesh red on hit ────────────────────────────────────────────
+  function flashSpiderMesh(mesh: THREE.Group) {
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.set(0xff2200);
+          setTimeout(() => mat.emissive.set(mat.color.r > 0.3 ? 0xff0000 : 0x000000), 220);
         }
       }
     });
@@ -1096,6 +1144,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (cat.hp <= 0) {
           cat.isAlive = false;
           catapultsDefeatedRef.current++;
+        }
+      }
+    }
+
+    // ── Melee hit on spiders ─────────────────────────────────────────────────
+    if (weaponCfg.type === "sword") {
+      let closestSpider: SpiderData | null = null;
+      let closestSpiderDist = weaponCfg.range * 1.2; // slight range boost for large spiders
+
+      spiderListRef.current.forEach((spider) => {
+        if (!spider.isAlive) return;
+        const cfg = SPIDER_TYPE_CONFIGS[spider.type];
+        const d = spider.mesh.position.distanceTo(playerPos);
+        if (d < closestSpiderDist + cfg.attackRange * 0.3) {
+          closestSpiderDist = d;
+          closestSpider = spider;
+        }
+      });
+
+      if (closestSpider) {
+        const spider = closestSpider as SpiderData;
+        spider.hp = Math.max(0, spider.hp - weaponCfg.damage);
+        spider.hitFlashTimer = 0.25;
+        flashSpiderMesh(spider.mesh);
+        soundManager.playFoxHit(); // reuse fox hit sound
+        setAttackEffect(`-${weaponCfg.damage}`);
+        setTimeout(() => setAttackEffect(null), 700);
+
+        if (spider.hp <= 0) {
+          spider.isAlive = false;
+          spidersDefeatedRef.current++;
+          soundManager.playFoxDeath(); // reuse death sound
         }
       }
     }
@@ -2803,6 +2883,120 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
       return acc;
     }, []);
+
+    // ── Cave ─────────────────────────────────────────────────────────────────
+    {
+      const caveY = getTerrainHeightSampled(CAVE_X, CAVE_Z);
+      const caveGroup = buildCaveMesh();
+      caveGroup.position.set(CAVE_X, caveY, CAVE_Z);
+      // Cave entrance faces south (toward player spawn)
+      caveGroup.rotation.y = Math.PI;
+      scene.add(caveGroup);
+
+      // ── Torches inside cave ──────────────────────────────────────────────
+      // Positions are relative to cave entrance, along cave interior (-Z axis)
+      const torchOffsets: Array<[number, number, number]> = [
+        [-3.5, 2.8, -5],   // left wall near entrance
+        [ 3.5, 2.8, -5],   // right wall near entrance
+        [-3.5, 2.8, -12],  // left wall mid-cave
+        [ 3.5, 2.8, -12],  // right wall mid-cave
+        [-3.5, 2.8, -19],  // left wall deep
+        [ 3.5, 2.8, -19],  // right wall deep
+      ];
+
+      caveTorchesRef.current = torchOffsets.map(([tx, ty, tz]) => {
+        const torchMesh = buildTorchMesh();
+
+        // Convert local offset to world position (cave faces PI rotation)
+        const worldX = CAVE_X + Math.cos(Math.PI) * tx - Math.sin(Math.PI) * tz;
+        const worldZ = CAVE_Z + Math.sin(Math.PI) * tx + Math.cos(Math.PI) * tz;
+        const worldY = caveY + ty;
+
+        torchMesh.position.set(worldX, worldY, worldZ);
+        // Torch leans toward cave interior
+        torchMesh.rotation.x = 0.25;
+        scene.add(torchMesh);
+
+        const light = new THREE.PointLight(0xff8822, 1.4, 12, 1.5);
+        light.position.set(worldX, worldY + 0.8, worldZ);
+        scene.add(light);
+
+        return {
+          mesh: torchMesh,
+          light,
+          baseIntensity: 1.4,
+          flickerTimer: Math.random() * Math.PI * 2,
+        };
+      });
+
+      // ── Treasure chest deep in cave ──────────────────────────────────────
+      // Placed at the back of the cave interior
+      const chestLocalX = 1.5;
+      const chestLocalZ = -18;
+      const chestWorldX = CAVE_X + Math.cos(Math.PI) * chestLocalX - Math.sin(Math.PI) * chestLocalZ;
+      const chestWorldZ = CAVE_Z + Math.sin(Math.PI) * chestLocalX + Math.cos(Math.PI) * chestLocalZ;
+      const chestWorldY = caveY;
+
+      const { group: chestGroup, lidGroup } = buildTreasureChestMesh();
+      chestGroup.position.set(chestWorldX, chestWorldY, chestWorldZ);
+      chestGroup.rotation.y = Math.PI * 0.5;
+      scene.add(chestGroup);
+
+      // Subtle ambient glow near chest
+      const chestLight = new THREE.PointLight(0xd4a017, 0.6, 6, 2);
+      chestLight.position.set(chestWorldX, chestWorldY + 1.5, chestWorldZ);
+      scene.add(chestLight);
+
+      treasureChestRef.current = {
+        mesh: chestGroup,
+        lidGroup,
+        isOpened: false,
+        x: chestWorldX,
+        z: chestWorldZ,
+        rewardCoins: CHEST_REWARD_COINS,
+      };
+
+      // ── Spider spawning ──────────────────────────────────────────────────
+      const isMob = IS_MOBILE;
+      const allSpiders: SpiderData[] = [];
+      (["small", "medium", "large"] as SpiderType[]).forEach((type) => {
+        const cfg = SPIDER_TYPE_CONFIGS[type];
+        const count = isMob ? SPIDER_COUNTS[type][1] : SPIDER_COUNTS[type][0];
+
+        for (let i = 0; i < count; i++) {
+          // Spawn spiders at random positions inside cave interior
+          const angle = Math.random() * Math.PI * 2;
+          const radius = 4 + Math.random() * 14;
+          const spiderLocalX = Math.cos(angle) * radius * 0.5; // cave is narrow
+          const spiderLocalZ = -(6 + Math.random() * 14);      // inside cave depth
+
+          const spiderWorldX = CAVE_X + Math.cos(Math.PI) * spiderLocalX - Math.sin(Math.PI) * spiderLocalZ;
+          const spiderWorldZ = CAVE_Z + Math.sin(Math.PI) * spiderLocalX + Math.cos(Math.PI) * spiderLocalZ;
+          const spiderWorldY = caveY;
+
+          const spiderMesh = buildSpiderMesh();
+          spiderMesh.scale.setScalar(cfg.scale);
+          spiderMesh.position.set(spiderWorldX, spiderWorldY, spiderWorldZ);
+          spiderMesh.rotation.y = Math.random() * Math.PI * 2;
+          scene.add(spiderMesh);
+
+          allSpiders.push({
+            mesh: spiderMesh,
+            type,
+            hp: cfg.maxHp,
+            maxHp: cfg.maxHp,
+            isAlive: true,
+            attackCooldown: Math.random() * cfg.attackCooldown,
+            hitFlashTimer: 0,
+            wanderTimer: Math.random() * 3,
+            wanderAngle: Math.random() * Math.PI * 2,
+            caveX: CAVE_X,
+            caveZ: CAVE_Z,
+          });
+        }
+      });
+      spiderListRef.current = allSpiders;
+    }
 
     // ── Coins / Gems ─────────────────────────────────────────────────────────
     const coinPoints = generateSpawnPoints(COIN_COUNT, 20, 350, 555);
@@ -5219,6 +5413,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
+        // Check spider collisions
+        if (!bulletHit) {
+          for (const spider of spiderListRef.current) {
+            if (!spider.isAlive) continue;
+            const dist = bullet.mesh.position.distanceTo(spider.mesh.position);
+            if (dist < BULLET_HIT_RADIUS * 1.1) {
+              const weaponKey = bullet.weaponType ?? selectedWeaponRef.current;
+              const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
+              const dmg = bullet.power !== undefined
+                ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+                : baseDmg;
+              spider.hp = Math.max(0, spider.hp - dmg);
+              spider.hitFlashTimer = 0.25;
+              flashSpiderMesh(spider.mesh);
+              soundManager.playFoxHit();
+              setAttackEffect(`-${dmg}`);
+              setTimeout(() => setAttackEffect(null), 700);
+              if (spider.hp <= 0) {
+                spider.isAlive = false;
+                spidersDefeatedRef.current++;
+                soundManager.playFoxDeath();
+              }
+              toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
         // Check sheep collisions (ranged weapons can also kill sheep)
         if (!bulletHit) {
           for (const sheep of sheepListRef.current) {
@@ -5460,6 +5683,156 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setNearFoxHp({ hp: f.hp, maxHp: f.maxHp, name: "Liška" });
       } else {
         setNearFoxHp(null);
+      }
+
+      // ── Spider AI ───────────────────────────────────────────────────────────
+      let spiderNear = false;
+      let closestAliveSpider: SpiderData | null = null;
+      let closestAliveSpiderDist = Infinity;
+
+      spiderListRef.current.forEach((spider) => {
+        const sm = spider.mesh;
+
+        // Death animation: scale down then hide
+        if (!spider.isAlive) {
+          if (sm.visible) {
+            sm.scale.setScalar(Math.max(0, sm.scale.x - dt * 3.5));
+            if (sm.scale.x <= 0.01) sm.visible = false;
+          }
+          return;
+        }
+
+        // Hit flash timer
+        if (spider.hitFlashTimer > 0) {
+          spider.hitFlashTimer = Math.max(0, spider.hitFlashTimer - dt);
+        }
+
+        const cfg = SPIDER_TYPE_CONFIGS[spider.type];
+        const distToPlayer = sm.position.distanceTo(playerPos);
+
+        // Track nearest alive spider for HP display
+        if (distToPlayer < closestAliveSpiderDist) {
+          closestAliveSpiderDist = distToPlayer;
+          closestAliveSpider = spider;
+        }
+
+        const spiderPrevX = sm.position.x;
+        const spiderPrevZ = sm.position.z;
+
+        const playerIsCloseToSpider = distToPlayer < SPIDER_AGGRO_RADIUS;
+
+        if (playerIsCloseToSpider) {
+          // Chase player
+          const dx = playerPos.x - sm.position.x;
+          const dz = playerPos.z - sm.position.z;
+          const len = Math.sqrt(dx * dx + dz * dz);
+          if (len > cfg.attackRange) {
+            sm.position.x += (dx / len) * cfg.speed * dt;
+            sm.position.z += (dz / len) * cfg.speed * dt;
+            sm.rotation.y = Math.atan2(-dz, dx);
+          } else {
+            // Attack player
+            spider.attackCooldown -= dt;
+            if (spider.attackCooldown <= 0) {
+              spider.attackCooldown = cfg.attackCooldown;
+              if (!gameOver && !onRocketRef.current && !inSpaceStationRef.current) {
+                playerHpRef.current = Math.max(0, playerHpRef.current - cfg.attackDamage);
+                setHitFlash(true);
+                setTimeout(() => setHitFlash(false), 300);
+                soundManager.playPlayerHit();
+                if (playerHpRef.current <= 0) {
+                  setGameOver(true);
+                  if (document.pointerLockElement) document.exitPointerLock();
+                }
+              }
+            }
+          }
+
+          // Territory boundary: spiders won't chase too far from cave
+          const distToCave = Math.sqrt(
+            (sm.position.x - spider.caveX) ** 2 +
+            (sm.position.z - spider.caveZ) ** 2
+          );
+          if (distToCave > CAVE_TERRITORY_RADIUS) {
+            sm.position.x = spiderPrevX;
+            sm.position.z = spiderPrevZ;
+          }
+        } else {
+          // Wander inside cave
+          spider.wanderTimer -= dt;
+          if (spider.wanderTimer <= 0) {
+            spider.wanderAngle += (Math.random() - 0.5) * Math.PI * 1.2;
+            spider.wanderTimer = 1.5 + Math.random() * 3;
+          }
+          sm.position.x += Math.cos(spider.wanderAngle) * cfg.speed * 0.3 * dt;
+          sm.position.z += Math.sin(spider.wanderAngle) * cfg.speed * 0.3 * dt;
+          sm.rotation.y = -spider.wanderAngle;
+
+          // Keep inside cave territory
+          const distToCave = Math.sqrt(
+            (sm.position.x - spider.caveX) ** 2 +
+            (sm.position.z - spider.caveZ) ** 2
+          );
+          if (distToCave > CAVE_TERRITORY_RADIUS * 0.8) {
+            // Push back toward cave
+            const backX = spider.caveX - sm.position.x;
+            const backZ = spider.caveZ - sm.position.z;
+            spider.wanderAngle = Math.atan2(backZ, backX);
+          }
+        }
+
+        // Snap to terrain height
+        sm.position.y = getTerrainHeightSampled(sm.position.x, sm.position.z);
+
+        // Leg animation: spiders bob slightly as they walk
+        const bобPhase = performance.now() * 0.004 + spiderListRef.current.indexOf(spider) * 1.3;
+        sm.position.y += Math.abs(Math.sin(bобPhase)) * 0.06 * (cfg.scale);
+
+        if (distToPlayer < 20) {
+          spiderNear = true;
+        }
+      });
+
+      // Update nearest spider HP display
+      if (closestAliveSpider && closestAliveSpiderDist < 20) {
+        const s = closestAliveSpider as SpiderData;
+        setNearSpiderHp({ hp: s.hp, maxHp: s.maxHp, name: SPIDER_TYPE_CONFIGS[s.type].label });
+      } else {
+        setNearSpiderHp(null);
+      }
+
+      // ── Torch flickering ────────────────────────────────────────────────────
+      caveTorchesRef.current.forEach((torch) => {
+        torch.flickerTimer += dt * TORCH_FLICKER_SPEED;
+        const flicker =
+          Math.sin(torch.flickerTimer * 3.7) * 0.18 +
+          Math.sin(torch.flickerTimer * 7.3) * 0.08 +
+          Math.sin(torch.flickerTimer * 1.9) * 0.12;
+        torch.light.intensity = torch.baseIntensity + flicker;
+      });
+
+      // ── Chest interaction ────────────────────────────────────────────────────
+      const chest = treasureChestRef.current;
+      if (chest && !chest.isOpened) {
+        const chestDist = Math.sqrt(
+          (playerPos.x - chest.x) ** 2 + (playerPos.z - chest.z) ** 2
+        );
+        if (chestDist < CHEST_OPEN_RADIUS) {
+          // Auto-open when player gets close
+          chest.isOpened = true;
+          // Animate lid open
+          chest.lidGroup.rotation.x = -Math.PI * 0.75;
+          // Reward the player
+          coinsCollectedRef.current += chest.rewardCoins;
+          setChestOpenedMsg(true);
+          setTimeout(() => setChestOpenedMsg(false), 3000);
+          soundManager.playCoinCollect?.();
+        }
+      }
+
+      // Update spiders defeated in HUD
+      if (spidersDefeatedRef.current > 0) {
+        // We rely on the HUD state update below
       }
 
       // ── Catapult AI ─────────────────────────────────────────────────────────
@@ -6178,6 +6551,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           playerHp: playerHpRef.current,
           foxesDefeated: foxesDefeatedRef.current,
           catapultsDefeated: catapultsDefeatedRef.current,
+          spidersDefeated: spidersDefeatedRef.current,
           attackReady: playerAttackCooldownRef.current <= 0,
         }));
       }
@@ -6519,6 +6893,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   <span className="text-xs font-bold tabular-nums" style={{ color: "#fbbf24" }}>
                     {gameState.catapultsDefeated}
                     <span style={{ color: "rgba(255,255,255,0.30)" }}> / {CATAPULT_COUNT}</span>
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Spiders defeated (conditional) */}
+            {gameState.spidersDefeated > 0 && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🕷 Pavouci</span>
+                  <span className="text-xs font-bold tabular-nums" style={{ color: "#f87171" }}>
+                    {gameState.spidersDefeated}
                   </span>
                 </div>
               </>
@@ -7040,6 +7427,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
+      {/* ═══════════════ CENTER TOP — Spider warning ═══════════════ */}
+      {nearSpiderHp && !foxWarning && !catapultWarning && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 22px",
+              background: "rgba(80,0,0,0.85)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(200,30,30,0.35)",
+              boxShadow: "0 0 20px rgba(160,0,0,0.45)",
+            }}
+          >
+            🕷 Pavouk v blízkosti!
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER TOP — Catapult warning ═══════════════ */}
       {catapultWarning && !foxWarning && gameState.isLocked && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 61 }}>
@@ -7131,6 +7536,70 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             </div>
             <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
               {nearFoxHp.hp} / {nearFoxHp.maxHp}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Nearest spider HP ═══════════════ */}
+      {nearSpiderHp && !nearFoxHp && gameState.isLocked && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-2xl text-white text-xs text-center"
+            style={{
+              padding: "14px 22px 16px",
+              background: "rgba(5,8,20,0.72)",
+              backdropFilter: "blur(14px)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              minWidth: 210,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div
+              className="font-bold text-sm"
+              style={{ color: "#dc2626", marginBottom: 10 }}
+            >
+              {nearSpiderHp.name}
+            </div>
+            <div
+              className="h-3 rounded-full overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.08)", marginBottom: 8 }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-100"
+                style={{
+                  width: `${(nearSpiderHp.hp / nearSpiderHp.maxHp) * 100}%`,
+                  background:
+                    nearSpiderHp.hp > nearSpiderHp.maxHp * 0.5 ? "#b91c1c" : "#7f1d1d",
+                  boxShadow: "0 0 8px #b91c1c66",
+                }}
+              />
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
+              {nearSpiderHp.hp} / {nearSpiderHp.maxHp}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Chest opened message ═══════════════ */}
+      {chestOpenedMsg && gameState.isLocked && (
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
+          <div
+            className="rounded-2xl text-white font-bold text-center"
+            style={{
+              padding: "22px 36px",
+              background: "rgba(20,12,4,0.92)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(212,160,20,0.60)",
+              boxShadow: "0 0 40px rgba(212,160,20,0.45)",
+              fontSize: 18,
+            }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
+            <div style={{ color: "#fcd34d" }}>Truhla otevřena!</div>
+            <div style={{ color: "#86efac", fontSize: 14, marginTop: 8 }}>
+              +{CHEST_REWARD_COINS} zlatých mincí
             </div>
           </div>
         </div>
@@ -7354,10 +7823,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             <div className="text-5xl" style={{ marginBottom: 16 }}>💀</div>
             <h2 className="text-3xl font-bold" style={{ marginBottom: 12 }}>Byl jsi poražen!</h2>
-            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky nebo katapulty tě dostaly…</p>
+            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky, pavouci nebo katapulty tě dostaly…</p>
             <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
               Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
             </p>
+            {gameState.spidersDefeated > 0 && (
+              <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
+                Zabil jsi <span className="font-bold" style={{ color: "#f87171" }}>{gameState.spidersDefeated}</span> pavouků
+              </p>
+            )}
             {gameState.catapultsDefeated > 0 && (
               <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
                 Zničil jsi <span className="font-bold" style={{ color: "#fbbf24" }}>{gameState.catapultsDefeated}</span> katapultů
