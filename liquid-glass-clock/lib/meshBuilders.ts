@@ -3115,3 +3115,252 @@ export function buildTreasureChestMesh(): { group: THREE.Group; lidGroup: THREE.
 
   return { group, lidGroup };
 }
+
+// ─── Airplane (3D flyable) ────────────────────────────────────────────────────
+/**
+ * Builds a detailed 3D propeller airplane that can be boarded and flown by the player.
+ * The airplane faces +Z by default (nose toward +Z).  The caller rotates the root group
+ * to match the current yaw/pitch/roll of the flight state.
+ *
+ * Returns:
+ *  - `group`      – root THREE.Group (position this in world space)
+ *  - `propeller`  – propeller disk mesh (rotate around Z each frame while flying)
+ *  - `bodyGroup`  – fuselage group (useful for future animation)
+ */
+export function buildAirplane3DMesh(): { group: THREE.Group; propeller: THREE.Mesh; bodyGroup: THREE.Group } {
+  const group = new THREE.Group();
+
+  // ── Materials ──────────────────────────────────────────────────────────────
+  const bodyMat    = new THREE.MeshLambertMaterial({ color: 0xd0e8ff }); // pale sky-blue
+  const accentMat  = new THREE.MeshLambertMaterial({ color: 0x4488cc }); // darker blue stripe
+  const windowMat  = new THREE.MeshLambertMaterial({ color: 0x99ddff, transparent: true, opacity: 0.7 });
+  const propMat    = new THREE.MeshLambertMaterial({ color: 0x222222 });
+  const noseMat    = new THREE.MeshLambertMaterial({ color: 0xffdd44 }); // yellow nose tip
+  const wheelMat   = new THREE.MeshLambertMaterial({ color: 0x111111 });
+  const strutMat   = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const exhaustMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+
+  // ── Body group (so it can be animated independently) ──────────────────────
+  const bodyGroup = new THREE.Group();
+  group.add(bodyGroup);
+
+  // Fuselage — elongated box, nose toward +Z
+  const fuselageGeo = new THREE.CylinderGeometry(0.55, 0.40, 5.0, 10, 1);
+  fuselageGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const fuselage = new THREE.Mesh(fuselageGeo, bodyMat);
+  fuselage.castShadow = true;
+  bodyGroup.add(fuselage);
+
+  // Nose cone (tapered toward front)
+  const noseGeo = new THREE.CylinderGeometry(0.08, 0.40, 1.0, 10);
+  noseGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const nose = new THREE.Mesh(noseGeo, noseMat);
+  nose.position.set(0, 0, 2.9);
+  nose.castShadow = true;
+  bodyGroup.add(nose);
+
+  // Tail section (slightly tapered)
+  const tailFuselageGeo = new THREE.CylinderGeometry(0.20, 0.40, 1.8, 8, 1);
+  tailFuselageGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const tailFuselage = new THREE.Mesh(tailFuselageGeo, accentMat);
+  tailFuselage.position.set(0, 0, -2.9);
+  tailFuselage.castShadow = true;
+  bodyGroup.add(tailFuselage);
+
+  // Blue accent stripe along fuselage
+  const stripeGeo = new THREE.BoxGeometry(0.06, 0.22, 4.8);
+  const stripeL = new THREE.Mesh(stripeGeo, accentMat);
+  stripeL.position.set(0.52, 0.0, 0);
+  bodyGroup.add(stripeL);
+  const stripeR = stripeL.clone();
+  stripeR.position.set(-0.52, 0.0, 0);
+  bodyGroup.add(stripeR);
+
+  // ── Main wings ─────────────────────────────────────────────────────────────
+  // Wing root: slightly swept, tapered from root to tip
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0, -0.4);     // trailing root
+  wingShape.lineTo(0, 0.6);      // leading root
+  wingShape.lineTo(3.8, 0.2);    // leading tip
+  wingShape.lineTo(3.8, -0.5);   // trailing tip
+  wingShape.closePath();
+
+  const wingExtrudeSettings = { depth: 0.10, bevelEnabled: false };
+  const wingGeo = new THREE.ExtrudeGeometry(wingShape, wingExtrudeSettings);
+  wingGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+  const wingR = new THREE.Mesh(wingGeo, bodyMat);
+  wingR.position.set(0.05, -0.05, 0.3);
+  wingR.castShadow = true;
+  bodyGroup.add(wingR);
+
+  // Left wing (mirror)
+  const wingLGeo = wingGeo.clone();
+  wingLGeo.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+  const wingL = new THREE.Mesh(wingLGeo, bodyMat);
+  wingL.position.set(-0.05, -0.05, 0.3);
+  wingL.castShadow = true;
+  bodyGroup.add(wingL);
+
+  // Wing accent stripe
+  const wingStripeGeo = new THREE.BoxGeometry(3.6, 0.02, 0.18);
+  const wingStripeR = new THREE.Mesh(wingStripeGeo, accentMat);
+  wingStripeR.position.set(2.0, -0.01, 0.15);
+  bodyGroup.add(wingStripeR);
+  const wingStripeL = wingStripeR.clone();
+  wingStripeL.position.set(-2.0, -0.01, 0.15);
+  bodyGroup.add(wingStripeL);
+
+  // ── Horizontal stabilisers (tail) ─────────────────────────────────────────
+  const hStabShape = new THREE.Shape();
+  hStabShape.moveTo(0, -0.25);
+  hStabShape.lineTo(0, 0.35);
+  hStabShape.lineTo(1.6, 0.10);
+  hStabShape.lineTo(1.6, -0.30);
+  hStabShape.closePath();
+  const hStabGeo = new THREE.ExtrudeGeometry(hStabShape, { depth: 0.07, bevelEnabled: false });
+  hStabGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+  const hStabR = new THREE.Mesh(hStabGeo, accentMat);
+  hStabR.position.set(0.05, 0.05, -2.8);
+  hStabR.castShadow = true;
+  bodyGroup.add(hStabR);
+
+  const hStabLGeo = hStabGeo.clone();
+  hStabLGeo.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+  const hStabL = new THREE.Mesh(hStabLGeo, accentMat);
+  hStabL.position.set(-0.05, 0.05, -2.8);
+  hStabL.castShadow = true;
+  bodyGroup.add(hStabL);
+
+  // ── Vertical stabiliser (tail fin) ────────────────────────────────────────
+  const vStabShape = new THREE.Shape();
+  vStabShape.moveTo(0, 0);
+  vStabShape.lineTo(0, 1.6);
+  vStabShape.lineTo(-0.9, 1.4);
+  vStabShape.lineTo(-1.4, 0);
+  vStabShape.closePath();
+  const vStabGeo = new THREE.ExtrudeGeometry(vStabShape, { depth: 0.08, bevelEnabled: false });
+  vStabGeo.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2));
+  const vStab = new THREE.Mesh(vStabGeo, accentMat);
+  vStab.position.set(0.04, 0.20, -2.4);
+  vStab.castShadow = true;
+  bodyGroup.add(vStab);
+
+  // ── Cockpit canopy ─────────────────────────────────────────────────────────
+  const canopyGeo = new THREE.SphereGeometry(0.40, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  const canopy = new THREE.Mesh(canopyGeo, windowMat);
+  canopy.position.set(0, 0.48, 0.8);
+  canopy.scale.set(1.0, 0.7, 1.4);
+  bodyGroup.add(canopy);
+
+  // ── Engine / Propeller hub ─────────────────────────────────────────────────
+  const hubGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.22, 10);
+  hubGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const hub = new THREE.Mesh(hubGeo, exhaustMat);
+  hub.position.set(0, 0, 3.45);
+  bodyGroup.add(hub);
+
+  // Exhaust pipe
+  const exhaustGeo = new THREE.CylinderGeometry(0.05, 0.07, 0.45, 8);
+  exhaustGeo.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+  const exhaustL = new THREE.Mesh(exhaustGeo, exhaustMat);
+  exhaustL.position.set(-0.45, -0.28, 1.9);
+  bodyGroup.add(exhaustL);
+  const exhaustR = exhaustL.clone();
+  exhaustR.position.set(0.45, -0.28, 1.9);
+  bodyGroup.add(exhaustR);
+
+  // ── Propeller (2 blades) — rotates in animation loop ──────────────────────
+  const propGroup = new THREE.Group();
+  propGroup.position.set(0, 0, 3.57);
+  bodyGroup.add(propGroup);
+
+  const bladeSingleGeo = new THREE.BoxGeometry(2.2, 0.06, 0.22);
+  const propeller = new THREE.Mesh(bladeSingleGeo, propMat) as THREE.Mesh;
+  propeller.castShadow = true;
+  propGroup.add(propeller);
+
+  // Second blade perpendicular to first
+  const blade2 = new THREE.Mesh(bladeSingleGeo.clone(), propMat);
+  blade2.rotation.z = Math.PI / 2;
+  propGroup.add(blade2);
+
+  // Attach propGroup to bodyGroup so its rotation reference is preserved;
+  // the animation loop will rotate propGroup.rotation.z each frame.
+  // We export the propGroup itself as the "propeller" to rotate.
+  const propGroupAsRef = propGroup as unknown as THREE.Mesh;
+
+  // ── Landing gear ──────────────────────────────────────────────────────────
+  // Main struts (under wings)
+  const strutGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.7, 6);
+  const strutL = new THREE.Mesh(strutGeo, strutMat);
+  strutL.position.set(-1.1, -0.75, 0.4);
+  strutL.rotation.z = 0.12;
+  bodyGroup.add(strutL);
+  const strutR = strutL.clone();
+  strutR.position.set(1.1, -0.75, 0.4);
+  strutR.rotation.z = -0.12;
+  bodyGroup.add(strutR);
+
+  // Wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.20, 0.20, 0.12, 10);
+  wheelGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const wheelL = new THREE.Mesh(wheelGeo, wheelMat);
+  wheelL.position.set(-1.2, -1.12, 0.4);
+  bodyGroup.add(wheelL);
+  const wheelR = wheelL.clone();
+  wheelR.position.set(1.2, -1.12, 0.4);
+  bodyGroup.add(wheelR);
+
+  // Tail wheel (smaller)
+  const tailWheelGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.10, 8);
+  tailWheelGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const tailWheel = new THREE.Mesh(tailWheelGeo, wheelMat);
+  tailWheel.position.set(0, -0.52, -3.1);
+  bodyGroup.add(tailWheel);
+
+  const tailStrutGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.38, 6);
+  const tailStrut = new THREE.Mesh(tailStrutGeo, strutMat);
+  tailStrut.position.set(0, -0.33, -3.1);
+  bodyGroup.add(tailStrut);
+
+  // Return propGroup (as Mesh cast) so the caller can rotate it each frame
+  return { group, propeller: propGroupAsRef, bodyGroup };
+}
+
+/**
+ * Builds a simple flat airstrip runway mesh to mark the airplane spawn position.
+ * The runway faces +Z and is 4 units wide × 30 units long.
+ */
+export function buildAirstripMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const runwayMat    = new THREE.MeshLambertMaterial({ color: 0x444444 });
+  const markingMat   = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+  // Asphalt surface
+  const runwayGeo = new THREE.BoxGeometry(6, 0.08, 32);
+  const runway = new THREE.Mesh(runwayGeo, runwayMat);
+  runway.receiveShadow = true;
+  group.add(runway);
+
+  // Centre-line dashes
+  for (let i = -5; i <= 5; i++) {
+    const dashGeo = new THREE.BoxGeometry(0.25, 0.09, 1.6);
+    const dash = new THREE.Mesh(dashGeo, markingMat);
+    dash.position.set(0, 0, i * 2.8);
+    group.add(dash);
+  }
+
+  // Threshold bars (each end)
+  const threshGeo = new THREE.BoxGeometry(5.6, 0.09, 0.35);
+  const threshFront = new THREE.Mesh(threshGeo, markingMat);
+  threshFront.position.set(0, 0, 14.5);
+  group.add(threshFront);
+  const threshBack = threshFront.clone();
+  threshBack.position.set(0, 0, -14.5);
+  group.add(threshBack);
+
+  return group;
+}
