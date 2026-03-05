@@ -2958,9 +2958,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Rocket & Launch Pad ────────────────────────────────────────────────────
     // Fixed position on flat ground, roughly aimed at the mothership above.
     {
-      const rx = ROCKET_SPAWN_X;
-      const rz = ROCKET_SPAWN_Z;
-      const groundY = getTerrainHeightSampled(rx, rz);
+      // Find the nearest above-water position starting from the preferred spawn
+      let rx = ROCKET_SPAWN_X;
+      let rz = ROCKET_SPAWN_Z;
+      if (getTerrainHeightSampled(rx, rz) < WATER_LEVEL) {
+        outer_rocket: for (let r = 5; r <= 80; r += 5) {
+          for (let a = 0; a < 16; a++) {
+            const angle = (a / 16) * Math.PI * 2;
+            const tx = ROCKET_SPAWN_X + Math.cos(angle) * r;
+            const tz = ROCKET_SPAWN_Z + Math.sin(angle) * r;
+            if (getTerrainHeightSampled(tx, tz) >= WATER_LEVEL) {
+              rx = tx; rz = tz;
+              break outer_rocket;
+            }
+          }
+        }
+      }
+      const groundY = Math.max(getTerrainHeightSampled(rx, rz), WATER_LEVEL);
       const { group: rocketGroup, flameGroup, launchPad, exhaustParticles } = buildRocketMesh();
       // Rocket sits above the ground; launch pad stays fixed on the ground separately
       rocketGroup.position.set(rx, groundY, rz);
@@ -2976,6 +2990,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         state: 'idle',
         launchProgress: 0,
         groundY,
+        spawnX: rx,
+        spawnZ: rz,
         countdown: 3,
         countdownTimer: 0,
         exhaustParticles,
@@ -2999,9 +3015,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── Airplane & Airstrip ────────────────────────────────────────────────────
     {
-      const ax = AIRPLANE_SPAWN_X;
-      const az = AIRPLANE_SPAWN_Z;
-      const groundY = getTerrainHeightSampled(ax, az);
+      // Find the nearest above-water position starting from the preferred spawn
+      let ax = AIRPLANE_SPAWN_X;
+      let az = AIRPLANE_SPAWN_Z;
+      if (getTerrainHeightSampled(ax, az) < WATER_LEVEL) {
+        outer_airplane: for (let r = 5; r <= 80; r += 5) {
+          for (let a = 0; a < 16; a++) {
+            const angle = (a / 16) * Math.PI * 2;
+            const tx = AIRPLANE_SPAWN_X + Math.cos(angle) * r;
+            const tz = AIRPLANE_SPAWN_Z + Math.sin(angle) * r;
+            if (getTerrainHeightSampled(tx, tz) >= WATER_LEVEL) {
+              ax = tx; az = tz;
+              break outer_airplane;
+            }
+          }
+        }
+      }
+      const groundY = Math.max(getTerrainHeightSampled(ax, az), WATER_LEVEL);
 
       // Airstrip runway (stays on ground)
       const airstrip = buildAirstripMesh();
@@ -3014,9 +3044,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const signGy = getTerrainHeightSampled(8, 4);
         const sign = buildAirstripSignMesh();
         sign.position.set(8, signGy, 4);
-        // Rotate so the arrow (+X local) points from (8,4) toward airstrip centre (50,20)
-        const dirX = AIRPLANE_SPAWN_X - 8;
-        const dirZ = AIRPLANE_SPAWN_Z - 4;
+        // Rotate so the arrow (+X local) points from (8,4) toward airstrip centre
+        const dirX = ax - 8;
+        const dirZ = az - 4;
         sign.rotation.y = -Math.atan2(dirX, dirZ);
         scene.add(sign);
       }
@@ -3180,14 +3210,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             stationWelcomeTimerRef.current = 0;
             // Return player to Earth near the rocket launch pad
             const rd = rocketDataRef.current;
-            const landX = ROCKET_SPAWN_X + 4;
-            const landZ = ROCKET_SPAWN_Z + 4;
+            const rSpawnX = rd ? rd.spawnX : ROCKET_SPAWN_X;
+            const rSpawnZ = rd ? rd.spawnZ : ROCKET_SPAWN_Z;
+            const landX = rSpawnX + 4;
+            const landZ = rSpawnZ + 4;
             const landY = getTerrainHeightSampled(landX, landZ);
             cam.position.set(landX, landY + PLAYER_HEIGHT, landZ);
             if (rd) {
               rd.state = 'idle';
               rd.launchProgress = 0;
-              rd.mesh.position.set(ROCKET_SPAWN_X, rd.groundY, ROCKET_SPAWN_Z);
+              rd.mesh.position.set(rSpawnX, rd.groundY, rSpawnZ);
             }
             playerBodyPosRef.current.copy(cam.position);
             playerRef.current.velY = 0;
@@ -4672,9 +4704,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             // Move rocket from ground toward mothership — interpolate from spawn to target
             const targetX = 0;     // mothership X
             const targetZ = -60;   // mothership Z
-            rd.mesh.position.x = ROCKET_SPAWN_X + (targetX - ROCKET_SPAWN_X) * eased;
+            rd.mesh.position.x = rd.spawnX + (targetX - rd.spawnX) * eased;
             rd.mesh.position.y = rd.groundY + (ROCKET_TARGET_Y - rd.groundY) * eased;
-            rd.mesh.position.z = ROCKET_SPAWN_Z + (targetZ - ROCKET_SPAWN_Z) * eased;
+            rd.mesh.position.z = rd.spawnZ + (targetZ - rd.spawnZ) * eased;
 
             // Animate exhaust flame — flicker and pulse
             const flameScale = 1.0 + Math.sin(elapsed * 18) * 0.25 + eased * 0.5;
@@ -4799,11 +4831,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ad.pitch *= Math.pow(0.92, dt * 60);
             }
 
-            // Roll / bank: A rolls left, D rolls right
+            // Roll / bank: A rolls right, D rolls left (coordinated left/right turn)
             if (keys["KeyA"] || keys["ArrowLeft"]) {
-              ad.roll = Math.min(ad.roll + AIRPLANE_ROLL_RATE * dt, AIRPLANE_MAX_ROLL);
-            } else if (keys["KeyD"] || keys["ArrowRight"]) {
               ad.roll = Math.max(ad.roll - AIRPLANE_ROLL_RATE * dt, -AIRPLANE_MAX_ROLL);
+            } else if (keys["KeyD"] || keys["ArrowRight"]) {
+              ad.roll = Math.min(ad.roll + AIRPLANE_ROLL_RATE * dt, AIRPLANE_MAX_ROLL);
             } else {
               // Auto-level roll
               ad.roll *= Math.pow(0.88, dt * 60);
