@@ -196,6 +196,32 @@ export interface GameState {
   attackReady: boolean;
 }
 
+// ─── World Item (pickable / placeable objects) ─────────────────────────────
+
+/** All types of objects that can be picked up and placed in the world. */
+export type WorldItemType = "pumpkin";
+
+/** A pickable/placeable object that exists in the 3D world. */
+export interface WorldItem {
+  /** Unique identifier (UUID). */
+  id: string;
+  type: WorldItemType;
+  /** The root Three.js group rendered in the scene. */
+  mesh: THREE.Group;
+  /** True while the player is holding this item (mesh is hidden from world). */
+  isHeld: boolean;
+}
+
+/** Serialisable snapshot of a placed world item (for localStorage persistence). */
+export interface PlacedWorldItemData {
+  type: WorldItemType;
+  x: number;
+  y: number;
+  z: number;
+  /** Y-axis rotation in radians at the time of placement. */
+  rotY: number;
+}
+
 // ─── Rocket system ─────────────────────────────────────────────────────────
 export type RocketState = 'idle' | 'boarded' | 'countdown' | 'launching' | 'arrived' | 'docked';
 

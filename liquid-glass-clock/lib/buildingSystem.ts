@@ -12,6 +12,10 @@ import {
   PlacedBlockData,
   BLOCKS_STORAGE_KEY,
 } from "./buildingTypes";
+import type { PlacedWorldItemData, WorldItemType } from "./gameTypes";
+
+// ─── World item persistence storage key ──────────────────────────────────────
+const WORLD_ITEMS_STORAGE_KEY = "game3d_world_items_v1";
 
 // ─── Shared geometry (avoids allocating a new BoxGeometry per block) ──────────
 const _boxGeo = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
@@ -156,6 +160,38 @@ export function loadBlocks(): PlacedBlockData[] {
         z,
         material: order[mi],
       }));
+  } catch {
+    return [];
+  }
+}
+
+// ─── World item persistence ────────────────────────────────────────────────────
+
+/** Serialize placed world items to localStorage. */
+export function saveWorldItems(items: PlacedWorldItemData[]): void {
+  try {
+    localStorage.setItem(WORLD_ITEMS_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // localStorage might be unavailable (private mode, quota exceeded)
+  }
+}
+
+/** Load placed world items from localStorage. Returns empty array if nothing saved. */
+export function loadWorldItems(): PlacedWorldItemData[] {
+  const validTypes: WorldItemType[] = ["pumpkin"];
+  try {
+    const raw = localStorage.getItem(WORLD_ITEMS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PlacedWorldItemData[];
+    return parsed.filter(
+      (item) =>
+        item &&
+        typeof item.x === "number" &&
+        typeof item.y === "number" &&
+        typeof item.z === "number" &&
+        typeof item.rotY === "number" &&
+        validTypes.includes(item.type)
+    );
   } catch {
     return [];
   }

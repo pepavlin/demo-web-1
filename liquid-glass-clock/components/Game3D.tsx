@@ -38,6 +38,8 @@ import {
   blockKey,
   saveBlocks,
   loadBlocks,
+  saveWorldItems,
+  loadWorldItems,
 } from "@/lib/buildingSystem";
 import {
   buildSheepMesh,
@@ -60,11 +62,12 @@ import {
   buildMotherShipMesh,
   buildRocketMesh,
   buildSpaceStationInterior,
+  buildPumpkinMesh,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, WorldItem, PlacedWorldItemData, WorldItemType } from "@/lib/gameTypes";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
@@ -185,6 +188,14 @@ const SWIM_SPEED = 5.5;         // units/second when swimming in water
 const DIVE_SPEED = 5.0;         // units/second when actively diving down (Ctrl)
 const SWIM_RISE_SPEED = 6.0;    // units/second when actively swimming up (Space)
 const SWIM_BUOYANCY = 5.0;      // upward drift speed per second (natural buoyancy when submerged)
+
+// ─── World Item (pickup / placement) Constants ────────────────────────────────
+/** Radius within which the player can pick up a world item (press E). */
+const PICKUP_RADIUS = 2.8;
+/** Default number of pumpkins spawned in the world at game start. */
+const PUMPKIN_COUNT = IS_MOBILE ? 3 : 6;
+/** Camera-local position of the held-item mesh (right-hand, lower screen). */
+const HELD_ITEM_POS = new THREE.Vector3(0.28, -0.30, -0.55);
 
 // ─── Third-person Camera Constants ───────────────────────────────────────────
 const TP_DISTANCE = 6;   // camera distance behind player in 3rd-person view
@@ -419,6 +430,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const sculptIndicatorRef = useRef<THREE.Mesh | null>(null);
   const buildRaycasterRef = useRef(new THREE.Raycaster());
 
+  // ─── World Items (pickable / placeable objects) ───────────────────────────────
+  /** All world item instances currently in the scene (including held ones). */
+  const worldItemsRef = useRef<WorldItem[]>([]);
+  /** The item the player is currently holding (null if empty-handed). */
+  const heldItemRef = useRef<WorldItem | null>(null);
+  /** Camera-space mesh shown in first-person when holding an item. */
+  const heldItemHandMeshRef = useRef<THREE.Group | null>(null);
+  /** Ghost preview mesh for item placement targeting. */
+  const itemPlacementGhostRef = useRef<THREE.Group | null>(null);
+  /** Nearest pickable item within PICKUP_RADIUS (updated per frame). */
+  const nearestPickableItemRef = useRef<WorldItem | null>(null);
+
   // ─── Possession Refs ─────────────────────────────────────────────────────────
   const possessedSheepRef = useRef<SheepData | null>(null);
   const nearestSheepForPossessRef = useRef<SheepData | null>(null);
@@ -488,6 +511,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     selectedMaterial: "wood",
     blockCount: 0,
   });
+  const [nearItemPrompt, setNearItemPrompt] = useState<WorldItemType | null>(null);
+  const [heldItemType, setHeldItemType] = useState<WorldItemType | null>(null);
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
@@ -797,6 +822,77 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
   }
 
+  // ─── World item: pick up the nearest item ────────────────────────────────────
+  function pickUpItem(item: WorldItem) {
+    if (!cameraRef.current || !sceneRef.current) return;
+    const cam = cameraRef.current;
+
+    // Hide world mesh (item stays in array but is no longer visible in world)
+    item.mesh.visible = false;
+    item.isHeld = true;
+    heldItemRef.current = item;
+    setHeldItemType(item.type);
+
+    // Build and attach hand mesh to camera
+    const handMesh = buildPumpkinMesh(0.55);
+    handMesh.position.copy(HELD_ITEM_POS);
+    // Tilt slightly so it looks held naturally
+    handMesh.rotation.set(0.15, -0.3, 0.1);
+    cam.add(handMesh);
+    heldItemHandMeshRef.current = handMesh;
+
+    // Hide weapon while holding item
+    if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+  }
+
+  // ─── World item: place the held item at a target world position ───────────────
+  function placeHeldItem(targetPos: THREE.Vector3, targetRotY: number) {
+    const held = heldItemRef.current;
+    if (!held || !cameraRef.current || !sceneRef.current) return;
+
+    // Move the world mesh to the target position and show it
+    held.mesh.position.copy(targetPos);
+    held.mesh.rotation.y = targetRotY;
+    held.mesh.visible = true;
+    held.isHeld = false;
+
+    // Remove hand mesh from camera
+    const cam = cameraRef.current;
+    if (heldItemHandMeshRef.current) {
+      cam.remove(heldItemHandMeshRef.current);
+      heldItemHandMeshRef.current = null;
+    }
+
+    heldItemRef.current = null;
+    setHeldItemType(null);
+
+    // Restore weapon visibility in first-person mode
+    if (weaponMeshRef.current && cameraModeRef.current === "first") {
+      weaponMeshRef.current.visible = true;
+    }
+
+    // Persist placement
+    const items: PlacedWorldItemData[] = worldItemsRef.current
+      .filter((wi) => !wi.isHeld)
+      .map((wi) => ({
+        type: wi.type,
+        x: wi.mesh.position.x,
+        y: wi.mesh.position.y,
+        z: wi.mesh.position.z,
+        rotY: wi.mesh.rotation.y,
+      }));
+    saveWorldItems(items);
+  }
+
+  // ─── World item: drop the held item at the player's feet ─────────────────────
+  function dropHeldItem() {
+    const held = heldItemRef.current;
+    if (!held || !cameraRef.current) return;
+    const cam = cameraRef.current;
+    const groundY = getTerrainHeightSampled(cam.position.x, cam.position.z);
+    placeHeldItem(new THREE.Vector3(cam.position.x, groundY, cam.position.z), cam.rotation.y);
+  }
+
   // ─── Flash sheep mesh red when hit ───────────────────────────────────────────
   function flashSheepMesh(mesh: THREE.Group) {
     mesh.traverse((child) => {
@@ -855,8 +951,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (!isLockedRef.current) return;
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
-    // Cannot attack while controlling a vehicle, possessing a sheep, or in the space station
+    // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
     if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || inSpaceStationRef.current) return;
+    if (heldItemRef.current) return; // holding an item — must place it first
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
 
@@ -1592,6 +1689,72 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
     if (savedBlocks.length > 0) {
       setBuildingUiState((s) => ({ ...s, blockCount: savedBlocks.length }));
+    }
+
+    // ── World items: placement ghost ─────────────────────────────────────────
+    const itemGhost = buildPumpkinMesh(1.0);
+    itemGhost.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = (m.material as THREE.MeshLambertMaterial).clone();
+        mat.transparent = true;
+        mat.opacity = 0.45;
+        mat.depthWrite = false;
+        m.material = mat;
+      }
+    });
+    itemGhost.visible = false;
+    scene.add(itemGhost);
+    itemPlacementGhostRef.current = itemGhost;
+
+    // ── World items: spawn initial pumpkins ──────────────────────────────────
+    // Fixed spawn positions scattered around the world (near landmarks / paths)
+    const pumpkinSpawns: Array<{ x: number; z: number; rotY: number }> = [
+      { x: -24, z: 18,  rotY: 0.5 },  // near farmhouse
+      { x:  30, z: 32,  rotY: 1.2 },  // near windmill
+      { x:   8, z: -12, rotY: 2.4 },  // near spawn
+      { x: -10, z: -8,  rotY: 0.8 },  // near spawn
+      { x:  45, z: -35, rotY: 3.1 },  // open field
+      { x: -50, z: 55,  rotY: 1.9 },  // northwest field
+    ];
+    const spawnSubset = pumpkinSpawns.slice(0, PUMPKIN_COUNT);
+
+    // First check if there are user-placed items saved from a previous session
+    const savedWorldItems = loadWorldItems();
+    if (savedWorldItems.length > 0) {
+      // Restore saved placements (overrides default spawns)
+      savedWorldItems.forEach((saved) => {
+        const mesh = buildPumpkinMesh(1.0);
+        const groundY = getTerrainHeightSampled(saved.x, saved.z);
+        mesh.position.set(saved.x, groundY, saved.z);
+        mesh.rotation.y = saved.rotY;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        worldItemsRef.current.push({
+          id: Math.random().toString(36).slice(2),
+          type: saved.type,
+          mesh,
+          isHeld: false,
+        });
+      });
+    } else {
+      // Default spawns at game start
+      spawnSubset.forEach(({ x, z, rotY }) => {
+        const mesh = buildPumpkinMesh(1.0);
+        const groundY = getTerrainHeightSampled(x, z);
+        mesh.position.set(x, groundY, z);
+        mesh.rotation.y = rotY;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        worldItemsRef.current.push({
+          id: Math.random().toString(36).slice(2),
+          type: "pumpkin",
+          mesh,
+          isHeld: false,
+        });
+      });
     }
 
     // ── Water ───────────────────────────────────────────────────────────────
@@ -2805,10 +2968,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Input ─────────────────────────────────────────────────────────────────
+    // ── Helper: place held item via raycast from camera ───────────────────────
+    const tryPlaceHeldItemViaRaycast = (): boolean => {
+      if (!heldItemRef.current || !cameraRef.current || !terrainMeshRef.current) return false;
+      const cam = cameraRef.current;
+      const raycaster = buildRaycasterRef.current;
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+      // Gather objects to intersect: terrain + placed blocks
+      const targets: THREE.Object3D[] = [terrainMeshRef.current, ...Array.from(placedBlockMeshesRef.current.values())];
+      const hits = raycaster.intersectObjects(targets, false);
+      if (hits.length > 0) {
+        const hit = hits[0];
+        // Place on top of the hit surface
+        const pos = hit.point.clone();
+        pos.y = getTerrainHeightSampled(pos.x, pos.z);
+        placeHeldItem(pos, cam.rotation.y);
+        return true;
+      }
+      return false;
+    };
+
     // ── Mouse click — attack OR build depending on current mode ───────────────
     const onMouseDown = (e: MouseEvent) => {
       if (!isLockedRef.current) return;
       if (e.button === 0) {
+        // If holding an item, left click places it
+        if (heldItemRef.current && buildModeRef.current === "explore") {
+          tryPlaceHeldItemViaRaycast();
+          return;
+        }
         if (buildModeRef.current === "build") {
           if (ghostMeshRef.current?.visible) {
             placeBlock(ghostMeshRef.current.position.clone());
@@ -2865,9 +3053,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const onKey = (e: KeyboardEvent) => {
       keysRef.current[e.code] = e.type === "keydown";
 
-      // F key attack (only in explore mode)
+      // F key: place held item (if carrying one) OR attack in explore mode
       if (e.type === "keydown" && e.code === "KeyF" && buildModeRef.current === "explore") {
-        doAttack();
+        if (heldItemRef.current) {
+          tryPlaceHeldItemViaRaycast();
+        } else {
+          doAttack();
+        }
       }
 
       // E key: board/exit boat, board rocket, enter/exit space station, OR possess/unpossess nearby sheep
@@ -2987,6 +3179,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           onBoatRef.current = true;
           setOnBoat(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        } else if (heldItemRef.current) {
+          // ── Drop held item at player's feet ──────────────────────────────
+          dropHeldItem();
+        } else if (nearestPickableItemRef.current && !possessedSheepRef.current) {
+          // ── Pick up nearby item ───────────────────────────────────────────
+          pickUpItem(nearestPickableItemRef.current);
+          nearestPickableItemRef.current = null;
+          setNearItemPrompt(null);
         } else if (possessedSheepRef.current) {
           // Exit possession — place player above the sheep's current position
           const sheep = possessedSheepRef.current;
@@ -5230,6 +5430,55 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         );
       }
 
+      // ── World items: proximity pickup check + placement ghost ─────────────────
+      if (!possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current) {
+        if (heldItemRef.current) {
+          // Show placement ghost at terrain surface in front of player
+          const ghost = itemPlacementGhostRef.current;
+          if (ghost && cameraRef.current && terrainMeshRef.current) {
+            const cam = cameraRef.current;
+            const raycaster = buildRaycasterRef.current;
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+            const targets: THREE.Object3D[] = [terrainMeshRef.current, ...Array.from(placedBlockMeshesRef.current.values())];
+            const hits = raycaster.intersectObjects(targets, false);
+            if (hits.length > 0 && hits[0].distance < BUILD_RANGE + 2) {
+              const hp = hits[0].point;
+              const groundY = getTerrainHeightSampled(hp.x, hp.z);
+              ghost.position.set(hp.x, groundY, hp.z);
+              ghost.visible = buildModeRef.current === "explore";
+            } else {
+              ghost.visible = false;
+            }
+          }
+          // Nearest pickable is irrelevant while holding
+          nearestPickableItemRef.current = null;
+          setNearItemPrompt(null);
+        } else {
+          // Hide ghost when not holding
+          if (itemPlacementGhostRef.current) itemPlacementGhostRef.current.visible = false;
+          // Find nearest non-held world item within PICKUP_RADIUS
+          let bestDist = PICKUP_RADIUS;
+          let bestItem: WorldItem | null = null;
+          worldItemsRef.current.forEach((wi) => {
+            if (wi.isHeld) return;
+            const dx = wi.mesh.position.x - playerPos.x;
+            const dz = wi.mesh.position.z - playerPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestItem = wi;
+            }
+          });
+          nearestPickableItemRef.current = bestItem;
+          const nearItem = bestItem as WorldItem | null;
+          setNearItemPrompt(nearItem ? nearItem.type : null);
+        }
+      } else {
+        if (itemPlacementGhostRef.current) itemPlacementGhostRef.current.visible = false;
+        nearestPickableItemRef.current = null;
+        setNearItemPrompt(null);
+      }
+
       // ── Possession proximity — find nearest sheep, manage highlight ──────────
       if (!possessedSheepRef.current) {
         let nearestDist = POSSESS_RADIUS;
@@ -6415,6 +6664,46 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🚀 [E] Airlock – vrátit se na Zemi
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Pickup item prompt ═══════════════ */}
+      {nearItemPrompt && !heldItemType && !isPossessed && !onBoat && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(80,50,10,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(230,140,40,0.45)",
+              boxShadow: "0 0 20px rgba(200,100,0,0.40)",
+            }}
+          >
+            🎃 [E] Vzít {nearItemPrompt === "pumpkin" ? "dýni" : nearItemPrompt}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM CENTER — Held item indicator ═══════════════ */}
+      {heldItemType && gameState.isLocked && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(80,40,5,0.90)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(240,150,30,0.50)",
+              boxShadow: "0 0 22px rgba(200,100,0,0.45)",
+            }}
+          >
+            🎃 {heldItemType === "pumpkin" ? "Dýně" : heldItemType} v ruce
+            &nbsp;·&nbsp;
+            <span style={{ color: "#fcd34d" }}>[Klik / F] Položit</span>
+            &nbsp;·&nbsp;
+            <span style={{ color: "#fca5a5" }}>[E] Upustit</span>
           </div>
         </div>
       )}
