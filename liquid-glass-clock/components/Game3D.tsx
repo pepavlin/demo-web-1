@@ -1441,7 +1441,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Texture tiling scale (world units per tile repeat)
         uTexScale:     { value: 1.0 / 8.0 },
         // Texture blend strength (0 = no texture, 1 = full texture)
-        uTexStrength:  { value: 0.40 },
+        uTexStrength:  { value: 0.60 },
       },
       vertexShader: /* glsl */`
         varying vec3 vWorldPos;
@@ -1491,12 +1491,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
         float fbm(vec2 p) {
           float v = 0.0, a = 0.5;
-          for (int i = 0; i < 5; i++) {
+          for (int i = 0; i < 7; i++) {
             v += a * vnoise(p);
-            p  = p * 2.0 + vec2(3.7, 1.3);
-            a *= 0.5;
+            p  = p * 2.1 + vec2(3.7, 1.3);
+            a *= 0.48;
           }
           return v;
+        }
+        // Domain-warped FBM for complex, non-repetitive patterns
+        float wfbm(vec2 p) {
+          vec2 warp = vec2(fbm(p + vec2(0.0, 0.0)), fbm(p + vec2(5.2, 1.3)));
+          return fbm(p + warp * 1.5);
         }
 
         // ── Triplanar texture sampling ────────────────────────────────────────────
@@ -1507,7 +1512,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           vec2 uvXY = worldPos.xy * scale;
           vec2 uvZY = worldPos.zy * scale;
           vec3 blendW = abs(normal);
-          blendW = pow(blendW, vec3(4.0));
+          // Higher power = sharper projection boundaries, less smearing on cliffs
+          blendW = pow(blendW, vec3(6.0));
           blendW /= (blendW.x + blendW.y + blendW.z + 0.0001);
           vec3 tXZ = texture2D(tex, uvXZ).rgb;
           vec3 tXY = texture2D(tex, uvXY).rgb;
@@ -1533,10 +1539,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           vec2 uv = vWorldPos.xz;
 
           // ── Multi-scale noise ───────────────────────────────────────────────────
-          float macro  = fbm(uv * 0.025);   // large patches  (~40 unit scale)
+          float macro  = wfbm(uv * 0.025);  // large patches  (~40 unit scale)
           float meso   = fbm(uv * 0.10);    // medium detail  (~10 unit scale)
-          float micro  = vnoise(uv * 0.55); // fine grain     (~ 2 unit scale)
-          float crack  = fbm(uv * 0.40);    // rock / cliff cracks
+          float micro  = fbm(uv * 0.55);    // fine grain     (~ 2 unit scale)
+          float nano   = vnoise(uv * 2.2);  // sub-pixel grain (~0.5 unit scale)
+          float crack  = wfbm(uv * 0.40);   // rock / cliff cracks (domain-warped)
 
           // Noise-wobbled height for jagged biome borders
           float hWobble = vHeight + (macro * 2.0 - 1.0) * 2.2
@@ -1618,22 +1625,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
 
           // ── Texture detail sampling (triplanar projection) ────────────────────
-          // Biome textures provide surface micro-detail to break up flat-colour look.
-          // Each texture is sampled at two scales and blended.
+          // Three-scale sampling: fine (close-up blade/grain detail),
+          // coarse (large patch character), micro (sub-tile high-frequency).
           float totalW = wGrass + wRock + wSand + wSnow + wDirt + 0.0001;
           vec3 texDetail = vec3(0.5); // neutral grey (no detail)
 
           if (uTexStrength > 0.001) {
+            // Scale 1 – Fine: individual surface elements (blades, grains, crystals)
             vec3 tGrass = triplanar(uTexGrass, vWorldPos, vNormal, uTexScale);
             vec3 tRock  = triplanar(uTexRock,  vWorldPos, vNormal, uTexScale * 0.6);
             vec3 tSand  = triplanar(uTexSand,  vWorldPos, vNormal, uTexScale * 1.2);
             vec3 tSnow  = triplanar(uTexSnow,  vWorldPos, vNormal, uTexScale * 0.8);
             vec3 tDirt  = triplanar(uTexDirt,  vWorldPos, vNormal, uTexScale * 0.9);
 
-            texDetail = (tGrass * wGrass + tRock * wRock + tSand * wSand
-                         + tSnow * wSnow + tDirt * wDirt) / totalW;
+            vec3 texFine = (tGrass * wGrass + tRock * wRock + tSand * wSand
+                            + tSnow * wSnow + tDirt * wDirt) / totalW;
 
-            // Apply second (coarser) scale for depth
+            // Scale 2 – Coarse: large patch character and colour variation
             vec3 tGrass2 = triplanar(uTexGrass, vWorldPos, vNormal, uTexScale * 0.25);
             vec3 tRock2  = triplanar(uTexRock,  vWorldPos, vNormal, uTexScale * 0.20);
             vec3 tSand2  = triplanar(uTexSand,  vWorldPos, vNormal, uTexScale * 0.30);
@@ -1643,17 +1651,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             vec3 texCoarse = (tGrass2 * wGrass + tRock2 * wRock + tSand2 * wSand
                               + tSnow2 * wSnow + tDirt2 * wDirt) / totalW;
 
-            // Combine fine and coarse detail
-            texDetail = texDetail * 0.65 + texCoarse * 0.35;
+            // Scale 3 – Micro: very tight tiling for sub-tile surface roughness
+            vec3 tGrass3 = triplanar(uTexGrass, vWorldPos, vNormal, uTexScale * 4.0);
+            vec3 tRock3  = triplanar(uTexRock,  vWorldPos, vNormal, uTexScale * 3.0);
+            vec3 tSand3  = triplanar(uTexSand,  vWorldPos, vNormal, uTexScale * 5.0);
+            vec3 tSnow3  = triplanar(uTexSnow,  vWorldPos, vNormal, uTexScale * 3.5);
+            vec3 tDirt3  = triplanar(uTexDirt,  vWorldPos, vNormal, uTexScale * 3.8);
+
+            vec3 texMicro = (tGrass3 * wGrass + tRock3 * wRock + tSand3 * wSand
+                             + tSnow3 * wSnow + tDirt3 * wDirt) / totalW;
+
+            // Combine three scales: fine 55% + coarse 25% + micro 20%
+            texDetail = texFine * 0.55 + texCoarse * 0.25 + texMicro * 0.20;
 
             // Remap: centre at 0.5 so blend is multiplicative-neutral
             // col * (1 + strength*(detail - 0.5)*2) keeps average brightness
             float detailFactor = 1.0 + uTexStrength * (texDetail.r * 0.4 + texDetail.g * 0.4 + texDetail.b * 0.2 - 0.5) * 2.0;
-            col *= clamp(detailFactor, 0.55, 1.55);
+            col *= clamp(detailFactor, 0.50, 1.65);
           }
 
-          // ── Micro-shading: subtle brightness variation ─────────────────────────
-          col *= 0.90 + micro * 0.18;
+          // ── Micro-shading: multi-scale brightness variation ────────────────────
+          // micro adds medium-grain texture feel; nano adds sub-pixel sparkle
+          col *= 0.88 + micro * 0.16 + nano * 0.06;
 
           // ── Lambert lighting ──────────────────────────────────────────────────
           float diffuse  = max(0.0, dot(vNormal, normalize(uSunDir)));

@@ -152,4 +152,44 @@ describe("generateTerrainTextureData", () => {
       expect(uniqueKeys.size).toBe(ALL_TYPES.length);
     });
   });
+
+  describe("enhanced detail quality", () => {
+    const stdDev = (data: Uint8ClampedArray, channel: 0 | 1 | 2): number => {
+      const values: number[] = [];
+      for (let i = channel; i < data.length; i += 4) values.push(data[i]);
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+      return Math.sqrt(variance);
+    };
+
+    it("rock texture has high variation (std dev > 7) from strata and cracks", () => {
+      const data = generateTerrainTextureData("rock", SIZE);
+      expect(stdDev(data, 0)).toBeGreaterThan(7);
+    });
+
+    it("grass texture has meaningful colour variation (std dev > 8 on G channel)", () => {
+      const data = generateTerrainTextureData("grass", SIZE);
+      expect(stdDev(data, 1)).toBeGreaterThan(8);
+    });
+
+    it("sand texture has directional ripple variation (std dev > 10 on R channel)", () => {
+      const data = generateTerrainTextureData("sand", SIZE);
+      expect(stdDev(data, 0)).toBeGreaterThan(10);
+    });
+
+    it("default size is 512 (produces 512*512*4 bytes when called without size arg)", () => {
+      const data = generateTerrainTextureData("grass");
+      expect(data.length).toBe(512 * 512 * 4);
+    });
+
+    it("snow texture has blue channel >= red channel on average (cool hue)", () => {
+      const data = generateTerrainTextureData("snow", SIZE);
+      const avgChannel = (ch: 0 | 1 | 2) => {
+        let sum = 0;
+        for (let i = ch; i < data.length; i += 4) sum += data[i];
+        return sum / (data.length / 4);
+      };
+      expect(avgChannel(2)).toBeGreaterThanOrEqual(avgChannel(0));
+    });
+  });
 });
