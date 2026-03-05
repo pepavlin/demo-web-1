@@ -68,6 +68,19 @@ import {
   type RuinsResult,
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, WorldItem, PlacedWorldItemData, WorldItemType } from "@/lib/gameTypes";
+import {
+  buildHarborDockMesh,
+  buildSailboatMesh,
+  findHarborPosition,
+  SAILBOAT_MAX_SPEED,
+  SAILBOAT_ACCEL,
+  SAILBOAT_BRAKE,
+  SAILBOAT_TURN_SPEED,
+  SAILBOAT_BOARD_RADIUS,
+  SAILBOAT_CAM_HEIGHT,
+  SAILBOAT_CAM_DIST,
+  type HarborShipData,
+} from "@/lib/harborSystem";
 import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
@@ -165,6 +178,9 @@ const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable bounda
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
 const BOAT_SPEED = 8;           // units/second when sailing
 const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
+
+// ─── Harbor Constants ─────────────────────────────────────────────────────────
+const HARBOR_SEARCH_DIST = 88;  // radius from world center to search for coastline
 
 // ─── Rocket Constants ─────────────────────────────────────────────────────────
 const ROCKET_BOARD_RADIUS = 8;     // units — show boarding prompt within this distance
@@ -472,6 +488,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const onBoatRef = useRef(false);
   const nearBoatForBoardRef = useRef(false);
 
+  // ─── Harbor Refs ─────────────────────────────────────────────────────────────
+  const harborDockRef = useRef<THREE.Group | null>(null);
+  const harborShipsRef = useRef<HarborShipData[]>([]);
+  const activeHarborShipRef = useRef<HarborShipData | null>(null);
+  const nearHarborShipRef = useRef<HarborShipData | null>(null);
+
   // ─── Rocket Refs ─────────────────────────────────────────────────────────────
   const rocketDataRef = useRef<RocketData | null>(null);
   const onRocketRef = useRef(false);
@@ -517,6 +539,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [isPossessed, setIsPossessed] = useState(false);
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
   const [onBoat, setOnBoat] = useState(false);
+  const [nearHarborShipPrompt, setNearHarborShipPrompt] = useState(false);
+  const [onHarborShip, setOnHarborShip] = useState(false);
   const [nearRocketPrompt, setNearRocketPrompt] = useState(false);
   const [onRocket, setOnRocket] = useState(false);
   const [rocketCountdown, setRocketCountdown] = useState<number | null>(null);
@@ -952,7 +976,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
     // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
-    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || inSpaceStationRef.current) return;
+    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || inSpaceStationRef.current || activeHarborShipRef.current) return;
     if (heldItemRef.current) return; // holding an item — must place it first
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
@@ -2913,6 +2937,69 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(boat);
     boatRef.current = boat;
 
+    // ── Harbor (dock + two sailboats) ─────────────────────────────────────────
+    // Find a coastal spot: land at HARBOR_SEARCH_DIST, open water just beyond.
+    const harborPos = findHarborPosition(getTerrainHeight, WATER_LEVEL, HARBOR_SEARCH_DIST);
+    if (harborPos) {
+      // Build and place the dock structure
+      const dock = buildHarborDockMesh();
+      const dockTerrainY = getTerrainHeight(harborPos.x, harborPos.z);
+      dock.position.set(harborPos.x, dockTerrainY, harborPos.z);
+      // Rotate so dock faces seaward (local +Z → seaward direction)
+      dock.rotation.y = harborPos.angle + Math.PI; // +PI because angle points outward from origin
+      scene.add(dock);
+      harborDockRef.current = dock;
+
+      // Compute the seaward dock-end position (where sailboats will be moored)
+      const dockAngle = harborPos.angle;   // radians, points toward sea
+      const DOCK_LEN  = 22;
+      const dockEndX  = harborPos.x + Math.cos(dockAngle) * DOCK_LEN;
+      const dockEndZ  = harborPos.z + Math.sin(dockAngle) * DOCK_LEN;
+
+      // Perpendicular to dock direction (for side-by-side mooring)
+      const perpAngle = dockAngle + Math.PI / 2;
+      const MOORING_OFFSET = 5; // units to port/starboard of dock end
+
+      const mooringPositions = [
+        {
+          x: dockEndX + Math.cos(perpAngle) * MOORING_OFFSET,
+          z: dockEndZ + Math.sin(perpAngle) * MOORING_OFFSET,
+          id: "harbor-ship-1",
+        },
+        {
+          x: dockEndX + Math.cos(perpAngle) * -MOORING_OFFSET,
+          z: dockEndZ + Math.sin(perpAngle) * -MOORING_OFFSET,
+          id: "harbor-ship-2",
+        },
+      ];
+
+      mooringPositions.forEach(({ x, z, id }) => {
+        // Verify the mooring spot is in water; shift further out if needed
+        let mx = x;
+        let mz = z;
+        for (let extra = 0; extra < 20; extra += 2) {
+          if (getTerrainHeight(mx, mz) < WATER_LEVEL) break;
+          mx = x + Math.cos(dockAngle) * extra;
+          mz = z + Math.sin(dockAngle) * extra;
+        }
+
+        const { group: sailboat, sailMesh, sailGroup } = buildSailboatMesh();
+        sailboat.position.set(mx, WATER_LEVEL + 0.55, mz);
+        // Face the boat toward open sea
+        sailboat.rotation.y = dockAngle;
+        scene.add(sailboat);
+
+        harborShipsRef.current.push({
+          mesh: sailboat,
+          id,
+          velocity: 0,
+          yaw: dockAngle,
+          sailMesh,
+          sailGroup,
+        });
+      });
+    }
+
     // ── MotherShip ────────────────────────────────────────────────────────────
     // Massive alien mothership hovering high in the sky above the world center.
     // Scaled to 0.55× so the outer ring (~52 unit radius) reads well at distance.
@@ -3147,6 +3234,42 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             rd.state = 'boarded';
             if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
           }
+        } else if (activeHarborShipRef.current) {
+          // ── Exit harbor sailboat ───────────────────────────────────────────
+          const ship = activeHarborShipRef.current;
+          if (cameraRef.current) {
+            // Find nearest land to disembark
+            let landX = ship.mesh.position.x;
+            let landZ = ship.mesh.position.z;
+            let foundLand = false;
+            for (let d = 4; d < 50 && !foundLand; d += 2) {
+              for (let a = 0; a < Math.PI * 2 && !foundLand; a += 0.25) {
+                const tx = ship.mesh.position.x + Math.cos(a) * d;
+                const tz = ship.mesh.position.z + Math.sin(a) * d;
+                if (getTerrainHeightSampled(tx, tz) >= WATER_LEVEL) {
+                  landX = tx;
+                  landZ = tz;
+                  foundLand = true;
+                }
+              }
+            }
+            const landY = getTerrainHeightSampled(landX, landZ);
+            cameraRef.current.position.set(landX, landY + PLAYER_HEIGHT, landZ);
+            playerBodyPosRef.current.copy(cameraRef.current.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+          }
+          // Stop ship movement on disembark
+          ship.velocity = 0;
+          activeHarborShipRef.current = null;
+          setOnHarborShip(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        } else if (nearHarborShipRef.current && !possessedSheepRef.current && !onBoatRef.current) {
+          // ── Board a harbor sailboat ────────────────────────────────────────
+          const ship = nearHarborShipRef.current;
+          activeHarborShipRef.current = ship;
+          setOnHarborShip(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
         } else if (onBoatRef.current) {
           // ── Exit boat: find nearest land to place the player ───────────────
           const boat = boatRef.current;
@@ -3928,8 +4051,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, or in station) ─────
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current) {
+      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, in station, or sailing) ─
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !activeHarborShipRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -4317,6 +4440,124 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               pitch: pitchRef.current,
             });
           }
+        }
+      }
+
+      // ── Harbor ships: bobbing, proximity, active sailing ─────────────────────
+      {
+        const ships = harborShipsRef.current;
+        const playerPos = playerBodyPosRef.current;
+        const activeShip = activeHarborShipRef.current;
+
+        // Update each ship
+        let closestShip: HarborShipData | null = null;
+        let closestDist = SAILBOAT_BOARD_RADIUS;
+
+        ships.forEach((ship) => {
+          if (ship === activeShip) return; // active ship handled separately
+
+          // Idle bobbing
+          ship.mesh.position.y = WATER_LEVEL + 0.55 + 0.06 * Math.sin(elapsed * 1.1 + ship.id.length);
+          ship.mesh.rotation.x = 0.016 * Math.sin(elapsed * 0.9 + ship.id.length);
+          ship.mesh.rotation.z = 0.016 * Math.cos(elapsed * 1.2 + ship.id.length);
+
+          // Gentle sail flutter even when moored
+          ship.sailGroup.rotation.y = 0.04 * Math.sin(elapsed * 0.7 + ship.id.length);
+
+          // Proximity to player
+          const dx = ship.mesh.position.x - playerPos.x;
+          const dz = ship.mesh.position.z - playerPos.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < closestDist && !possessedSheepRef.current && !onBoatRef.current) {
+            closestDist = dist;
+            closestShip = ship;
+          }
+        });
+
+        nearHarborShipRef.current = closestShip;
+        setNearHarborShipPrompt(closestShip !== null && !activeShip);
+
+        // ── Active sailing physics ───────────────────────────────────────────
+        if (activeShip && isLockedRef.current && cameraRef.current) {
+          const cam = cameraRef.current;
+          const keys = keysRef.current;
+
+          // A/D → turn the ship heading
+          if (keys["KeyA"] || keys["ArrowLeft"])  activeShip.yaw += SAILBOAT_TURN_SPEED * dt;
+          if (keys["KeyD"] || keys["ArrowRight"]) activeShip.yaw -= SAILBOAT_TURN_SPEED * dt;
+
+          // W/S → accelerate / brake
+          if (keys["KeyW"] || keys["ArrowUp"]) {
+            activeShip.velocity = Math.min(
+              SAILBOAT_MAX_SPEED,
+              activeShip.velocity + SAILBOAT_ACCEL * dt
+            );
+          } else if (keys["KeyS"] || keys["ArrowDown"]) {
+            activeShip.velocity = Math.max(
+              -SAILBOAT_MAX_SPEED * 0.4,
+              activeShip.velocity - SAILBOAT_BRAKE * dt
+            );
+          } else {
+            // Natural drag / deceleration
+            const drag = SAILBOAT_BRAKE * 0.35 * dt;
+            if (activeShip.velocity > 0) activeShip.velocity = Math.max(0, activeShip.velocity - drag);
+            else if (activeShip.velocity < 0) activeShip.velocity = Math.min(0, activeShip.velocity + drag);
+          }
+
+          // Move ship in heading direction
+          const prevX = activeShip.mesh.position.x;
+          const prevZ = activeShip.mesh.position.z;
+          const newX  = prevX + Math.sin(activeShip.yaw) * activeShip.velocity * dt;
+          const newZ  = prevZ + Math.cos(activeShip.yaw) * activeShip.velocity * dt;
+
+          // Bounds and water check
+          const half = WORLD_SIZE / 2 - 12;
+          const clampedX = Math.max(-half, Math.min(half, newX));
+          const clampedZ = Math.max(-half, Math.min(half, newZ));
+
+          if (getTerrainHeightSampled(clampedX, clampedZ) < WATER_LEVEL) {
+            activeShip.mesh.position.x = clampedX;
+            activeShip.mesh.position.z = clampedZ;
+          } else {
+            // Hit ground — stop immediately
+            activeShip.velocity = 0;
+          }
+
+          // Apply heading to mesh
+          activeShip.mesh.rotation.y = activeShip.yaw;
+
+          // Bobbing while sailing
+          const speed = Math.abs(activeShip.velocity);
+          activeShip.mesh.position.y = WATER_LEVEL + 0.55 + 0.05 * Math.sin(elapsed * 1.5);
+          activeShip.mesh.rotation.x = 0.012 * Math.sin(elapsed * 1.0) - speed * 0.003;
+          activeShip.mesh.rotation.z = 0.012 * Math.cos(elapsed * 0.8) + activeShip.velocity * SAILBOAT_TURN_SPEED * 0.015;
+
+          // Sail animation — fills with wind when moving, luffs when stopped
+          const fillAngle = speed > 0.5 ? 0.18 * (speed / SAILBOAT_MAX_SPEED) : 0.04 * Math.sin(elapsed * 1.1);
+          activeShip.sailGroup.rotation.y = fillAngle;
+
+          // Camera: follow behind stern at a fixed offset based on ship yaw
+          const behindX = Math.sin(activeShip.yaw) * -SAILBOAT_CAM_DIST;
+          const behindZ = Math.cos(activeShip.yaw) * -SAILBOAT_CAM_DIST;
+          cam.position.set(
+            activeShip.mesh.position.x + behindX,
+            activeShip.mesh.position.y + SAILBOAT_CAM_HEIGHT,
+            activeShip.mesh.position.z + behindZ
+          );
+          // Camera looks toward the bow
+          cam.rotation.order = "YXZ";
+          cam.rotation.y = activeShip.yaw;
+          cam.rotation.x = -0.22; // slight downward angle looking at deck
+          playerBodyPosRef.current.copy(cam.position);
+
+          // Broadcast position
+          sendUpdateRef.current?.({
+            x: playerBodyPosRef.current.x,
+            y: playerBodyPosRef.current.y,
+            z: playerBodyPosRef.current.z,
+            rotY: activeShip.yaw,
+            pitch: -0.22,
+          });
         }
       }
 
@@ -5431,7 +5672,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── World items: proximity pickup check + placement ghost ─────────────────
-      if (!possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current) {
+      if (!possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !activeHarborShipRef.current) {
         if (heldItemRef.current) {
           // Show placement ghost at terrain surface in front of player
           const ghost = itemPlacementGhostRef.current;
@@ -6508,6 +6749,43 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             ⛵ Na lodi &nbsp;·&nbsp; <span style={{ color: "#7dd3fc" }}>[E] Opustit loď</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Harbor sailboat boarding prompt ═══════════ */}
+      {nearHarborShipPrompt && !onHarborShip && !onBoat && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(5,30,70,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(80,180,255,0.50)",
+              boxShadow: "0 0 24px rgba(40,140,255,0.45)",
+            }}
+          >
+            ⛵ [E] Nastoupit na plachetnici
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — On harbor sailboat banner ═════════════ */}
+      {onHarborShip && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,25,60,0.93)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(80,180,255,0.35)",
+              boxShadow: "0 0 22px rgba(40,120,255,0.35)",
+            }}
+          >
+            ⛵ Plachetnice&nbsp;·&nbsp;
+            <span style={{ color: "#7dd3fc" }}>W/S Plyn · A/D Kormidlo · [E] Opustit</span>
           </div>
         </div>
       )}
