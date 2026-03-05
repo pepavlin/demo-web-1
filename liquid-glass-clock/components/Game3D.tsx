@@ -67,11 +67,13 @@ import {
   buildCaveMesh,
   buildTorchMesh,
   buildTreasureChestMesh,
+  buildAirplane3DMesh,
+  buildAirstripMesh,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData } from "@/lib/gameTypes";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -202,6 +204,42 @@ const ROCKET_FLIGHT_DURATION = 12;
 const SPACE_STATION_WORLD_Y = 2000;
 const SPACE_STATION_WORLD_X = 0;
 const SPACE_STATION_WORLD_Z = 0;
+
+// ─── Airplane Constants ────────────────────────────────────────────────────────
+/** World-space X of the airstrip centre */
+const AIRPLANE_SPAWN_X = 50;
+/** World-space Z of the airstrip centre */
+const AIRPLANE_SPAWN_Z = 20;
+/** Boarding proximity radius */
+const AIRPLANE_BOARD_RADIUS = 8;
+/** Camera height above airplane origin when in cockpit (1st person) */
+const AIRPLANE_CAM_HEIGHT = 1.0;
+/** Camera distance behind airplane in 3rd-person follow mode */
+const AIRPLANE_CAM_DIST = 14;
+/** Camera height above airplane in 3rd-person */
+const AIRPLANE_CAM_HEIGHT_TP = 4;
+/** Cruise speed (units/s) */
+const AIRPLANE_CRUISE_SPEED = 28;
+/** Max speed with afterburner (Shift) */
+const AIRPLANE_MAX_SPEED = 55;
+/** Minimum flying speed before stall begins */
+const AIRPLANE_STALL_SPEED = 8;
+/** Acceleration per second when throttle pressed */
+const AIRPLANE_ACCEL = 12;
+/** Deceleration per second when no throttle */
+const AIRPLANE_DECEL = 6;
+/** Pitch/roll/yaw turn rates (radians per second) */
+const AIRPLANE_PITCH_RATE = 0.9;
+const AIRPLANE_ROLL_RATE  = 1.2;
+const AIRPLANE_YAW_RATE   = 0.5;
+/** Max pitch angle (radians) — prevent full loop */
+const AIRPLANE_MAX_PITCH = Math.PI * 0.45;
+/** Max roll angle */
+const AIRPLANE_MAX_ROLL  = Math.PI * 0.65;
+/** Gravity effect on stalled airplane */
+const AIRPLANE_STALL_GRAVITY = -12;
+/** How high above terrain the airplane starts (so it takes off cleanly) */
+const AIRPLANE_START_HEIGHT = 2.0;
 
 // ─── Cave Constants ────────────────────────────────────────────────────────────
 /** Fixed world-space position of the cave entrance centre. */
@@ -531,6 +569,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const nearRocketForBoardRef = useRef(false);
   const rocketArrivedRef = useRef(false);
 
+  // ─── Airplane Refs ────────────────────────────────────────────────────────────
+  const airplaneDataRef = useRef<AirplaneData | null>(null);
+  const onAirplaneRef = useRef(false);
+  const nearAirplaneForBoardRef = useRef(false);
+
   // ─── Space Station Refs ───────────────────────────────────────────────────────
   const spaceStationGroupRef = useRef<THREE.Group | null>(null);
   const spaceStationRoomsRef = useRef<THREE.Box3[]>([]);
@@ -577,6 +620,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [rocketCountdown, setRocketCountdown] = useState<number | null>(null);
   const [rocketLaunching, setRocketLaunching] = useState(false);
   const [rocketArrived, setRocketArrived] = useState(false);
+  const [nearAirplanePrompt, setNearAirplanePrompt] = useState(false);
+  const [onAirplane, setOnAirplane] = useState(false);
   const [inSpaceStation, setInSpaceStation] = useState(false);
   const [nearAirlockExit, setNearAirlockExit] = useState(false);
   const [stationWelcome, setStationWelcome] = useState(false);
@@ -1024,7 +1069,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
     // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
-    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || inSpaceStationRef.current || activeHarborShipRef.current) return;
+    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current) return;
     if (heldItemRef.current) return; // holding an item — must place it first
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
@@ -2949,6 +2994,40 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       spaceStationAnimMeshesRef.current = stationResult.animatedMeshes;
     }
 
+    // ── Airplane & Airstrip ────────────────────────────────────────────────────
+    {
+      const ax = AIRPLANE_SPAWN_X;
+      const az = AIRPLANE_SPAWN_Z;
+      const groundY = getTerrainHeightSampled(ax, az);
+
+      // Airstrip runway (stays on ground)
+      const airstrip = buildAirstripMesh();
+      airstrip.position.set(ax, groundY + 0.04, az);
+      scene.add(airstrip);
+
+      // Airplane mesh
+      const { group: airplaneGroup, propeller } = buildAirplane3DMesh();
+      airplaneGroup.position.set(ax, groundY + AIRPLANE_START_HEIGHT, az);
+      // Nose faces +Z by default — rotate 180° so nose faces -Z (south) ready for take-off run
+      airplaneGroup.rotation.y = Math.PI;
+      scene.add(airplaneGroup);
+
+      airplaneDataRef.current = {
+        mesh: airplaneGroup,
+        propeller,
+        state: 'idle',
+        position: new THREE.Vector3(ax, groundY + AIRPLANE_START_HEIGHT, az),
+        velocity: new THREE.Vector3(0, 0, 0),
+        pitch: 0,
+        yaw: Math.PI,
+        roll: 0,
+        speed: 0,
+        groundY,
+        spawnX: ax,
+        spawnZ: az,
+      };
+    }
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Helper: place held item via raycast from camera ───────────────────────
     const tryPlaceHeldItemViaRaycast = (): boolean => {
@@ -3102,7 +3181,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
-        if (onRocketRef.current) {
+        if (onAirplaneRef.current) {
+          // ── Exit airplane — parachute player to ground ─────────────────────
+          const ad = airplaneDataRef.current;
+          if (ad && cameraRef.current) {
+            // Drop player below airplane, let normal gravity take over
+            const ex = ad.position.x + 4;
+            const ez = ad.position.z;
+            const ey = ad.position.y;
+            cameraRef.current.position.set(ex, ey, ez);
+            playerBodyPosRef.current.copy(cameraRef.current.position);
+            playerRef.current.velY = -2;
+            playerRef.current.onGround = false;
+            // Leave airplane flying on autopilot (keep going straight)
+            ad.state = 'flying';
+          }
+          onAirplaneRef.current = false;
+          setOnAirplane(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        } else if (nearAirplaneForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current) {
+          // ── Board the airplane ──────────────────────────────────────────────
+          const ad = airplaneDataRef.current;
+          if (ad && (ad.state === 'idle' || ad.state === 'flying')) {
+            onAirplaneRef.current = true;
+            setOnAirplane(true);
+            ad.state = 'flying';
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+          }
+        } else if (onRocketRef.current) {
           // ── Exit rocket (only allowed while idle/boarded, not during launch) ─
           const rd = rocketDataRef.current;
           if (rd && (rd.state === 'idle' || rd.state === 'boarded') && cameraRef.current) {
@@ -3942,8 +4048,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, in station, or sailing) ─
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !activeHarborShipRef.current) {
+      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, on airplane, in station, or sailing) ─
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current && !activeHarborShipRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -4630,6 +4736,145 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               }
               playerBodyPosRef.current.copy(rd.mesh.position);
               playerRef.current.velY = 0;
+            }
+          }
+        }
+      }
+
+      // ── Airplane update ────────────────────────────────────────────────────────
+      {
+        const ad = airplaneDataRef.current;
+        if (ad && cameraRef.current) {
+          const cam = cameraRef.current;
+          const keys = keysRef.current;
+
+          if (ad.state === 'idle') {
+            // Proximity check — show boarding prompt
+            const playerPos3 = playerBodyPosRef.current;
+            const dx = ad.position.x - playerPos3.x;
+            const dz = ad.position.z - playerPos3.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const isNear = dist < AIRPLANE_BOARD_RADIUS && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current;
+            nearAirplaneForBoardRef.current = isNear;
+            setNearAirplanePrompt(isNear);
+          } else {
+            nearAirplaneForBoardRef.current = false;
+            setNearAirplanePrompt(false);
+          }
+
+          if (ad.state === 'flying') {
+            // ── Flight controls ─────────────────────────────────────────────
+            const isSprinting = keys["ShiftLeft"] || keys["ShiftRight"];
+
+            // Throttle
+            if (keys["KeyW"]) {
+              ad.speed = Math.min(ad.speed + AIRPLANE_ACCEL * dt, isSprinting ? AIRPLANE_MAX_SPEED : AIRPLANE_CRUISE_SPEED);
+            } else {
+              ad.speed = Math.max(ad.speed - AIRPLANE_DECEL * dt, 0);
+            }
+
+            // Pitch: S pitches nose up (climb), Space pitches up too
+            if (keys["KeyS"] || keys["Space"]) {
+              ad.pitch = Math.min(ad.pitch + AIRPLANE_PITCH_RATE * dt, AIRPLANE_MAX_PITCH);
+            } else if (keys["KeyX"]) {
+              ad.pitch = Math.max(ad.pitch - AIRPLANE_PITCH_RATE * dt, -AIRPLANE_MAX_PITCH);
+            } else {
+              // Auto-level pitch when no input
+              ad.pitch *= Math.pow(0.92, dt * 60);
+            }
+
+            // Roll / bank: A rolls left, D rolls right
+            if (keys["KeyA"] || keys["ArrowLeft"]) {
+              ad.roll = Math.min(ad.roll + AIRPLANE_ROLL_RATE * dt, AIRPLANE_MAX_ROLL);
+            } else if (keys["KeyD"] || keys["ArrowRight"]) {
+              ad.roll = Math.max(ad.roll - AIRPLANE_ROLL_RATE * dt, -AIRPLANE_MAX_ROLL);
+            } else {
+              // Auto-level roll
+              ad.roll *= Math.pow(0.88, dt * 60);
+            }
+
+            // Yaw from bank (coordinated turn — roll causes yaw)
+            ad.yaw += -ad.roll * AIRPLANE_YAW_RATE * dt;
+
+            // ── Physics ──────────────────────────────────────────────────────
+            // Forward direction based on yaw and pitch
+            const cosP = Math.cos(ad.pitch);
+            const sinP = Math.sin(ad.pitch);
+            const cosY = Math.cos(ad.yaw);
+            const sinY = Math.sin(ad.yaw);
+
+            const fwdX = sinY * cosP;
+            const fwdY = sinP;
+            const fwdZ = cosY * cosP;
+
+            // Stall effect: gravity if too slow
+            const stallFactor = ad.speed < AIRPLANE_STALL_SPEED ? (1 - ad.speed / AIRPLANE_STALL_SPEED) : 0;
+
+            ad.velocity.set(
+              fwdX * ad.speed,
+              fwdY * ad.speed + AIRPLANE_STALL_GRAVITY * stallFactor * dt,
+              fwdZ * ad.speed
+            );
+
+            ad.position.addScaledVector(ad.velocity, dt);
+
+            // Clamp to not go underground
+            const terrainY = getTerrainHeightSampled(ad.position.x, ad.position.z);
+            if (ad.position.y < terrainY + 1.5) {
+              ad.position.y = terrainY + 1.5;
+              ad.pitch = 0;
+              ad.velocity.y = 0;
+              // Slow down on "landing" / ground contact
+              ad.speed *= 0.95;
+              // If very slow — transition to idle (parked)
+              if (ad.speed < 1) {
+                ad.speed = 0;
+                ad.state = 'idle';
+                if (onAirplaneRef.current) {
+                  // Graceful landing — keep player on board
+                }
+              }
+            }
+
+            // Update mesh transform
+            ad.mesh.position.copy(ad.position);
+            ad.mesh.rotation.order = "YXZ";
+            ad.mesh.rotation.y = ad.yaw;
+            ad.mesh.rotation.x = -ad.pitch;
+            ad.mesh.rotation.z = ad.roll;
+
+            // Spin propeller — faster at higher speeds
+            const propSpeed = 8 + ad.speed * 0.5;
+            (ad.propeller as unknown as THREE.Group).rotation.z += propSpeed * dt;
+
+            // ── Camera while player is on the airplane ────────────────────────
+            if (onAirplaneRef.current && isLockedRef.current) {
+              if (cameraModeRef.current === "third") {
+                // 3rd-person: camera behind and above the airplane
+                const behindX = -Math.sin(ad.yaw) * AIRPLANE_CAM_DIST;
+                const behindZ = -Math.cos(ad.yaw) * AIRPLANE_CAM_DIST;
+                const targetCamPos = new THREE.Vector3(
+                  ad.position.x + behindX,
+                  ad.position.y + AIRPLANE_CAM_HEIGHT_TP,
+                  ad.position.z + behindZ
+                );
+                cam.position.lerp(targetCamPos, Math.min(1, dt * 8));
+                cam.lookAt(ad.position.x, ad.position.y + 0.5, ad.position.z);
+              } else {
+                // 1st-person: camera in cockpit
+                const cockpitOffsetX = Math.sin(ad.yaw) * 0.8;
+                const cockpitOffsetZ = Math.cos(ad.yaw) * 0.8;
+                cam.position.set(
+                  ad.position.x + cockpitOffsetX,
+                  ad.position.y + AIRPLANE_CAM_HEIGHT,
+                  ad.position.z + cockpitOffsetZ
+                );
+                cam.rotation.order = "YXZ";
+                cam.rotation.y = ad.yaw + Math.PI; // face forward (nose is +Z in local space)
+                cam.rotation.x = -ad.pitch * 0.7;
+                cam.rotation.z = ad.roll * 0.3;
+              }
+              playerBodyPosRef.current.copy(ad.position);
             }
           }
         }
@@ -7863,6 +8108,43 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           }}
         />
+      )}
+
+      {/* ═══════════════ CENTER — Airplane boarding prompt ═══════════════ */}
+      {nearAirplanePrompt && !onAirplane && !onBoat && !onRocket && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(10,40,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(100,220,50,0.50)",
+              boxShadow: "0 0 24px rgba(80,200,30,0.45)",
+            }}
+          >
+            ✈️ [E] Nastoupit do letadla
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — On-airplane active banner ═══════════════ */}
+      {onAirplane && gameState.isLocked && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,30,5,0.93)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(100,220,50,0.40)",
+              boxShadow: "0 0 22px rgba(80,200,30,0.35)",
+            }}
+          >
+            ✈️ Letadlo&nbsp;·&nbsp;
+            <span style={{ color: "#86efac" }}>W Plyn · S/X Výška · A/D Zatočit · Shift Turbo · [E] Vyskočit</span>
+          </div>
+        </div>
       )}
 
       {/* Mobile virtual controls — only rendered on touch devices */}

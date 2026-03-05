@@ -337,3 +337,33 @@ export interface RocketData {
   /** Particle meshes for exhaust smoke/fire effect */
   exhaustParticles: THREE.Mesh[];
 }
+
+// ─── Airplane system ────────────────────────────────────────────────────────
+export type AirplaneState = 'idle' | 'boarded' | 'flying';
+
+export interface AirplaneData {
+  /** Root group for the whole airplane. Rotated to match pitch/roll/yaw. */
+  mesh: THREE.Group;
+  /** Propeller mesh that spins during flight */
+  propeller: THREE.Mesh;
+  /** Current boarding/flight state */
+  state: AirplaneState;
+  /** World-space position of the airplane */
+  position: THREE.Vector3;
+  /** Current flight velocity vector (world space, units/s) */
+  velocity: THREE.Vector3;
+  /** Pitch angle in radians (nose up = positive) */
+  pitch: number;
+  /** Yaw angle in radians */
+  yaw: number;
+  /** Roll angle in radians (banking) */
+  roll: number;
+  /** Current forward airspeed (units/s) */
+  speed: number;
+  /** Terrain Y at the spawn point (for landing reference) */
+  groundY: number;
+  /** World X of the airstrip spawn */
+  spawnX: number;
+  /** World Z of the airstrip spawn */
+  spawnZ: number;
+}
