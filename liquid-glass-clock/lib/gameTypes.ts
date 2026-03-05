@@ -330,6 +330,10 @@ export interface RocketData {
   launchProgress: number;
   /** World-space Y coordinate of the launch pad (ground position) */
   groundY: number;
+  /** World X of the actual (above-water) spawn position */
+  spawnX: number;
+  /** World Z of the actual (above-water) spawn position */
+  spawnZ: number;
   /** Countdown value (3 → 2 → 1 → 0) shown to the player before lift-off */
   countdown: number;
   /** Accumulator for the countdown timer (seconds between ticks) */
