@@ -3,6 +3,7 @@
 import { useTransform } from "framer-motion";
 import { motion } from "framer-motion";
 import GeometricParticles from "./GeometricParticles";
+import Airplane from "./Airplane";
 import { useMouseParallax } from "@/hooks/useMouseParallax";
 
 export default function LiquidBackground() {
@@ -97,6 +98,9 @@ export default function LiquidBackground() {
 
       {/* Geometric particle network */}
       <GeometricParticles />
+
+      {/* Airplane flying across the background */}
+      <Airplane />
 
       {/* Noise texture */}
       <div className="noise-overlay" />

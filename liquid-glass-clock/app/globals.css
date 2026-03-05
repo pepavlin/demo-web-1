@@ -647,6 +647,73 @@ body {
   z-index: 3;
 }
 
+/* ── Airplane ───────────────────────────────────────────────────────────── */
+
+@keyframes plane-fly-ltr {
+  0%   { transform: translateX(-180px); }
+  100% { transform: translateX(calc(100vw + 180px)); }
+}
+
+@keyframes plane-fly-rtl {
+  0%   { transform: translateX(calc(100vw + 180px)) scaleX(-1); }
+  100% { transform: translateX(-180px) scaleX(-1); }
+}
+
+@keyframes contrail-fade {
+  0%   { opacity: 0; width: 0; }
+  15%  { opacity: 0.55; }
+  70%  { opacity: 0.40; }
+  100% { opacity: 0; width: 260px; }
+}
+
+@keyframes plane-drift {
+  0%, 100% { margin-top: 0; }
+  25%       { margin-top: -6px; }
+  75%       { margin-top:  5px; }
+}
+
+.airplane-wrapper {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  animation:
+    plane-fly-ltr var(--flight-duration, 14s) linear forwards,
+    plane-drift 6s ease-in-out infinite;
+}
+
+/* RTL variant — applied via inline transform scaleX(-1) on wrapper */
+.airplane-wrapper[style*="scaleX(-1)"] {
+  animation:
+    plane-fly-rtl var(--flight-duration, 14s) linear forwards,
+    plane-drift 6s ease-in-out infinite;
+  flex-direction: row-reverse;
+}
+
+.airplane-svg {
+  width: 120px;
+  height: 48px;
+  filter: drop-shadow(0 0 8px rgba(180, 140, 255, 0.55))
+          drop-shadow(0 0 20px rgba(140, 100, 255, 0.30));
+}
+
+.airplane-contrail {
+  height: 2px;
+  background: linear-gradient(
+    to left,
+    rgba(220, 200, 255, 0.55) 0%,
+    rgba(200, 170, 255, 0.30) 30%,
+    transparent 100%
+  );
+  border-radius: 2px;
+  animation: contrail-fade var(--flight-duration, 14s) linear forwards;
+  filter: blur(1px);
+  align-self: center;
+  margin-top: 1px;
+}
+
 /* Noise overlay */
 .noise-overlay {
   position: fixed;
