@@ -43,6 +43,10 @@ import {
   buildRocketMesh,
   buildSpaceStationInterior,
   buildPumpkinMesh,
+  buildSpiderMesh,
+  buildCaveMesh,
+  buildTorchMesh,
+  buildTreasureChestMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -1196,5 +1200,131 @@ describe("buildPumpkinMesh", () => {
     const mat = body.material as THREE.MeshLambertMaterial;
     // Orange colour: red channel dominant
     expect(mat.color.r).toBeGreaterThan(mat.color.b);
+  });
+});
+
+// ─── Cave system tests ─────────────────────────────────────────────────────────
+
+describe("buildSpiderMesh", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildSpiderMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple children (body + legs + eyes)", () => {
+    const group = buildSpiderMesh();
+    expect(group.children.length).toBeGreaterThan(5);
+  });
+
+  it("abdomen and cephalothorax mesh cast shadows", () => {
+    const group = buildSpiderMesh();
+    const shadowCasters = group.children.filter(
+      (c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).castShadow
+    );
+    expect(shadowCasters.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("all meshes have materials assigned", () => {
+    const group = buildSpiderMesh();
+    group.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh) {
+        expect(m.material).toBeTruthy();
+      }
+    });
+  });
+
+  it("can be scaled to represent different size tiers", () => {
+    const smallSpider = buildSpiderMesh();
+    smallSpider.scale.setScalar(0.45);
+    expect(smallSpider.scale.x).toBeCloseTo(0.45);
+
+    const largeSpider = buildSpiderMesh();
+    largeSpider.scale.setScalar(1.4);
+    expect(largeSpider.scale.x).toBeCloseTo(1.4);
+  });
+});
+
+describe("buildCaveMesh", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildCaveMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple children (arch + walls + floor + ceiling + stalactites)", () => {
+    const group = buildCaveMesh();
+    expect(group.children.length).toBeGreaterThan(8);
+  });
+
+  it("all meshes have materials", () => {
+    const group = buildCaveMesh();
+    let meshCount = 0;
+    group.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh) {
+        expect(m.material).toBeTruthy();
+        meshCount++;
+      }
+    });
+    expect(meshCount).toBeGreaterThan(8);
+  });
+});
+
+describe("buildTorchMesh", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildTorchMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has children (stick, band, flame, core)", () => {
+    const group = buildTorchMesh();
+    expect(group.children.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("contains a flame child named 'flame'", () => {
+    const group = buildTorchMesh();
+    const flame = group.children.find((c) => c.name === "flame");
+    expect(flame).toBeDefined();
+  });
+
+  it("flame uses emissive material for glow", () => {
+    const group = buildTorchMesh();
+    const flame = group.children.find((c) => c.name === "flame") as THREE.Mesh;
+    expect(flame).toBeDefined();
+    const mat = flame.material as THREE.MeshLambertMaterial;
+    // Emissive should have some red/orange component
+    expect(mat.emissive.r).toBeGreaterThan(0.5);
+  });
+});
+
+describe("buildTreasureChestMesh", () => {
+  it("returns an object with group and lidGroup", () => {
+    const result = buildTreasureChestMesh();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.lidGroup).toBeInstanceOf(THREE.Group);
+  });
+
+  it("lidGroup is a child of group", () => {
+    const { group, lidGroup } = buildTreasureChestMesh();
+    let found = false;
+    group.traverse((child) => {
+      if (child === lidGroup) found = true;
+    });
+    expect(found).toBe(true);
+  });
+
+  it("lid can be rotated to open position", () => {
+    const { lidGroup } = buildTreasureChestMesh();
+    lidGroup.rotation.x = -Math.PI * 0.75;
+    expect(lidGroup.rotation.x).toBeCloseTo(-Math.PI * 0.75);
+  });
+
+  it("has multiple mesh children for detailed chest appearance", () => {
+    const { group } = buildTreasureChestMesh();
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThan(5);
   });
 });

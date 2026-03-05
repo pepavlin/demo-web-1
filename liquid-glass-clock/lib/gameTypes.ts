@@ -112,6 +112,94 @@ export interface FoxData {
   sheepSearchTimer: number;
 }
 
+// ─── Spider system ─────────────────────────────────────────────────────────────
+
+/** Three danger tiers of cave spiders. */
+export type SpiderType = "small" | "medium" | "large";
+
+/** Stats per spider type. */
+export interface SpiderTypeConfig {
+  maxHp: number;
+  attackDamage: number;  // HP per second when in melee contact
+  speed: number;         // world units per second
+  attackRange: number;   // melee reach in world units
+  attackCooldown: number;// seconds between attacks
+  scale: number;         // mesh scale multiplier
+  label: string;         // display name in Czech
+}
+
+export const SPIDER_TYPE_CONFIGS: Record<SpiderType, SpiderTypeConfig> = {
+  small: {
+    maxHp: 20,
+    attackDamage: 5,
+    speed: 4.5,
+    attackRange: 1.8,
+    attackCooldown: 0.8,
+    scale: 0.45,
+    label: "Malý pavouk",
+  },
+  medium: {
+    maxHp: 50,
+    attackDamage: 12,
+    speed: 3.2,
+    attackRange: 2.2,
+    attackCooldown: 1.0,
+    scale: 0.8,
+    label: "Střední pavouk",
+  },
+  large: {
+    maxHp: 100,
+    attackDamage: 22,
+    speed: 2.0,
+    attackRange: 2.8,
+    attackCooldown: 1.4,
+    scale: 1.4,
+    label: "Velký pavouk",
+  },
+};
+
+export interface SpiderData {
+  mesh: THREE.Group;
+  type: SpiderType;
+  hp: number;
+  maxHp: number;
+  isAlive: boolean;
+  attackCooldown: number;
+  hitFlashTimer: number;
+  wanderTimer: number;
+  wanderAngle: number;
+  /** World-space position of the cave this spider belongs to (used for territory boundary). */
+  caveX: number;
+  caveZ: number;
+}
+
+// ─── Treasure Chest ───────────────────────────────────────────────────────────
+
+export interface TreasureChestData {
+  mesh: THREE.Group;
+  /** The lid sub-group — rotated open when player interacts. */
+  lidGroup: THREE.Group;
+  isOpened: boolean;
+  /** World position — used for distance check. */
+  x: number;
+  z: number;
+  /** Reward coins granted when opened. */
+  rewardCoins: number;
+}
+
+// ─── Cave Torch ───────────────────────────────────────────────────────────────
+
+export interface CaveTorchData {
+  /** The visible torch mesh group. */
+  mesh: THREE.Group;
+  /** Point light attached to the flame. */
+  light: THREE.PointLight;
+  /** Base intensity — flickered randomly around this value. */
+  baseIntensity: number;
+  /** Accumulated flicker time for sin-based animation. */
+  flickerTimer: number;
+}
+
 export interface CoinData {
   mesh: THREE.Mesh;
   collected: boolean;
@@ -193,6 +281,7 @@ export interface GameState {
   playerHp: number;
   foxesDefeated: number;
   catapultsDefeated: number;
+  spidersDefeated: number;
   attackReady: boolean;
 }
 
