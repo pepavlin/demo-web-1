@@ -42,6 +42,7 @@ import {
   buildMotherShipMesh,
   buildRocketMesh,
   buildSpaceStationInterior,
+  buildPumpkinMesh,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -1138,5 +1139,62 @@ describe("buildSpaceStationInterior", () => {
     });
     // Bridge extends to X ≥ 55 (defined as X: 35..58)
     expect(maxX).toBeGreaterThanOrEqual(50);
+  });
+});
+
+// ─── buildPumpkinMesh ─────────────────────────────────────────────────────────
+
+describe("buildPumpkinMesh", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildPumpkinMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has children (body + ribs + stem + leaf)", () => {
+    const group = buildPumpkinMesh();
+    expect(group.children.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("uses default scale 1.0 when no argument given", () => {
+    const group = buildPumpkinMesh();
+    expect(group.scale.x).toBeCloseTo(1.0);
+    expect(group.scale.y).toBeCloseTo(1.0);
+    expect(group.scale.z).toBeCloseTo(1.0);
+  });
+
+  it("applies custom scale uniformly", () => {
+    const group = buildPumpkinMesh(0.55);
+    expect(group.scale.x).toBeCloseTo(0.55);
+    expect(group.scale.y).toBeCloseTo(0.55);
+    expect(group.scale.z).toBeCloseTo(0.55);
+  });
+
+  it("hand-held version (scale 0.55) is smaller than world version (scale 1.0)", () => {
+    const worldGroup = buildPumpkinMesh(1.0);
+    const handGroup = buildPumpkinMesh(0.55);
+    expect(handGroup.scale.x).toBeLessThan(worldGroup.scale.x);
+  });
+
+  it("all mesh children have a material", () => {
+    const group = buildPumpkinMesh();
+    let meshCount = 0;
+    group.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh) {
+        expect(m.material).toBeTruthy();
+        meshCount++;
+      }
+    });
+    expect(meshCount).toBeGreaterThan(0);
+  });
+
+  it("pumpkin body mesh uses orange-ish colour", () => {
+    const group = buildPumpkinMesh();
+    // First child should be the main body mesh
+    const body = group.children[0] as THREE.Mesh;
+    expect(body).toBeInstanceOf(THREE.Mesh);
+    const mat = body.material as THREE.MeshLambertMaterial;
+    // Orange colour: red channel dominant
+    expect(mat.color.r).toBeGreaterThan(mat.color.b);
   });
 });

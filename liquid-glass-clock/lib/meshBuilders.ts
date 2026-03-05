@@ -2677,3 +2677,61 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     animatedMeshes,
   };
 }
+
+// ─── Pumpkin (pickable world item) ───────────────────────────────────────────
+
+/**
+ * Builds a pumpkin mesh for placement in the world.
+ * The group origin is at the bottom centre of the pumpkin so it sits flush
+ * on the terrain.
+ *
+ * @param scale - uniform scale multiplier (default 1.0). Pass ~0.55 for the
+ *   hand-held "held item" version shown in first-person view.
+ */
+export function buildPumpkinMesh(scale = 1.0): THREE.Group {
+  const group = new THREE.Group();
+
+  const orangeMat = new THREE.MeshLambertMaterial({ color: 0xe07820 });
+  const darkOrangeMat = new THREE.MeshLambertMaterial({ color: 0xb85010 });
+  const greenMat = new THREE.MeshLambertMaterial({ color: 0x3a8a20 });
+  const darkGreenMat = new THREE.MeshLambertMaterial({ color: 0x246010 });
+
+  // ── Main body (slightly flattened sphere) ──────────────────────────────────
+  const bodyGeo = new THREE.SphereGeometry(0.42, 10, 8);
+  // Flatten vertically to make it look more like a pumpkin
+  const bodyMesh = new THREE.Mesh(bodyGeo, orangeMat);
+  bodyMesh.scale.y = 0.78;
+  bodyMesh.position.y = 0.33; // sit on ground
+  group.add(bodyMesh);
+
+  // ── Ribs (4 vertical elongated spheres overlaid for the segmented look) ────
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2;
+    const ribGeo = new THREE.SphereGeometry(0.16, 6, 6);
+    const rib = new THREE.Mesh(ribGeo, darkOrangeMat);
+    rib.scale.set(1.0, 1.4, 1.0);
+    rib.position.set(
+      Math.cos(angle) * 0.28,
+      0.33,
+      Math.sin(angle) * 0.28
+    );
+    group.add(rib);
+  }
+
+  // ── Stem ──────────────────────────────────────────────────────────────────
+  const stemGeo = new THREE.CylinderGeometry(0.045, 0.07, 0.28, 6);
+  const stem = new THREE.Mesh(stemGeo, darkGreenMat);
+  stem.position.y = 0.72;
+  stem.rotation.z = 0.18; // slight lean
+  group.add(stem);
+
+  // ── Leaf curl (small torus arc on the stem) ──────────────────────────────
+  const leafGeo = new THREE.TorusGeometry(0.10, 0.025, 4, 8, Math.PI * 1.1);
+  const leaf = new THREE.Mesh(leafGeo, greenMat);
+  leaf.position.set(0.08, 0.80, 0.0);
+  leaf.rotation.set(Math.PI / 2, 0, 0.5);
+  group.add(leaf);
+
+  group.scale.setScalar(scale);
+  return group;
+}
