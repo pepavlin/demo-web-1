@@ -69,6 +69,7 @@ import {
   buildTreasureChestMesh,
   buildAirplane3DMesh,
   buildAirstripMesh,
+  buildAirstripSignMesh,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
@@ -3006,6 +3007,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const airstrip = buildAirstripMesh();
       airstrip.position.set(ax, groundY + 0.04, az);
       scene.add(airstrip);
+
+      // Directional sign near spawn — rotated so its +X arrow points toward the airstrip
+      // Airstrip is at ~(50, ?, 20) from spawn (0,0). Angle = atan2(50, 20) ≈ 1.19 rad from +Z
+      {
+        const signGy = getTerrainHeightSampled(8, 4);
+        const sign = buildAirstripSignMesh();
+        sign.position.set(8, signGy, 4);
+        // Rotate so the arrow (+X local) points from (8,4) toward airstrip centre (50,20)
+        const dirX = AIRPLANE_SPAWN_X - 8;
+        const dirZ = AIRPLANE_SPAWN_Z - 4;
+        sign.rotation.y = -Math.atan2(dirX, dirZ);
+        scene.add(sign);
+      }
 
       // Airplane mesh
       const { group: airplaneGroup, propeller } = buildAirplane3DMesh();
@@ -6449,6 +6463,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             ctx.fillText("M", lhMx - 3, lhMz + 3);
           }
 
+          // Airstrip marker — small airplane icon on the minimap
+          {
+            const ad = airplaneDataRef.current;
+            const apX = ad ? ad.position.x : AIRPLANE_SPAWN_X;
+            const apZ = ad ? ad.position.z : AIRPLANE_SPAWN_Z;
+            const aMx = cx + apX * scale;
+            const aMz = cy + apZ * scale;
+            if (aMx >= 0 && aMx <= W && aMz >= 0 && aMz <= W) {
+              ctx.fillStyle = "#86efac";
+              ctx.beginPath();
+              ctx.arc(aMx, aMz, 4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 8px monospace";
+              ctx.fillText("✈", aMx - 4, aMz + 3);
+            }
+          }
+
           // Player arrow — always based on body position, not camera offset
           const px = cx + playerBodyPosRef.current.x * scale;
           const pz = cy + playerBodyPosRef.current.z * scale;
@@ -8028,6 +8060,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 <div>📷 <strong className="text-yellow-300">[V]</strong> přepnout 1./3. osobu</div>
                 <div>🏊 <strong className="text-blue-400">Plav ve vodě</strong> — zpomaluje pohyb</div>
                 <div>⛵ Najdi <strong className="text-sky-300">loď</strong> na pobřeží [E] nastoupit</div>
+                <div>✈️ Najdi <strong className="text-green-300">letiště</strong> — nastoupit a létat [E]</div>
               </div>
             </div>
 

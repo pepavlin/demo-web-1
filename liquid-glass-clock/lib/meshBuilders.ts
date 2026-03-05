@@ -3338,6 +3338,10 @@ export function buildAirstripMesh(): THREE.Group {
 
   const runwayMat    = new THREE.MeshLambertMaterial({ color: 0x444444 });
   const markingMat   = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const poleMatGray  = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const beaconMatYel = new THREE.MeshLambertMaterial({ color: 0xffdd00, emissive: new THREE.Color(0xffaa00), emissiveIntensity: 0.8 });
+  const windsockMat  = new THREE.MeshLambertMaterial({ color: 0xff4400, emissive: new THREE.Color(0xff2200), emissiveIntensity: 0.3 });
+  const windsockWhiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
   // Asphalt surface
   const runwayGeo = new THREE.BoxGeometry(6, 0.08, 32);
@@ -3361,6 +3365,102 @@ export function buildAirstripMesh(): THREE.Group {
   const threshBack = threshFront.clone();
   threshBack.position.set(0, 0, -14.5);
   group.add(threshBack);
+
+  // ── Tall beacon poles at both ends (visible from a distance) ──────────────
+  const addBeaconPole = (x: number, z: number) => {
+    const poleGeo = new THREE.CylinderGeometry(0.10, 0.12, 8, 8);
+    const pole = new THREE.Mesh(poleGeo, poleMatGray);
+    pole.position.set(x, 4, z);
+    pole.castShadow = true;
+    group.add(pole);
+
+    // Bright yellow beacon sphere on top
+    const beaconGeo = new THREE.SphereGeometry(0.32, 8, 8);
+    const beacon = new THREE.Mesh(beaconGeo, beaconMatYel);
+    beacon.position.set(x, 8.4, z);
+    group.add(beacon);
+  };
+
+  // Four corner beacons
+  addBeaconPole( 4,  16);
+  addBeaconPole(-4,  16);
+  addBeaconPole( 4, -16);
+  addBeaconPole(-4, -16);
+
+  // ── Windsock ──────────────────────────────────────────────────────────────
+  // Horizontal mast on a short pole
+  const windsockPoleGeo = new THREE.CylinderGeometry(0.06, 0.06, 4, 7);
+  const windsockPole = new THREE.Mesh(windsockPoleGeo, poleMatGray);
+  windsockPole.position.set(5, 2, 0);
+  group.add(windsockPole);
+
+  const mastGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.2, 6);
+  mastGeo.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+  const mast = new THREE.Mesh(mastGeo, poleMatGray);
+  mast.position.set(5.9, 4.1, 0);
+  group.add(mast);
+
+  // Windsock cone — alternating orange and white rings
+  const sockSegments = 5;
+  for (let s = 0; s < sockSegments; s++) {
+    const t = s / sockSegments;
+    const r0 = 0.38 - t * 0.22;
+    const r1 = 0.38 - (s + 1) / sockSegments * 0.22;
+    const segLen = 0.45;
+    const segGeo = new THREE.CylinderGeometry(r1, r0, segLen, 8, 1, true);
+    segGeo.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.PI / 2));
+    const segMat = s % 2 === 0 ? windsockMat : windsockWhiteMat;
+    const seg = new THREE.Mesh(segGeo, segMat);
+    seg.position.set(7.05 + s * segLen, 4.1, 0);
+    group.add(seg);
+  }
+
+  return group;
+}
+
+/**
+ * Builds a small directional signpost that points toward the airstrip.
+ * Place this near the player spawn (0,0) to guide players.
+ */
+export function buildAirstripSignMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const poleMat  = new THREE.MeshLambertMaterial({ color: 0x8b6914 });
+  const boardMat = new THREE.MeshLambertMaterial({ color: 0x2a5f1a });
+  const textMat  = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const arrowMat = new THREE.MeshLambertMaterial({ color: 0xffdd00, emissive: new THREE.Color(0xffaa00), emissiveIntensity: 0.5 });
+
+  // Wooden post
+  const poleGeo = new THREE.BoxGeometry(0.16, 3.5, 0.16);
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.set(0, 1.75, 0);
+  pole.castShadow = true;
+  group.add(pole);
+
+  // Sign board
+  const boardGeo = new THREE.BoxGeometry(2.4, 0.6, 0.12);
+  const board = new THREE.Mesh(boardGeo, boardMat);
+  board.position.set(1.0, 3.3, 0);
+  board.castShadow = true;
+  group.add(board);
+
+  // Arrow pointer (pointing in +X direction toward airstrip)
+  const arrowBodyGeo = new THREE.BoxGeometry(0.8, 0.14, 0.14);
+  const arrowBody = new THREE.Mesh(arrowBodyGeo, arrowMat);
+  arrowBody.position.set(1.4, 3.3, 0.09);
+  group.add(arrowBody);
+
+  const arrowHeadGeo = new THREE.ConeGeometry(0.14, 0.3, 6);
+  arrowHeadGeo.applyMatrix4(new THREE.Matrix4().makeRotationZ(-Math.PI / 2));
+  const arrowHead = new THREE.Mesh(arrowHeadGeo, arrowMat);
+  arrowHead.position.set(1.95, 3.3, 0.09);
+  group.add(arrowHead);
+
+  // White stripe accent on board top
+  const stripeGeo = new THREE.BoxGeometry(2.4, 0.06, 0.13);
+  const stripe = new THREE.Mesh(stripeGeo, textMat);
+  stripe.position.set(1.0, 3.57, 0);
+  group.add(stripe);
 
   return group;
 }

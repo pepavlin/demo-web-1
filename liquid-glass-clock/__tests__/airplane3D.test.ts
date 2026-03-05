@@ -8,7 +8,7 @@
  */
 
 import * as THREE from "three";
-import { buildAirplane3DMesh, buildAirstripMesh } from "../lib/meshBuilders";
+import { buildAirplane3DMesh, buildAirstripMesh, buildAirstripSignMesh } from "../lib/meshBuilders";
 import type { AirplaneData } from "../lib/gameTypes";
 
 // ── buildAirplane3DMesh ────────────────────────────────────────────────────────
@@ -152,6 +152,46 @@ describe("buildAirstripMesh", () => {
 
   it("does not throw on creation", () => {
     expect(() => buildAirstripMesh()).not.toThrow();
+  });
+});
+
+// ── buildAirstripSignMesh ──────────────────────────────────────────────────────
+
+describe("buildAirstripSignMesh", () => {
+  it("returns a THREE.Group", () => {
+    const sign = buildAirstripSignMesh();
+    expect(sign).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple children (pole, board, arrow, etc.)", () => {
+    const sign = buildAirstripSignMesh();
+    expect(sign.children.length).toBeGreaterThan(2);
+  });
+
+  it("contains at least one Mesh", () => {
+    const sign = buildAirstripSignMesh();
+    let meshCount = 0;
+    sign.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThan(0);
+  });
+
+  it("does not throw on creation", () => {
+    expect(() => buildAirstripSignMesh()).not.toThrow();
+  });
+
+  it("each call returns a distinct group", () => {
+    const a = buildAirstripSignMesh();
+    const b = buildAirstripSignMesh();
+    expect(a).not.toBe(b);
+  });
+
+  it("position defaults to origin", () => {
+    const sign = buildAirstripSignMesh();
+    expect(sign.position.x).toBe(0);
+    expect(sign.position.y).toBe(0);
+    expect(sign.position.z).toBe(0);
   });
 });
 
