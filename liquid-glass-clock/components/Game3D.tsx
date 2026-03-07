@@ -582,6 +582,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const spaceStationAnimMeshesRef = useRef<SpaceStationInteriorResult['animatedMeshes']>([]);
   const inSpaceStationRef = useRef(false);
 
+  // ─── Scene Group Refs (for two-scene separation) ──────────────────────────────
+  // Earth scene group contains all world objects; toggled invisible when in station.
+  // This eliminates rendering ~300+ Earth objects while inside the space station.
+  const earthSceneGroupRef = useRef<THREE.Group | null>(null);
+
   // ─── Camera Mode Refs ────────────────────────────────────────────────────────
   const cameraModeRef = useRef<"first" | "third">("first");
   const [cameraMode, setCameraMode] = useState<"first" | "third">("first");
@@ -3074,6 +3079,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       };
     }
 
+    // ── Two-scene separation: Earth world vs Space Station interior ───────────
+    // Group all Earth-world objects so we can toggle them invisible while inside
+    // the space station, eliminating hundreds of draw calls and AI updates.
+    {
+      const earthGroup = new THREE.Group();
+      earthGroup.name = 'earthWorld';
+      const stationGroup = spaceStationGroupRef.current!;
+      // Collect every current scene child EXCEPT the camera and the station group.
+      // The camera must stay as a direct scene child so its children (weapon, etc.)
+      // always render regardless of which scene the player is in.
+      const toMove: THREE.Object3D[] = [];
+      scene.children.forEach((child) => {
+        if (child !== stationGroup && child !== camera) {
+          toMove.push(child);
+        }
+      });
+      toMove.forEach((child) => {
+        scene.remove(child);
+        earthGroup.add(child);
+      });
+      scene.add(earthGroup);
+      earthSceneGroupRef.current = earthGroup;
+      // Station starts hidden — only made visible when the player enters it.
+      stationGroup.visible = false;
+    }
+
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Helper: place held item via raycast from camera ───────────────────────
     const tryPlaceHeldItemViaRaycast = (): boolean => {
@@ -3193,6 +3224,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           playerRef.current.velY = 0;
           playerRef.current.onGround = true;
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+          // ── Scene switch: hide Earth world, show station interior ───────────
+          // Hiding earthGroup eliminates rendering of ~300+ Earth objects, curing lag.
+          if (earthSceneGroupRef.current) earthSceneGroupRef.current.visible = false;
+          if (spaceStationGroupRef.current) spaceStationGroupRef.current.visible = true;
+          // Deep-space background — no fog (station interior is small, fog not needed)
+          scene.fog = null;
+          scene.background = new THREE.Color(0x000510);
           return;
         }
 
@@ -3225,6 +3263,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             playerRef.current.velY = 0;
             playerRef.current.onGround = true;
             if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+            // ── Scene switch: restore Earth world, hide station interior ───────
+            if (earthSceneGroupRef.current) earthSceneGroupRef.current.visible = true;
+            if (spaceStationGroupRef.current) spaceStationGroupRef.current.visible = false;
+            // Restore Earth atmosphere — fog density will be set on next animation frame
+            scene.fog = new THREE.FogExp2(0x87ceeb, 0.006);
+            // scene.background will be restored by the day/night cycle on the next frame
             return;
           }
         }
@@ -3588,6 +3632,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         playerBodyPosRef.current.copy(cameraRef.current.position);
       }
 
+      // ── Earth-world visual updates (skipped while inside the space station) ──
+      // When inSpaceStation, earthGroup.visible=false already prevents rendering,
+      // but we also skip these CPU-side updates to avoid touching null fog, running
+      // AI for 200 sheep, weather transitions, etc.
+      const _inStation = inSpaceStationRef.current;
+
       // ── Day / Night cycle ──────────────────────────────────────────────────
       dayTimeRef.current = (dayTimeRef.current + dt) % DAY_DURATION;
       const dayFraction = dayTimeRef.current / DAY_DURATION;
@@ -3613,10 +3663,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           : WEATHER_CONFIGS[weatherStateRef.current].cloudDarkness;
       const stormGrey = new THREE.Color(0.38, 0.40, 0.45);
       const skyColor = baseSkyColor.clone().lerp(stormGrey, stormBlend * 0.7);
-      scene.background = skyColor;
-      (scene.fog as THREE.FogExp2).color = skyColor;
-      if (skyMeshRef.current) {
-        (skyMeshRef.current.material as THREE.MeshBasicMaterial).color = skyColor;
+      // Only update Earth sky/fog visuals when NOT in the station (fog is null there)
+      if (!_inStation) {
+        scene.background = skyColor;
+        if (scene.fog) (scene.fog as THREE.FogExp2).color = skyColor;
+        if (skyMeshRef.current) {
+          (skyMeshRef.current.material as THREE.MeshBasicMaterial).color = skyColor;
+        }
       }
 
       if (sunRef.current) {
@@ -3759,8 +3812,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             Math.max(0, (0.07 + Math.sin(elapsed * 0.4) * 0.025) * (1 - wCfg.cloudDarkness));
         }
 
-        // Fog density (unless underwater which overrides separately)
-        if (!isUnderwaterRef.current) {
+        // Fog density (unless underwater which overrides separately, or in station where fog is null)
+        if (!isUnderwaterRef.current && !_inStation && scene.fog) {
           (scene.fog as THREE.FogExp2).density = wCfg.fogDensity;
         }
 
@@ -3930,28 +3983,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Flora (tree & bush foliage) wind sway + visibility LOD ───────────
-      // Visibility culling: on mobile hide objects beyond a tight radius to keep
-      // the GPU load proportional to what the player can actually see.
-      const LOD_FLORA_DIST_SQ = 80 * 80;
-      // On mobile use a shorter visibility radius; desktop shows full world.
-      const LOD_FLORA_VIS_SQ = IS_MOBILE ? 110 * 110 : 220 * 220;
-      const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
-      const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
-      // Wind sway updated every other frame — motion is continuous so
-      // halving the update rate is imperceptible and saves ~1–2 ms.
-      const updateFloraWind = frameCount % 2 === 0;
-      floraRef.current.forEach((flora) => {
-        const dx = flora.posX - camPosX;
-        const dz = flora.posZ - camPosZ;
-        const dSq = dx * dx + dz * dz;
-        // Visibility LOD — hide very distant plants
-        flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
-        if (!updateFloraWind || dSq > LOD_FLORA_DIST_SQ) return;
-        const t = elapsed * flora.windSpeed + flora.windPhase;
-        // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
-        flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
-        flora.foliageGroup.rotation.z = Math.cos(t * 0.71) * flora.maxSway * 0.6;
-      });
+      // Skip entirely when in space station — earthGroup is already hidden, and
+      // iterating 300+ flora objects for nothing wastes CPU budget.
+      if (!_inStation) {
+        // Visibility culling: on mobile hide objects beyond a tight radius to keep
+        // the GPU load proportional to what the player can actually see.
+        const LOD_FLORA_DIST_SQ = 80 * 80;
+        // On mobile use a shorter visibility radius; desktop shows full world.
+        const LOD_FLORA_VIS_SQ = IS_MOBILE ? 110 * 110 : 220 * 220;
+        const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
+        const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
+        // Wind sway updated every other frame — motion is continuous so
+        // halving the update rate is imperceptible and saves ~1–2 ms.
+        const updateFloraWind = frameCount % 2 === 0;
+        floraRef.current.forEach((flora) => {
+          const dx = flora.posX - camPosX;
+          const dz = flora.posZ - camPosZ;
+          const dSq = dx * dx + dz * dz;
+          // Visibility LOD — hide very distant plants
+          flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
+          if (!updateFloraWind || dSq > LOD_FLORA_DIST_SQ) return;
+          const t = elapsed * flora.windSpeed + flora.windPhase;
+          // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
+          flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
+          flora.foliageGroup.rotation.z = Math.cos(t * 0.71) * flora.maxSway * 0.6;
+        });
+      }
 
       // ── Windmill blades ────────────────────────────────────────────────────
       if (windmillBladesRef.current) {
@@ -5520,6 +5577,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
 
       foxListRef.current.forEach((fox) => {
+        // Skip all Fox AI when in space station — foxes are in the hidden earthGroup
+        if (_inStation) return;
         const fm = fox.mesh;
 
         // Death animation: scale down then hide
@@ -6121,6 +6180,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // ── Sheep AI & Animation ────────────────────────────────────────────────
       let closeSheepCount = 0;
       sheepListRef.current.forEach((sheep) => {
+        // Skip all Sheep AI when in space station — sheep are in the hidden earthGroup
+        if (_inStation) return;
         // Possessed sheep is controlled in the dedicated possession block — skip its AI
         if (sheep === possessedSheepRef.current) return;
 
