@@ -11,6 +11,7 @@ import {
   generateSpawnPoints,
   initNoise,
   modifyTerrainHeight,
+  flattenTerrainRect,
   updateTerrainGeometry,
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
@@ -3153,6 +3154,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       };
       const cityResult: CityResult = buildCity(cityRng);
       const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
+      // Flatten the terrain under the city so the city's ground plane rests
+      // naturally on level earth rather than having a visible floating platform.
+      // City footprint is 82×82 units; blend 14 units at the edges.
+      flattenTerrainRect(CITY_X, CITY_Z, 41, 41, cityGroundY, 14);
+      updateTerrainGeometry(terrain);
       cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
       scene.add(cityResult.group);
 
