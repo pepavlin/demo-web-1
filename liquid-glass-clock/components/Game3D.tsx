@@ -11,7 +11,6 @@ import {
   generateSpawnPoints,
   initNoise,
   modifyTerrainHeight,
-  flattenTerrainRect,
   updateTerrainGeometry,
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
@@ -3152,13 +3151,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         citySeed = (citySeed * 1664525 + 1013904223) & 0xffffffff;
         return (citySeed >>> 0) / 0xffffffff;
       };
-      const cityResult: CityResult = buildCity(cityRng);
-      const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
-      // Flatten the terrain under the city so the city's ground plane rests
-      // naturally on level earth rather than having a visible floating platform.
-      // City footprint is 82×82 units; blend 14 units at the edges.
-      flattenTerrainRect(CITY_X, CITY_Z, 41, 41, cityGroundY, 14);
-      updateTerrainGeometry(terrain);
+
+      // Find the minimum terrain height within the city footprint (82×82 units).
+      // Using the minimum ensures every building's foundation stays above ground —
+      // the terrain naturally rises around and between buildings without needing
+      // any artificial flattening.
+      let cityMinY = Infinity;
+      for (let dx = -40; dx <= 40; dx += 5) {
+        for (let dz = -40; dz <= 40; dz += 5) {
+          const h = getTerrainHeightSampled(CITY_X + dx, CITY_Z + dz);
+          if (h < cityMinY) cityMinY = h;
+        }
+      }
+      const cityGroundY = cityMinY;
+
+      // Provide terrain height relative to cityGroundY so each building can be
+      // placed at the correct elevation for its footprint position.
+      const getCityLocalHeight = (lx: number, lz: number): number =>
+        getTerrainHeightSampled(CITY_X + lx, CITY_Z + lz) - cityGroundY;
+
+      const cityResult: CityResult = buildCity(cityRng, getCityLocalHeight);
       cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
       scene.add(cityResult.group);
 

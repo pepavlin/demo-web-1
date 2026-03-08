@@ -3485,10 +3485,29 @@ export interface CityResult {
  *
  * Returns a THREE.Group plus local-space collider arrays for Game3D.tsx.
  */
-export function buildCity(rng: () => number): CityResult {
+/**
+ * Optional terrain-height callback passed to buildCity.
+ * Returns the terrain height at local-space position (lx, lz) relative to the
+ * city group origin.  Used to place each building at the correct ground level so
+ * the city naturally conforms to the landscape instead of needing a flat platform.
+ */
+export type CityTerrainFn = (lx: number, lz: number) => number;
+
+export function buildCity(rng: () => number, getLocalHeight?: CityTerrainFn): CityResult {
   const group = new THREE.Group();
   const boxColliders: RuinsBoxCollider[] = [];
   const cylColliders: RuinsCylCollider[] = [];
+
+  /**
+   * Clamped local height above city origin at position (lx, lz).
+   * Returns 0 when no terrain function is supplied (flat mode).
+   */
+  const lh = (lx: number, lz: number): number =>
+    getLocalHeight ? Math.max(0, getLocalHeight(lx, lz)) : 0;
+
+  /** Foundation material — concrete slab that fills the gap between city base (y=0)
+   *  and the terrain surface at each building's footprint. */
+  const foundationMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
 
   // ── Shared materials ──────────────────────────────────────────────────────
   const glassMat      = new THREE.MeshLambertMaterial({ color: 0x7ab4d4, transparent: true, opacity: 0.82 });
@@ -3531,9 +3550,10 @@ export function buildCity(rng: () => number): CityResult {
     return mesh;
   }
 
-  // ── 1. Ground (roads + sidewalks) ────────────────────────────────────────
-  // Outer sidewalk plane
-  addBox(82, 0.12, 82, sidewalkMat, 0, 0.01, 0, 0, false);
+  // ── 1. Ground (roads) ────────────────────────────────────────────────────
+  // The outer sidewalk plane has been removed — the terrain itself serves as
+  // the city ground, so the city conforms naturally to the landscape without
+  // requiring an artificial flat platform.
   // Road H-strips (z = –13.5 and +13.5)
   addBox(82, 0.14, 9, roadMat, 0, 0.02, -13.5, 0, false);
   addBox(82, 0.14, 9, roadMat, 0, 0.02,  13.5, 0, false);
@@ -3555,11 +3575,12 @@ export function buildCity(rng: () => number): CityResult {
   }
 
   // ── 2. Central plaza (block 0,0) ──────────────────────────────────────────
-  addBox(18, 0.15, 18, plazaMat, 0, 0.02, 0, 0, false);
+  const plazaY = lh(0, 0);
+  addBox(18, 0.15, 18, plazaMat, 0, plazaY + 0.02, 0, 0, false);
   // Fountain base disc
   const fountainBaseGeo = new THREE.CylinderGeometry(3.2, 3.5, 0.5, 16);
   const fountainBase = new THREE.Mesh(fountainBaseGeo, concreteMat);
-  fountainBase.position.set(0, 0.35, 0);
+  fountainBase.position.set(0, plazaY + 0.35, 0);
   fountainBase.castShadow = true;
   fountainBase.receiveShadow = true;
   group.add(fountainBase);
@@ -3567,19 +3588,19 @@ export function buildCity(rng: () => number): CityResult {
   const rimGeo = new THREE.TorusGeometry(3.2, 0.22, 8, 24);
   const rim = new THREE.Mesh(rimGeo, concreteMat);
   rim.rotation.x = -Math.PI / 2;
-  rim.position.set(0, 0.55, 0);
+  rim.position.set(0, plazaY + 0.55, 0);
   group.add(rim);
   // Central column
   const colGeo = new THREE.CylinderGeometry(0.25, 0.3, 2.5, 10);
   const col = new THREE.Mesh(colGeo, creamMat);
-  col.position.set(0, 1.55, 0);
+  col.position.set(0, plazaY + 1.55, 0);
   col.castShadow = true;
   group.add(col);
   // Water disc (top of column)
   const waterGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.12, 12);
   const waterMat = new THREE.MeshLambertMaterial({ color: 0x66bbee, transparent: true, opacity: 0.7 });
   const water = new THREE.Mesh(waterGeo, waterMat);
-  water.position.set(0, 2.88, 0);
+  water.position.set(0, plazaY + 2.88, 0);
   group.add(water);
   // Fountain cylinder collider
   cylColliders.push({ lx: 0, lz: 0, radius: 3.8 });
@@ -3593,33 +3614,38 @@ export function buildCity(rng: () => number): CityResult {
   ];
 
   for (const sk of skyscrapers) {
+    const skyY = lh(sk.lx, sk.lz);
+    // Concrete foundation fills terrain gap below building base
+    if (skyY > 0.1) {
+      addBox(sk.w + 0.6, skyY + 0.15, sk.d + 0.6, foundationMat, sk.lx, skyY / 2 - 0.075, sk.lz, 0, false, false);
+    }
     // Main tower body
-    addBox(sk.w, sk.h, sk.d, sk.mat, sk.lx, sk.h / 2, sk.lz, sk.rotY, true, true);
+    addBox(sk.w, sk.h, sk.d, sk.mat, sk.lx, skyY + sk.h / 2, sk.lz, sk.rotY, true, true);
     // Stepped crown (smaller box on top)
-    addBox(sk.w * 0.6, 4, sk.d * 0.6, darkConcrete, sk.lx, sk.h + 2, sk.lz, sk.rotY);
+    addBox(sk.w * 0.6, 4, sk.d * 0.6, darkConcrete, sk.lx, skyY + sk.h + 2, sk.lz, sk.rotY);
     // Antenna spire
     const antGeo = new THREE.CylinderGeometry(0.06, 0.12, 8, 6);
     const ant = new THREE.Mesh(antGeo, poleMatC);
-    ant.position.set(sk.lx, sk.h + 8, sk.lz);
+    ant.position.set(sk.lx, skyY + sk.h + 8, sk.lz);
     ant.castShadow = true;
     group.add(ant);
     // Antenna beacon (tiny emissive sphere)
     const beaconGeo = new THREE.SphereGeometry(0.2, 6, 5);
     const beaconMat = new THREE.MeshLambertMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 1 });
     const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-    beacon.position.set(sk.lx, sk.h + 12.3, sk.lz);
+    beacon.position.set(sk.lx, skyY + sk.h + 12.3, sk.lz);
     group.add(beacon);
     // Horizontal window strips (every ~2.5 units of height)
     for (let floor = 1; floor < Math.floor(sk.h / 2.5) - 1; floor++) {
       const winH = 1.1;
       const winGeo = new THREE.BoxGeometry(sk.w + 0.08, winH, sk.d + 0.08);
       const win = new THREE.Mesh(winGeo, glassNightMat);
-      win.position.set(sk.lx, floor * 2.5 + 1.5, sk.lz);
+      win.position.set(sk.lx, skyY + floor * 2.5 + 1.5, sk.lz);
       win.rotation.y = sk.rotY;
       group.add(win);
     }
     // Roof edge trim
-    addBox(sk.w + 0.3, 0.4, sk.d + 0.3, roofTrimMat, sk.lx, sk.h + 0.22, sk.lz, sk.rotY);
+    addBox(sk.w + 0.3, 0.4, sk.d + 0.3, roofTrimMat, sk.lx, skyY + sk.h + 0.22, sk.lz, sk.rotY);
   }
 
   // ── 4. Medium office buildings (remaining 6 blocks) ───────────────────────
@@ -3649,15 +3675,20 @@ export function buildCity(rng: () => number): CityResult {
       const ry = (rng() - 0.5) * 0.2;
       const lx = bx + ox;
       const lz = bz + oz;
-      addBox(w, h, d, blockMat, lx, h / 2, lz, ry, true, true);
+      const offY = lh(lx, lz);
+      // Concrete foundation fills terrain gap below building base
+      if (offY > 0.1) {
+        addBox(w + 0.5, offY + 0.15, d + 0.5, foundationMat, lx, offY / 2 - 0.075, lz, 0, false, false);
+      }
+      addBox(w, h, d, blockMat, lx, offY + h / 2, lz, ry, true, true);
       // Flat roof trim
-      addBox(w + 0.2, 0.35, d + 0.2, roofTrimMat, lx, h + 0.18, lz, ry);
+      addBox(w + 0.2, 0.35, d + 0.2, roofTrimMat, lx, offY + h + 0.18, lz, ry);
       // Window rows (every 2 units of height)
       const windowCount = Math.floor(h / 2) - 1;
       for (let floor = 1; floor <= windowCount; floor++) {
         const winGeo = new THREE.BoxGeometry(w + 0.06, 0.85, d + 0.06);
         const win = new THREE.Mesh(winGeo, glassNightMat);
-        win.position.set(lx, floor * 2 + 1, lz);
+        win.position.set(lx, offY + floor * 2 + 1, lz);
         win.rotation.y = ry;
         group.add(win);
       }
@@ -3681,22 +3712,23 @@ export function buildCity(rng: () => number): CityResult {
   }
 
   for (const [lx, lz] of lightPositions) {
+    const lightY = lh(lx, lz);
     // Pole
     const poleGeo = new THREE.CylinderGeometry(0.08, 0.12, 5.5, 6);
     const pole = new THREE.Mesh(poleGeo, poleMatC);
-    pole.position.set(lx, 2.75, lz);
+    pole.position.set(lx, lightY + 2.75, lz);
     pole.castShadow = true;
     group.add(pole);
     // Arm extending over the road
     const armGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.8, 5);
     const arm = new THREE.Mesh(armGeo, poleMatC);
     arm.rotation.z = Math.PI / 2;
-    arm.position.set(lx + 0.9, 5.5, lz);
+    arm.position.set(lx + 0.9, lightY + 5.5, lz);
     group.add(arm);
     // Lamp head
     const lampGeo = new THREE.SphereGeometry(0.25, 8, 6);
     const lamp = new THREE.Mesh(lampGeo, lampMat);
-    lamp.position.set(lx + 1.8, 5.5, lz);
+    lamp.position.set(lx + 1.8, lightY + 5.5, lz);
     group.add(lamp);
   }
 
@@ -3707,9 +3739,10 @@ export function buildCity(rng: () => number): CityResult {
     [-18, -9], [18, -9], [-18, 9], [18, 9],
   ];
   for (const [bx, bz] of bollardCorners) {
+    const bollardY = lh(bx, bz);
     const bGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.9, 6);
     const bMesh = new THREE.Mesh(bGeo, darkConcrete);
-    bMesh.position.set(bx, 0.45, bz);
+    bMesh.position.set(bx, bollardY + 0.45, bz);
     group.add(bMesh);
   }
 

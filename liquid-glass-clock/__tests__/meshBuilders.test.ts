@@ -1390,4 +1390,65 @@ describe("buildCity", () => {
     expect(r1.boxColliders.length).toBe(r2.boxColliders.length);
     expect(r1.cylColliders.length).toBe(r2.cylColliders.length);
   });
+
+  it("terrain-conforming: buildings are elevated when getLocalHeight returns positive values", () => {
+    // Simulate a terrain slope: returns 5 units for all positions
+    const flatRaise: (lx: number, lz: number) => number = () => 5;
+    const { group } = buildCity(makeRng(42), flatRaise);
+    // All building mesh positions should be > 0 in Y (elevated by terrain)
+    let hasElevatedMesh = false;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh && child.position.y > 4) {
+        hasElevatedMesh = true;
+      }
+    });
+    expect(hasElevatedMesh).toBe(true);
+  });
+
+  it("terrain-conforming: flat terrain (getLocalHeight always 0) matches no-callback baseline", () => {
+    // With constant-zero terrain function, Y positions should match the flat build
+    const flatBaseline = buildCity(makeRng(5));
+    const flatTerrain = buildCity(makeRng(5), () => 0);
+
+    const collectY = (g: THREE.Group): number[] => {
+      const ys: number[] = [];
+      g.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) ys.push(child.position.y);
+      });
+      return ys.sort((a, b) => a - b);
+    };
+
+    const ysBase = collectY(flatBaseline.group);
+    const ysTerrain = collectY(flatTerrain.group);
+    expect(ysBase.length).toBe(ysTerrain.length);
+    for (let i = 0; i < ysBase.length; i++) {
+      expect(ysTerrain[i]).toBeCloseTo(ysBase[i], 5);
+    }
+  });
+
+  it("terrain-conforming: sloped terrain offsets buildings by local height", () => {
+    // Simple slope: height = lx * 0.5 (east half higher, west lower)
+    const slope: (lx: number, lz: number) => number = (lx) => Math.max(0, lx * 0.5);
+    const { group } = buildCity(makeRng(10), slope);
+    // Skyscrapers at lx=7 should sit higher than at lx=-7
+    let maxYAtPositiveX = 0;
+    let maxYAtNegativeX = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        if (child.position.x > 5) maxYAtPositiveX = Math.max(maxYAtPositiveX, child.position.y);
+        if (child.position.x < -5) maxYAtNegativeX = Math.max(maxYAtNegativeX, child.position.y);
+      }
+    });
+    // East side (positive X) should have taller overall extent due to terrain offset
+    expect(maxYAtPositiveX).toBeGreaterThan(maxYAtNegativeX);
+  });
+
+  it("terrain-conforming: collider count unchanged regardless of terrain function", () => {
+    const rngA = makeRng(77);
+    const rngB = makeRng(77);
+    const flat = buildCity(rngA);
+    const hilly = buildCity(rngB, (lx, lz) => Math.abs(lx) * 0.3 + Math.abs(lz) * 0.1);
+    expect(flat.boxColliders.length).toBe(hilly.boxColliders.length);
+    expect(flat.cylColliders.length).toBe(hilly.cylColliders.length);
+  });
 });
