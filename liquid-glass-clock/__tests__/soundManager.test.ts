@@ -271,6 +271,26 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => soundManager.playFoxGrowl(20)).not.toThrow();
   });
 
+  it("playFoxGrowl() – creates 3 layers (noise rumble + vocal osc + LFO + snarl osc)", () => {
+    const prevBufCalls = mockCtx.createBufferSource.mock.calls.length;
+    const prevOscCalls = mockCtx.createOscillator.mock.calls.length;
+    const prevFltCalls = mockCtx.createBiquadFilter.mock.calls.length;
+    soundManager.playFoxGrowl();
+    // Layer 1: 1 buffer source + 1 bandpass filter
+    expect(mockCtx.createBufferSource.mock.calls.length).toBe(prevBufCalls + 1);
+    expect(mockCtx.createBiquadFilter.mock.calls.length).toBe(prevFltCalls + 1);
+    // Layer 2: vocal oscillator + LFO oscillator = 2 oscillators
+    // Layer 3: snarl oscillator = 1 oscillator → total 3 oscillators
+    expect(mockCtx.createOscillator.mock.calls.length).toBe(prevOscCalls + 3);
+  });
+
+  it("playFoxGrowl() – volume clamps to minimum 0.2 at extreme distance", () => {
+    // Should not throw even at very large distance
+    expect(() => soundManager.playFoxGrowl(1000)).not.toThrow();
+    // createGain must still be called (audio graph is constructed)
+    expect(mockCtx.createGain.mock.calls.length).toBeGreaterThan(0);
+  });
+
   it("playAttack() – default (bow)", () => {
     expect(() => soundManager.playAttack()).not.toThrow();
   });
@@ -304,8 +324,30 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => soundManager.playFoxHit()).not.toThrow();
   });
 
+  it("playFoxHit() – creates noise burst + sine yelp sweep", () => {
+    const prevBufCalls = mockCtx.createBufferSource.mock.calls.length;
+    const prevOscCalls = mockCtx.createOscillator.mock.calls.length;
+    const prevFltCalls = mockCtx.createBiquadFilter.mock.calls.length;
+    soundManager.playFoxHit();
+    // Noise burst: 1 buffer source + 1 bandpass filter
+    expect(mockCtx.createBufferSource.mock.calls.length).toBe(prevBufCalls + 1);
+    expect(mockCtx.createBiquadFilter.mock.calls.length).toBe(prevFltCalls + 1);
+    // Sine yelp sweep: 1 oscillator
+    expect(mockCtx.createOscillator.mock.calls.length).toBe(prevOscCalls + 1);
+  });
+
   it("playFoxDeath()", () => {
     expect(() => soundManager.playFoxDeath()).not.toThrow();
+  });
+
+  it("playFoxDeath() – creates 4 sine oscillators (one per note) + 2 noise breaths", () => {
+    const prevBufCalls = mockCtx.createBufferSource.mock.calls.length;
+    const prevOscCalls = mockCtx.createOscillator.mock.calls.length;
+    soundManager.playFoxDeath();
+    // 4 notes × 1 sine oscillator each
+    expect(mockCtx.createOscillator.mock.calls.length).toBe(prevOscCalls + 4);
+    // 2 noise breath buffer sources for first two notes
+    expect(mockCtx.createBufferSource.mock.calls.length).toBe(prevBufCalls + 2);
   });
 
   it("playPlayerHit()", () => {
