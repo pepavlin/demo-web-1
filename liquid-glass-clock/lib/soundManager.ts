@@ -430,17 +430,18 @@ class SoundManager {
     // Volume scales with proximity: full volume when very close, minimum at ~25 units
     const vol = Math.max(0.2, 1.0 - distance / 25);
 
-    // Layer 1 – Low rumble: bandpass noise (200–320 Hz) gives the "chest" of the growl
+    // Layer 1 – Low rumble: bandpass noise (150–260 Hz) gives the "chest" of the growl
+    // Slightly tighter Q and lower frequency range for a deeper, more organic foundation
     const nSrc = ctx.createBufferSource();
     nSrc.buffer = this._noiseBuffer(dur);
     const nFlt = ctx.createBiquadFilter();
     nFlt.type = "bandpass";
-    nFlt.frequency.value = 200 + Math.random() * 120;
-    nFlt.Q.value = 2.5;
+    nFlt.frequency.value = 150 + Math.random() * 110;
+    nFlt.Q.value = 3.0;
     const nEnv = ctx.createGain();
     nEnv.gain.setValueAtTime(0, t);
-    nEnv.gain.linearRampToValueAtTime(0.45 * vol, t + 0.08);
-    nEnv.gain.setValueAtTime(0.45 * vol, t + 0.62);
+    nEnv.gain.linearRampToValueAtTime(0.55 * vol, t + 0.12);
+    nEnv.gain.setValueAtTime(0.55 * vol, t + 0.60);
     nEnv.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     nSrc.connect(nFlt);
     nFlt.connect(nEnv);
@@ -448,21 +449,26 @@ class SoundManager {
     nSrc.start(t);
     nSrc.stop(t + dur);
 
-    // Layer 2 – Vocal growl: sawtooth oscillator with LFO vibrato for "rrr" texture
+    // Layer 2 – Vocal core: sine oscillator with subtle LFO pitch wobble
+    // Sine produces a cleaner fundamental; the noise layer provides roughness.
+    // LFO at 12–18 Hz with narrow ±10 Hz deviation creates realistic vocal tremor
+    // (original had ±35 Hz which caused an unnatural mechanical wobble).
     const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.value = 150 + Math.random() * 50;
-    // LFO at 16–24 Hz creates the characteristic growl tremolo
+    osc.type = "sine";
+    const baseFreq = 170 + Math.random() * 60;
+    osc.frequency.setValueAtTime(baseFreq, t);
+    // Slight downward pitch contour over the growl – sounds more threatening/organic
+    osc.frequency.linearRampToValueAtTime(baseFreq - 15, t + dur);
     const lfo = ctx.createOscillator();
-    lfo.frequency.value = 16 + Math.random() * 8;
+    lfo.frequency.value = 12 + Math.random() * 6;
     const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 35;
+    lfoGain.gain.value = 10;
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
     const oEnv = ctx.createGain();
     oEnv.gain.setValueAtTime(0, t);
-    oEnv.gain.linearRampToValueAtTime(0.38 * vol, t + 0.1);
-    oEnv.gain.setValueAtTime(0.38 * vol, t + 0.64);
+    oEnv.gain.linearRampToValueAtTime(0.35 * vol, t + 0.15);
+    oEnv.gain.setValueAtTime(0.35 * vol, t + 0.62);
     oEnv.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(oEnv);
     oEnv.connect(this.sfxGain);
@@ -471,18 +477,19 @@ class SoundManager {
     osc.stop(t + dur);
     lfo.stop(t + dur);
 
-    // Layer 3 – High harmonic snarl: square wave (400–600 Hz) cuts through small speakers
+    // Layer 3 – Upper presence: triangle wave (380–540 Hz) adds harmonics without harshness
+    // Triangle is softer than square and gives a more animal-like upper resonance
     const snarl = ctx.createOscillator();
-    snarl.type = "square";
-    snarl.frequency.value = 400 + Math.random() * 200;
+    snarl.type = "triangle";
+    snarl.frequency.value = 380 + Math.random() * 160;
     const sEnv = ctx.createGain();
     sEnv.gain.setValueAtTime(0, t);
-    sEnv.gain.linearRampToValueAtTime(0.1 * vol, t + 0.06);
-    sEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    sEnv.gain.linearRampToValueAtTime(0.08 * vol, t + 0.06);
+    sEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
     snarl.connect(sEnv);
     sEnv.connect(this.sfxGain);
     snarl.start(t);
-    snarl.stop(t + 0.5);
+    snarl.stop(t + 0.45);
   }
 
   /**
@@ -681,19 +688,37 @@ class SoundManager {
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
+    // Noise burst – sharp impact "thwack" quality at the moment of hit
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = this._noiseBuffer(0.1);
+    const nFlt = ctx.createBiquadFilter();
+    nFlt.type = "bandpass";
+    nFlt.frequency.value = 900;
+    nFlt.Q.value = 0.9;
+    const nEnv = ctx.createGain();
+    nEnv.gain.setValueAtTime(0.25, t);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    nSrc.connect(nFlt);
+    nFlt.connect(nEnv);
+    nEnv.connect(this.sfxGain);
+    nSrc.start(t);
+    nSrc.stop(t + 0.1);
+
+    // Sine sweep – yelp tone descending from high pitch to low (bark/cry character)
+    // Sine wave is cleaner than square and better resembles an animal vocal cry
     const osc = ctx.createOscillator();
-    osc.type = "square";
-    osc.frequency.setValueAtTime(380, t);
-    osc.frequency.exponentialRampToValueAtTime(140, t + 0.16);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(480, t);
+    osc.frequency.exponentialRampToValueAtTime(160, t + 0.18);
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.28, t);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 0.20);
 
     osc.connect(env);
     env.connect(this.sfxGain);
     osc.start(t);
-    osc.stop(t + 0.18);
+    osc.stop(t + 0.20);
   }
 
   /** Descending defeat melody when a fox is killed. */
@@ -701,21 +726,46 @@ class SoundManager {
     if (!this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
 
+    // Sine waves produce a cry/whimper quality rather than the buzzy sawtooth game-jingle feel.
+    // Each note gets a downward pitch glide and decreasing volume for a natural dying-away effect.
     const freqs = [380, 300, 240, 170];
+    const vols  = [0.22, 0.18, 0.14, 0.10];
     freqs.forEach((hz, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.value = hz;
+      const t = ctx.currentTime + i * 0.11;
+      const noteDur = 0.18;
 
-      const t = ctx.currentTime + i * 0.1;
+      // Sine oscillator with intra-note pitch glide (20% downward slide)
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(hz, t);
+      osc.frequency.exponentialRampToValueAtTime(hz * 0.80, t + noteDur);
+
       const env = ctx.createGain();
-      env.gain.setValueAtTime(0.22, t);
-      env.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      env.gain.setValueAtTime(vols[i], t);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + noteDur);
 
       osc.connect(env);
       env.connect(this.sfxGain!);
       osc.start(t);
-      osc.stop(t + 0.15);
+      osc.stop(t + noteDur);
+
+      // Subtle noise breath under first two notes for organic texture
+      if (i < 2) {
+        const nSrc = ctx.createBufferSource();
+        nSrc.buffer = this._noiseBuffer(noteDur);
+        const nFlt = ctx.createBiquadFilter();
+        nFlt.type = "bandpass";
+        nFlt.frequency.value = hz * 1.5;
+        nFlt.Q.value = 1.5;
+        const nEnv = ctx.createGain();
+        nEnv.gain.setValueAtTime(vols[i] * 0.18, t);
+        nEnv.gain.exponentialRampToValueAtTime(0.0001, t + noteDur);
+        nSrc.connect(nFlt);
+        nFlt.connect(nEnv);
+        nEnv.connect(this.sfxGain!);
+        nSrc.start(t);
+        nSrc.stop(t + noteDur);
+      }
     });
   }
 
