@@ -416,43 +416,73 @@ class SoundManager {
     vib.stop(t + duration);
   }
 
-  /** Low growl played when a fox is chasing the player. */
-  playFoxGrowl(): void {
+  /**
+   * Growl played when a fox is chasing the player.
+   * @param distance  Distance (world units) from player to nearest chasing fox.
+   *                  Used to scale volume – louder when closer.
+   */
+  playFoxGrowl(distance: number = 10): void {
     if (!this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
-    const dur = 0.45;
+    const dur = 0.8;
 
-    // Noise component
-    const src = ctx.createBufferSource();
-    src.buffer = this._noiseBuffer(dur);
+    // Volume scales with proximity: full volume when very close, minimum at ~25 units
+    const vol = Math.max(0.2, 1.0 - distance / 25);
+
+    // Layer 1 – Low rumble: bandpass noise (200–320 Hz) gives the "chest" of the growl
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = this._noiseBuffer(dur);
     const nFlt = ctx.createBiquadFilter();
     nFlt.type = "bandpass";
-    nFlt.frequency.value = 160;
-    nFlt.Q.value = 3;
+    nFlt.frequency.value = 200 + Math.random() * 120;
+    nFlt.Q.value = 2.5;
     const nEnv = ctx.createGain();
     nEnv.gain.setValueAtTime(0, t);
-    nEnv.gain.linearRampToValueAtTime(0.2, t + 0.05);
-    nEnv.gain.setValueAtTime(0.2, t + 0.3);
+    nEnv.gain.linearRampToValueAtTime(0.45 * vol, t + 0.08);
+    nEnv.gain.setValueAtTime(0.45 * vol, t + 0.62);
     nEnv.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(nFlt);
+    nSrc.connect(nFlt);
     nFlt.connect(nEnv);
     nEnv.connect(this.sfxGain);
-    src.start(t);
-    src.stop(t + dur);
+    nSrc.start(t);
+    nSrc.stop(t + dur);
 
-    // Tonal growl
+    // Layer 2 – Vocal growl: sawtooth oscillator with LFO vibrato for "rrr" texture
     const osc = ctx.createOscillator();
     osc.type = "sawtooth";
-    osc.frequency.value = 80 + Math.random() * 35;
+    osc.frequency.value = 150 + Math.random() * 50;
+    // LFO at 16–24 Hz creates the characteristic growl tremolo
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 16 + Math.random() * 8;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 35;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
     const oEnv = ctx.createGain();
     oEnv.gain.setValueAtTime(0, t);
-    oEnv.gain.linearRampToValueAtTime(0.14, t + 0.06);
+    oEnv.gain.linearRampToValueAtTime(0.38 * vol, t + 0.1);
+    oEnv.gain.setValueAtTime(0.38 * vol, t + 0.64);
     oEnv.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(oEnv);
     oEnv.connect(this.sfxGain);
     osc.start(t);
+    lfo.start(t);
     osc.stop(t + dur);
+    lfo.stop(t + dur);
+
+    // Layer 3 – High harmonic snarl: square wave (400–600 Hz) cuts through small speakers
+    const snarl = ctx.createOscillator();
+    snarl.type = "square";
+    snarl.frequency.value = 400 + Math.random() * 200;
+    const sEnv = ctx.createGain();
+    sEnv.gain.setValueAtTime(0, t);
+    sEnv.gain.linearRampToValueAtTime(0.1 * vol, t + 0.06);
+    sEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    snarl.connect(sEnv);
+    sEnv.connect(this.sfxGain);
+    snarl.start(t);
+    snarl.stop(t + 0.5);
   }
 
   /**

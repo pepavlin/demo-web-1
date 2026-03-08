@@ -259,8 +259,16 @@ describe("SoundManager – sound effects don't throw", () => {
     expect(() => {}).not.toThrow();
   });
 
-  it("playFoxGrowl()", () => {
+  it("playFoxGrowl() – default distance (no args)", () => {
     expect(() => soundManager.playFoxGrowl()).not.toThrow();
+  });
+
+  it("playFoxGrowl() – close range (distance 3)", () => {
+    expect(() => soundManager.playFoxGrowl(3)).not.toThrow();
+  });
+
+  it("playFoxGrowl() – far range (distance 20)", () => {
+    expect(() => soundManager.playFoxGrowl(20)).not.toThrow();
   });
 
   it("playAttack() – default (bow)", () => {
