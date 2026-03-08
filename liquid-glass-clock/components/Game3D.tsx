@@ -63,6 +63,7 @@ import {
   buildRocketMesh,
   buildSpaceStationInterior,
   buildPumpkinMesh,
+  buildBombMesh,
   buildSpiderMesh,
   buildCaveMesh,
   buildTorchMesh,
@@ -76,7 +77,7 @@ import {
   type SheepMeshParts,
   type RuinsResult,
 } from "@/lib/meshBuilders";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData } from "@/lib/gameTypes";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -174,6 +175,25 @@ const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
 const ARROW_GRAVITY = -22;      // downward acceleration (units/s²) for bow arrows
 // Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
+
+// ─── Bomb Constants ───────────────────────────────────────────────────────────
+/** Initial throw speed in world units/s. */
+const BOMB_THROW_SPEED = 14;
+/** Gravity applied to the bomb projectile (units/s²). */
+const BOMB_GRAVITY = -18;
+/** Fuse duration after throwing — bomb detonates even in mid-air (seconds). */
+const BOMB_FUSE_DURATION = 4.5;
+/** World-space crater radius in units. */
+const BOMB_CRATER_RADIUS = 6;
+/** Maximum crater depth at centre (world units deformed down). */
+const BOMB_CRATER_DEPTH = -2.8;
+/** Damage radius for entities caught in the blast. */
+const BOMB_BLAST_RADIUS = 9;
+/** Damage dealt to entities in the blast. */
+const BOMB_BLAST_DAMAGE = 70;
+/** Fixed world position of the bomb spawn on the ruins island. */
+const BOMB_SPAWN_X = 176;
+const BOMB_SPAWN_Z = -113;
 
 // ─── Possession Constants ─────────────────────────────────────────────────────
 const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
@@ -490,6 +510,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const catapultListRef = useRef<CatapultData[]>([]);
   const cannonballsRef = useRef<CannonballData[]>([]);
   const impactEffectsRef = useRef<ImpactEffect[]>([]);
+
+  // ─── Bomb Refs ────────────────────────────────────────────────────────────────
+  const bombProjectilesRef = useRef<BombProjectileData[]>([]);
 
   // ─── Cave / Spider / Chest Refs ───────────────────────────────────────────────
   const spiderListRef = useRef<SpiderData[]>([]);
@@ -963,8 +986,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     heldItemRef.current = item;
     setHeldItemType(item.type);
 
-    // Build and attach hand mesh to camera
-    const handMesh = buildPumpkinMesh(0.55);
+    // Build and attach hand mesh to camera (type-specific mesh)
+    const handMesh = item.type === "bomb"
+      ? buildBombMesh(0.52)
+      : buildPumpkinMesh(0.55);
     handMesh.position.copy(HELD_ITEM_POS);
     // Tilt slightly so it looks held naturally
     handMesh.rotation.set(0.15, -0.3, 0.1);
@@ -1001,9 +1026,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       weaponMeshRef.current.visible = true;
     }
 
-    // Persist placement
+    // Persist placement (bombs are one-use and not saved to localStorage)
     const items: PlacedWorldItemData[] = worldItemsRef.current
-      .filter((wi) => !wi.isHeld)
+      .filter((wi) => !wi.isHeld && wi.type !== "bomb")
       .map((wi) => ({
         type: wi.type,
         x: wi.mesh.position.x,
@@ -1021,6 +1046,240 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const cam = cameraRef.current;
     const groundY = getTerrainHeightSampled(cam.position.x, cam.position.z);
     placeHeldItem(new THREE.Vector3(cam.position.x, groundY, cam.position.z), cam.rotation.y);
+  }
+
+  // ─── Bomb: throw the held bomb forward as a projectile ───────────────────────
+  function throwBomb() {
+    const held = heldItemRef.current;
+    if (!held || held.type !== "bomb") return;
+    if (!cameraRef.current || !sceneRef.current) return;
+
+    const cam = cameraRef.current;
+    const scene = sceneRef.current;
+
+    // Compute throw direction from camera look direction (slight upward arc)
+    const forward = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld);
+    const throwDir = forward.clone();
+    throwDir.y += 0.18; // add mild upward tilt for throw arc
+    throwDir.normalize();
+
+    // Spawn a new flying bomb mesh in the world at camera position
+    const projectileMesh = buildBombMesh(0.85);
+    const startPos = new THREE.Vector3();
+    cam.getWorldPosition(startPos);
+    startPos.addScaledVector(forward, 1.0); // spawn slightly in front of camera
+    projectileMesh.position.copy(startPos);
+    scene.add(projectileMesh);
+
+    bombProjectilesRef.current.push({
+      mesh: projectileMesh,
+      velocity: throwDir.multiplyScalar(BOMB_THROW_SPEED),
+      fuseTimer: BOMB_FUSE_DURATION,
+      exploded: false,
+    });
+
+    // Remove the held bomb item from the world (consumed on throw)
+    held.mesh.visible = false;
+    held.isHeld = false;
+    worldItemsRef.current = worldItemsRef.current.filter((wi) => wi !== held);
+
+    // Remove hand mesh from camera
+    if (heldItemHandMeshRef.current) {
+      cam.remove(heldItemHandMeshRef.current);
+      heldItemHandMeshRef.current = null;
+    }
+    heldItemRef.current = null;
+    setHeldItemType(null);
+
+    // Restore weapon visibility in first-person
+    if (weaponMeshRef.current && cameraModeRef.current === "first") {
+      weaponMeshRef.current.visible = true;
+    }
+
+    soundManager.playBombThrow();
+  }
+
+  // ─── Bomb: spawn explosion visual + terrain crater ───────────────────────────
+  function spawnBombExplosion(scene: THREE.Scene, pos: THREE.Vector3) {
+    soundManager.playBombExplosion();
+
+    // ── 1. Flash point light ────────────────────────────────────────────────
+    const flashLight = new THREE.PointLight(0xff8800, 12, 22);
+    flashLight.position.copy(pos);
+    flashLight.position.y += 0.5;
+    scene.add(flashLight);
+    // Fade light out over 0.4 seconds
+    let flashAge = 0;
+    const fadeFlash = () => {
+      flashAge += 0.016;
+      flashLight.intensity = Math.max(0, 12 * (1 - flashAge / 0.4));
+      if (flashAge < 0.4) {
+        requestAnimationFrame(fadeFlash);
+      } else {
+        scene.remove(flashLight);
+      }
+    };
+    requestAnimationFrame(fadeFlash);
+
+    // ── 2. Fireball core (expanding sphere) ─────────────────────────────────
+    const coreGeo = new THREE.SphereGeometry(0.4, 10, 8);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xff5500,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    core.position.copy(pos);
+    core.position.y += 0.4;
+    scene.add(core);
+
+    // ── 3. Smoke cloud (several expanding grey spheres) ─────────────────────
+    const smokeMeshes: THREE.Mesh[] = [];
+    for (let i = 0; i < 10; i++) {
+      const r = 0.28 + Math.random() * 0.35;
+      const sGeo = new THREE.SphereGeometry(r, 6, 5);
+      const sMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(
+          0.25 + Math.random() * 0.15,
+          0.22 + Math.random() * 0.10,
+          0.18 + Math.random() * 0.10
+        ),
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+      });
+      const sm = new THREE.Mesh(sGeo, sMat);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 1.2;
+      sm.position.set(
+        pos.x + Math.cos(angle) * dist,
+        pos.y + 0.3 + Math.random() * 1.2,
+        pos.z + Math.sin(angle) * dist
+      );
+      scene.add(sm);
+      smokeMeshes.push(sm);
+    }
+
+    // ── 4. Debris fragments (small brown/grey pieces) ────────────────────────
+    const debrisMeshes: { mesh: THREE.Mesh; vel: THREE.Vector3 }[] = [];
+    for (let i = 0; i < 18; i++) {
+      const dGeo = new THREE.BoxGeometry(
+        0.08 + Math.random() * 0.18,
+        0.06 + Math.random() * 0.12,
+        0.06 + Math.random() * 0.14
+      );
+      const dMat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(0.38 + Math.random() * 0.18, 0.30 + Math.random() * 0.12, 0.18),
+      });
+      const dm = new THREE.Mesh(dGeo, dMat);
+      dm.position.copy(pos);
+      dm.position.y += 0.2;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 4 + Math.random() * 8;
+      const velY = 3 + Math.random() * 5;
+      debrisMeshes.push({
+        mesh: dm,
+        vel: new THREE.Vector3(
+          Math.cos(angle) * speed,
+          velY,
+          Math.sin(angle) * speed
+        ),
+      });
+      scene.add(dm);
+    }
+
+    // ── 5. Terrain crater deformation ──────────────────────────────────────
+    const terrain = terrainMeshRef.current;
+    if (terrain) {
+      modifyTerrainHeight(pos.x, pos.z, BOMB_CRATER_DEPTH, BOMB_CRATER_RADIUS);
+      updateTerrainGeometry(terrain);
+    }
+
+    // ── 6. Damage entities in blast radius ─────────────────────────────────
+    foxListRef.current.forEach((fox) => {
+      if (!fox.isAlive) return;
+      if (fox.mesh.position.distanceTo(pos) < BOMB_BLAST_RADIUS) {
+        fox.hp = Math.max(0, fox.hp - BOMB_BLAST_DAMAGE);
+        fox.hitFlashTimer = 0.3;
+        flashFoxMesh(fox.mesh);
+        if (fox.hp <= 0) {
+          fox.isAlive = false;
+          foxesDefeatedRef.current++;
+          soundManager.playFoxDeath();
+        }
+      }
+    });
+    catapultListRef.current.forEach((cat) => {
+      if (!cat.isAlive) return;
+      if (cat.mesh.position.distanceTo(pos) < BOMB_BLAST_RADIUS) {
+        cat.hp = Math.max(0, cat.hp - BOMB_BLAST_DAMAGE);
+        cat.hitFlashTimer = 0.35;
+        flashCatapultMesh(cat.mesh);
+        if (cat.hp <= 0) {
+          cat.isAlive = false;
+          catapultsDefeatedRef.current++;
+        }
+      }
+    });
+    sheepListRef.current.forEach((sheep) => {
+      if (!sheep.isAlive) return;
+      if (sheep.mesh.position.distanceTo(pos) < BOMB_BLAST_RADIUS) {
+        sheep.hp = Math.max(0, sheep.hp - BOMB_BLAST_DAMAGE);
+        sheep.hitFlashTimer = 0.25;
+        if (sheep.hp <= 0 && !sheep.isDying) {
+          sheep.isDying = true;
+          sheep.deathTimer = 0;
+        }
+      }
+    });
+    spiderListRef.current.forEach((spider) => {
+      if (!spider.isAlive) return;
+      if (spider.mesh.position.distanceTo(pos) < BOMB_BLAST_RADIUS) {
+        spider.hp = Math.max(0, spider.hp - BOMB_BLAST_DAMAGE);
+        spider.hitFlashTimer = 0.3;
+        if (spider.hp <= 0) spider.isAlive = false;
+      }
+    });
+
+    // ── 7. Animate the explosion cloud and clean up ─────────────────────────
+    let age = 0;
+    const MAX_AGE = 1.6;
+    const debrisGravity = -16;
+    const animExplosion = () => {
+      age += 0.016;
+      const t = age / MAX_AGE;
+
+      // Fireball expands then fades
+      const coreScale = 1 + t * 7;
+      core.scale.setScalar(coreScale);
+      (core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.95 * (1 - t * 1.6));
+
+      // Smoke rises and fades
+      smokeMeshes.forEach((sm, i) => {
+        sm.position.y += 0.04 + i * 0.005;
+        sm.scale.setScalar(1 + t * 2.5);
+        (sm.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.78 * (1 - t));
+      });
+
+      // Debris arcs downward
+      debrisMeshes.forEach(({ mesh: dm, vel }) => {
+        vel.y += debrisGravity * 0.016;
+        dm.position.addScaledVector(vel, 0.016);
+        dm.rotation.x += 0.08;
+        dm.rotation.z += 0.06;
+      });
+
+      if (age < MAX_AGE) {
+        requestAnimationFrame(animExplosion);
+      } else {
+        // Remove all explosion meshes
+        scene.remove(core);
+        smokeMeshes.forEach((sm) => scene.remove(sm));
+        debrisMeshes.forEach(({ mesh: dm }) => scene.remove(dm));
+      }
+    };
+    requestAnimationFrame(animExplosion);
   }
 
   // ─── Flash sheep mesh red when hit ───────────────────────────────────────────
@@ -1916,6 +2175,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           mesh,
           isHeld: false,
         });
+      });
+    }
+
+    // ── Bomb item on ruins island ────────────────────────────────────────────
+    // A single throwable bomb sits on the ruins platform waiting to be picked up.
+    {
+      const bombMesh = buildBombMesh(1.0);
+      const bombGroundY = getTerrainHeightSampled(BOMB_SPAWN_X, BOMB_SPAWN_Z);
+      bombMesh.position.set(BOMB_SPAWN_X, bombGroundY, BOMB_SPAWN_Z);
+      bombMesh.castShadow = true;
+      scene.add(bombMesh);
+      worldItemsRef.current.push({
+        id: "bomb-ruins-0",
+        type: "bomb",
+        mesh: bombMesh,
+        isHeld: false,
       });
     }
 
@@ -3172,9 +3447,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const onMouseDown = (e: MouseEvent) => {
       if (!isLockedRef.current) return;
       if (e.button === 0) {
-        // If holding an item, left click places it
+        // If holding an item, left click places it (or throws bomb)
         if (heldItemRef.current && buildModeRef.current === "explore") {
-          tryPlaceHeldItemViaRaycast();
+          if (heldItemRef.current.type === "bomb") {
+            throwBomb();
+          } else {
+            tryPlaceHeldItemViaRaycast();
+          }
           return;
         }
         if (buildModeRef.current === "build") {
@@ -3234,10 +3513,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       keysRef.current[e.code] = e.type === "keydown";
 
       // F key: place held item (if carrying one) OR attack in explore mode
+      // Bombs are thrown with G, not placed — skip placement for bomb type
       if (e.type === "keydown" && e.code === "KeyF" && buildModeRef.current === "explore") {
-        if (heldItemRef.current) {
+        if (heldItemRef.current && heldItemRef.current.type !== "bomb") {
           tryPlaceHeldItemViaRaycast();
-        } else {
+        } else if (!heldItemRef.current) {
           doAttack();
         }
       }
@@ -3507,6 +3787,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             playerBodyPosRef.current.y + PLAYER_HEIGHT,
             playerBodyPosRef.current.z
           );
+        }
+      }
+
+      // G key — throw held bomb
+      if (e.type === "keydown" && e.code === "KeyG" && buildModeRef.current === "explore") {
+        if (heldItemRef.current?.type === "bomb") {
+          throwBomb();
         }
       }
 
@@ -6135,6 +6422,49 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         );
       }
 
+      // ── Bomb projectiles: physics, terrain collision, explosion ──────────────
+      {
+        const toDetonate: BombProjectileData[] = [];
+        bombProjectilesRef.current.forEach((bomb) => {
+          if (bomb.exploded) return;
+
+          // Apply gravity and move
+          bomb.velocity.y += BOMB_GRAVITY * dt;
+          bomb.mesh.position.addScaledVector(bomb.velocity, dt);
+
+          // Spin the bomb for visual realism
+          bomb.mesh.rotation.x += 2.5 * dt;
+          bomb.mesh.rotation.z += 1.8 * dt;
+
+          // Fuse countdown
+          bomb.fuseTimer -= dt;
+
+          // Check terrain collision
+          const groundY = getTerrainHeightSampled(
+            bomb.mesh.position.x,
+            bomb.mesh.position.z
+          );
+          if (bomb.mesh.position.y <= groundY + 0.1 || bomb.fuseTimer <= 0) {
+            bomb.exploded = true;
+            // Snap to terrain surface for the explosion centre
+            if (bomb.mesh.position.y < groundY) bomb.mesh.position.y = groundY;
+            toDetonate.push(bomb);
+          }
+        });
+
+        // Trigger explosions and remove detonated bombs
+        toDetonate.forEach((bomb) => {
+          const pos = bomb.mesh.position.clone();
+          scene.remove(bomb.mesh);
+          spawnBombExplosion(scene, pos);
+        });
+        if (toDetonate.length > 0) {
+          bombProjectilesRef.current = bombProjectilesRef.current.filter(
+            (b) => !toDetonate.includes(b)
+          );
+        }
+      }
+
       // ── World items: proximity pickup check + placement ghost ─────────────────
       if (!possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !activeHarborShipRef.current) {
         if (heldItemRef.current) {
@@ -6755,6 +7085,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up impact effects
       impactEffectsRef.current.forEach((fx) => { scene.remove(fx.ring); fx.particles.forEach((p) => scene.remove(p)); });
       impactEffectsRef.current = [];
+      // Clean up bomb projectiles
+      bombProjectilesRef.current.forEach((b) => scene.remove(b.mesh));
+      bombProjectilesRef.current = [];
       // Clean up blood particles
       bloodParticlesRef.current.forEach((p) => {
         scene.remove(p.mesh);
@@ -7466,13 +7799,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             className="rounded-xl text-white font-bold text-sm animate-pulse"
             style={{
               padding: "10px 24px",
-              background: "rgba(80,50,10,0.88)",
+              background: nearItemPrompt === "bomb"
+                ? "rgba(40,10,10,0.92)"
+                : "rgba(80,50,10,0.88)",
               backdropFilter: "blur(10px)",
-              border: "1px solid rgba(230,140,40,0.45)",
-              boxShadow: "0 0 20px rgba(200,100,0,0.40)",
+              border: nearItemPrompt === "bomb"
+                ? "1px solid rgba(255,80,20,0.55)"
+                : "1px solid rgba(230,140,40,0.45)",
+              boxShadow: nearItemPrompt === "bomb"
+                ? "0 0 20px rgba(255,60,0,0.45)"
+                : "0 0 20px rgba(200,100,0,0.40)",
             }}
           >
-            🎃 [E] Vzít {nearItemPrompt === "pumpkin" ? "dýni" : nearItemPrompt}
+            {nearItemPrompt === "bomb" ? "💣" : "🎃"} [E] Vzít{" "}
+            {nearItemPrompt === "pumpkin" ? "dýni" : nearItemPrompt === "bomb" ? "bombu" : nearItemPrompt}
           </div>
         </div>
       )}
@@ -7484,15 +7824,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             className="rounded-xl text-white font-bold text-sm"
             style={{
               padding: "10px 28px",
-              background: "rgba(80,40,5,0.90)",
+              background: heldItemType === "bomb"
+                ? "rgba(60,10,5,0.94)"
+                : "rgba(80,40,5,0.90)",
               backdropFilter: "blur(10px)",
-              border: "1px solid rgba(240,150,30,0.50)",
-              boxShadow: "0 0 22px rgba(200,100,0,0.45)",
+              border: heldItemType === "bomb"
+                ? "1px solid rgba(255,80,20,0.60)"
+                : "1px solid rgba(240,150,30,0.50)",
+              boxShadow: heldItemType === "bomb"
+                ? "0 0 26px rgba(255,60,0,0.50)"
+                : "0 0 22px rgba(200,100,0,0.45)",
             }}
           >
-            🎃 {heldItemType === "pumpkin" ? "Dýně" : heldItemType} v ruce
+            {heldItemType === "bomb" ? "💣" : "🎃"}{" "}
+            {heldItemType === "pumpkin" ? "Dýně" : heldItemType === "bomb" ? "Bomba" : heldItemType} v ruce
             &nbsp;·&nbsp;
-            <span style={{ color: "#fcd34d" }}>[Klik / F] Položit</span>
+            {heldItemType === "bomb" ? (
+              <span style={{ color: "#f87171" }}>[G] Hodit</span>
+            ) : (
+              <span style={{ color: "#fcd34d" }}>[Klik / F] Položit</span>
+            )}
             &nbsp;·&nbsp;
             <span style={{ color: "#fca5a5" }}>[E] Upustit</span>
           </div>

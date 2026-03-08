@@ -1015,6 +1015,92 @@ class SoundManager {
     rumbleSrc.stop(t + rumbleDur + 0.1);
   }
 
+  // ── Bomb throw (short fuse hiss) ─────────────────────────────────────────
+
+  playBombThrow(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const out = this.sfxGain;
+    const t = ctx.currentTime;
+
+    // Short hiss / whoosh as the bomb flies
+    const hissDur = 0.35;
+    const hissSrc = ctx.createBufferSource();
+    hissSrc.buffer = this._noiseBuffer(hissDur);
+    const hissFlt = ctx.createBiquadFilter();
+    hissFlt.type = "highpass";
+    hissFlt.frequency.value = 3200;
+    hissFlt.Q.value = 0.5;
+    const hissEnv = ctx.createGain();
+    hissEnv.gain.setValueAtTime(0.0001, t);
+    hissEnv.gain.linearRampToValueAtTime(0.18, t + 0.05);
+    hissEnv.gain.exponentialRampToValueAtTime(0.0001, t + hissDur);
+    hissSrc.connect(hissFlt);
+    hissFlt.connect(hissEnv);
+    hissEnv.connect(out);
+    hissSrc.start(t);
+    hissSrc.stop(t + hissDur + 0.05);
+  }
+
+  // ── Bomb explosion (loud thud + rumble) ──────────────────────────────────
+
+  playBombExplosion(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const out = this.sfxGain;
+    const t = ctx.currentTime;
+
+    // 1. Sharp initial crack/boom (wide-band noise burst)
+    const boomDur = 0.28;
+    const boomSrc = ctx.createBufferSource();
+    boomSrc.buffer = this._noiseBuffer(boomDur);
+    const boomFlt = ctx.createBiquadFilter();
+    boomFlt.type = "lowpass";
+    boomFlt.frequency.value = 800;
+    boomFlt.Q.value = 0.8;
+    const boomEnv = ctx.createGain();
+    boomEnv.gain.setValueAtTime(0.0001, t);
+    boomEnv.gain.linearRampToValueAtTime(0.85, t + 0.01);
+    boomEnv.gain.exponentialRampToValueAtTime(0.0001, t + boomDur);
+    boomSrc.connect(boomFlt);
+    boomFlt.connect(boomEnv);
+    boomEnv.connect(out);
+    boomSrc.start(t);
+    boomSrc.stop(t + boomDur + 0.05);
+
+    // 2. Sub-bass thump (low sine burst)
+    const thumpOsc = ctx.createOscillator();
+    thumpOsc.type = "sine";
+    thumpOsc.frequency.setValueAtTime(55, t);
+    thumpOsc.frequency.exponentialRampToValueAtTime(18, t + 0.45);
+    const thumpEnv = ctx.createGain();
+    thumpEnv.gain.setValueAtTime(0.0001, t);
+    thumpEnv.gain.linearRampToValueAtTime(0.70, t + 0.02);
+    thumpEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    thumpOsc.connect(thumpEnv);
+    thumpEnv.connect(out);
+    thumpOsc.start(t);
+    thumpOsc.stop(t + 0.5);
+
+    // 3. Trailing rubble rumble
+    const rumbleDur = 1.8;
+    const rumbleSrc = ctx.createBufferSource();
+    rumbleSrc.buffer = this._noiseBuffer(rumbleDur);
+    const rumbleFlt = ctx.createBiquadFilter();
+    rumbleFlt.type = "lowpass";
+    rumbleFlt.frequency.value = 120;
+    rumbleFlt.Q.value = 0.4;
+    const rumbleEnv = ctx.createGain();
+    rumbleEnv.gain.setValueAtTime(0.0001, t + 0.08);
+    rumbleEnv.gain.linearRampToValueAtTime(0.35, t + 0.18);
+    rumbleEnv.gain.exponentialRampToValueAtTime(0.0001, t + rumbleDur);
+    rumbleSrc.connect(rumbleFlt);
+    rumbleFlt.connect(rumbleEnv);
+    rumbleEnv.connect(out);
+    rumbleSrc.start(t + 0.08);
+    rumbleSrc.stop(t + rumbleDur + 0.1);
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   destroy(): void {
