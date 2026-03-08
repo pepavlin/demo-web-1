@@ -70,6 +70,8 @@ import {
   buildAirplane3DMesh,
   buildAirstripMesh,
   buildAirstripSignMesh,
+  buildCity,
+  type CityResult,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
@@ -180,6 +182,11 @@ const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when po
 // ─── Lighthouse Constants ─────────────────────────────────────────────────────
 const LIGHTHOUSE_X = -95;       // world X coordinate — accessible northwest coastal rise
 const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable boundary (±123.5)
+
+// ─── City Constants ────────────────────────────────────────────────────────────
+/** World-space centre of the big city (southwest quadrant of the map) */
+const CITY_X = -60;
+const CITY_Z = -80;
 
 // ─── Boat Constants ───────────────────────────────────────────────────────────
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
@@ -2861,6 +2868,41 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     lighthouseLightRef.current = lighthouseLight;
     // Cylinder collider for the lighthouse base (base radius 2.2)
     treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS });
+
+    // ── Big City (southwest quadrant) ─────────────────────────────────────────
+    {
+      let citySeed = 42;
+      const cityRng = () => {
+        citySeed = (citySeed * 1664525 + 1013904223) & 0xffffffff;
+        return (citySeed >>> 0) / 0xffffffff;
+      };
+      const cityResult: CityResult = buildCity(cityRng);
+      const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
+      cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
+      scene.add(cityResult.group);
+
+      // Register box colliders in world space
+      {
+        const cosR = Math.cos(0);
+        const sinR = Math.sin(0);
+        for (const bc of cityResult.boxColliders) {
+          boxCollidersRef.current.push({
+            cx: CITY_X + bc.lx * cosR - bc.lz * sinR,
+            cz: CITY_Z + bc.lx * sinR + bc.lz * cosR,
+            halfW: bc.halfW,
+            halfD: bc.halfD,
+            rotY: bc.rotY,
+          });
+        }
+        for (const cc of cityResult.cylColliders) {
+          treeCollisionRef.current.push({
+            x: CITY_X + cc.lx * cosR - cc.lz * sinR,
+            z: CITY_Z + cc.lx * sinR + cc.lz * cosR,
+            radius: cc.radius + PLAYER_RADIUS,
+          });
+        }
+      }
+    }
 
     // ── Boat (rowboat floating near the shore) ────────────────────────────────
     // Scan outward from player spawn to find the nearest water tile deep enough
@@ -6571,6 +6613,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ctx.fillStyle = "#ffffff";
               ctx.font = "bold 8px monospace";
               ctx.fillText("✈", aMx - 4, aMz + 3);
+            }
+          }
+
+          // City marker
+          {
+            const cmx = cx + CITY_X * scale;
+            const cmz = cy + CITY_Z * scale;
+            if (cmx >= 0 && cmx <= W && cmz >= 0 && cmz <= W) {
+              ctx.fillStyle = "#a0c8ff";
+              ctx.beginPath();
+              ctx.arc(cmx, cmz, 5, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 8px monospace";
+              ctx.fillText("🏙", cmx - 5, cmz + 3);
             }
           }
 
