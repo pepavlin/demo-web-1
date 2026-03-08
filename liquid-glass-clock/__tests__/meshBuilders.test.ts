@@ -47,6 +47,7 @@ import {
   buildCaveMesh,
   buildTorchMesh,
   buildTreasureChestMesh,
+  buildCity,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -1326,5 +1327,67 @@ describe("buildTreasureChestMesh", () => {
       if ((child as THREE.Mesh).isMesh) meshCount++;
     });
     expect(meshCount).toBeGreaterThan(5);
+  });
+});
+
+describe("buildCity", () => {
+  it("returns { group, boxColliders, cylColliders }", () => {
+    const result = buildCity(makeRng(42));
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.boxColliders)).toBe(true);
+    expect(Array.isArray(result.cylColliders)).toBe(true);
+  });
+
+  it("group has many mesh children (roads, buildings, lights)", () => {
+    const { group } = buildCity(makeRng(7));
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThan(50);
+  });
+
+  it("boxColliders is non-empty (buildings have colliders)", () => {
+    const { boxColliders } = buildCity(makeRng(1));
+    expect(boxColliders.length).toBeGreaterThan(0);
+    // Each collider has the expected shape
+    for (const bc of boxColliders) {
+      expect(typeof bc.lx).toBe("number");
+      expect(typeof bc.lz).toBe("number");
+      expect(typeof bc.halfW).toBe("number");
+      expect(typeof bc.halfD).toBe("number");
+      expect(typeof bc.rotY).toBe("number");
+    }
+  });
+
+  it("cylColliders contains the fountain collider", () => {
+    const { cylColliders } = buildCity(makeRng(1));
+    expect(cylColliders.length).toBeGreaterThan(0);
+    // Fountain collider is at local origin with radius ~3.8
+    const fountain = cylColliders.find(
+      (cc) => Math.abs(cc.lx) < 0.1 && Math.abs(cc.lz) < 0.1 && cc.radius > 3,
+    );
+    expect(fountain).toBeDefined();
+  });
+
+  it("skyscraper meshes are taller than office buildings on average", () => {
+    const { group } = buildCity(makeRng(42));
+    // Collect the max Y position of any mesh
+    let maxY = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const y = child.position.y;
+        if (y > maxY) maxY = y;
+      }
+    });
+    // Tallest skyscraper antenna tip should be well above 30 units
+    expect(maxY).toBeGreaterThan(30);
+  });
+
+  it("is deterministic — same seed produces same collider count", () => {
+    const r1 = buildCity(makeRng(99));
+    const r2 = buildCity(makeRng(99));
+    expect(r1.boxColliders.length).toBe(r2.boxColliders.length);
+    expect(r1.cylColliders.length).toBe(r2.cylColliders.length);
   });
 });

@@ -3464,3 +3464,254 @@ export function buildAirstripSignMesh(): THREE.Group {
 
   return group;
 }
+
+// ─── Big City ─────────────────────────────────────────────────────────────────
+
+export interface CityResult {
+  group: THREE.Group;
+  /** Local-space box colliders (relative to city group origin). */
+  boxColliders: RuinsBoxCollider[];
+  /** Local-space cylinder colliders (relative to city group origin). */
+  cylColliders: RuinsCylCollider[];
+}
+
+/**
+ * Builds a large procedural city: skyscrapers, office buildings, apartments,
+ * roads, street lights, and a central plaza.
+ *
+ * Local layout (centred at 0,0):
+ *   3×3 super-blocks of ~18 × 18 units each, separated by 9-unit roads.
+ *   Total footprint ≈ 81 × 81 units.
+ *
+ * Returns a THREE.Group plus local-space collider arrays for Game3D.tsx.
+ */
+export function buildCity(rng: () => number): CityResult {
+  const group = new THREE.Group();
+  const boxColliders: RuinsBoxCollider[] = [];
+  const cylColliders: RuinsCylCollider[] = [];
+
+  // ── Shared materials ──────────────────────────────────────────────────────
+  const glassMat      = new THREE.MeshLambertMaterial({ color: 0x7ab4d4, transparent: true, opacity: 0.82 });
+  const glassNightMat = new THREE.MeshLambertMaterial({ color: 0xffd97a, transparent: true, opacity: 0.55 });
+  const concreteMat   = new THREE.MeshLambertMaterial({ color: 0x8c8c8c });
+  const darkConcrete  = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+  const brickMat      = new THREE.MeshLambertMaterial({ color: 0xb05c3c });
+  const creamMat      = new THREE.MeshLambertMaterial({ color: 0xe0d5b0 });
+  const roadMat       = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  const sidewalkMat   = new THREE.MeshLambertMaterial({ color: 0xb0a898 });
+  const plazaMat      = new THREE.MeshLambertMaterial({ color: 0x8ab875 });
+  const lineMat       = new THREE.MeshLambertMaterial({ color: 0xeeee00 });
+  const poleMatC      = new THREE.MeshLambertMaterial({ color: 0x555555 });
+  const lampMat       = new THREE.MeshLambertMaterial({ color: 0xfff8c0, emissive: 0xfff8c0, emissiveIntensity: 0.9 });
+  const roofTrimMat   = new THREE.MeshLambertMaterial({ color: 0x333333 });
+
+  // ── Helper: add a box mesh + optional collider ────────────────────────────
+  function addBox(
+    w: number, h: number, d: number,
+    mat: THREE.Material,
+    lx: number, ly: number, lz: number,
+    rotY = 0,
+    shadow = true,
+    withCollider = false,
+  ): THREE.Mesh {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(lx, ly, lz);
+    mesh.rotation.y = rotY;
+    if (shadow) { mesh.castShadow = true; mesh.receiveShadow = true; }
+    group.add(mesh);
+    if (withCollider) {
+      const hw = w / 2 + 0.05;
+      const hd = d / 2 + 0.05;
+      // Rotate the collider centre offset
+      const cx = lx * Math.cos(rotY) - lz * Math.sin(rotY);
+      const cz = lx * Math.sin(rotY) + lz * Math.cos(rotY);
+      boxColliders.push({ lx: cx, lz: cz, halfW: hw, halfD: hd, rotY });
+    }
+    return mesh;
+  }
+
+  // ── 1. Ground (roads + sidewalks) ────────────────────────────────────────
+  // Outer sidewalk plane
+  addBox(82, 0.12, 82, sidewalkMat, 0, 0.01, 0, 0, false);
+  // Road H-strips (z = –13.5 and +13.5)
+  addBox(82, 0.14, 9, roadMat, 0, 0.02, -13.5, 0, false);
+  addBox(82, 0.14, 9, roadMat, 0, 0.02,  13.5, 0, false);
+  // Road V-strips (x = –13.5 and +13.5)
+  addBox(9, 0.14, 82, roadMat, -13.5, 0.02, 0, 0, false);
+  addBox(9, 0.14, 82, roadMat,  13.5, 0.02, 0, 0, false);
+  // Centre crossroad box
+  addBox(9, 0.16, 9, roadMat, 0, 0.03, 0, 0, false);
+
+  // Yellow centre dashes – H roads
+  for (let x = -38; x <= 38; x += 5) {
+    addBox(2.5, 0.18, 0.18, lineMat, x, 0.04, -13.5, 0, false);
+    addBox(2.5, 0.18, 0.18, lineMat, x, 0.04,  13.5, 0, false);
+  }
+  // Yellow centre dashes – V roads
+  for (let z = -38; z <= 38; z += 5) {
+    addBox(0.18, 0.18, 2.5, lineMat, -13.5, 0.04, z, 0, false);
+    addBox(0.18, 0.18, 2.5, lineMat,  13.5, 0.04, z, 0, false);
+  }
+
+  // ── 2. Central plaza (block 0,0) ──────────────────────────────────────────
+  addBox(18, 0.15, 18, plazaMat, 0, 0.02, 0, 0, false);
+  // Fountain base disc
+  const fountainBaseGeo = new THREE.CylinderGeometry(3.2, 3.5, 0.5, 16);
+  const fountainBase = new THREE.Mesh(fountainBaseGeo, concreteMat);
+  fountainBase.position.set(0, 0.35, 0);
+  fountainBase.castShadow = true;
+  fountainBase.receiveShadow = true;
+  group.add(fountainBase);
+  // Fountain pool rim
+  const rimGeo = new THREE.TorusGeometry(3.2, 0.22, 8, 24);
+  const rim = new THREE.Mesh(rimGeo, concreteMat);
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.set(0, 0.55, 0);
+  group.add(rim);
+  // Central column
+  const colGeo = new THREE.CylinderGeometry(0.25, 0.3, 2.5, 10);
+  const col = new THREE.Mesh(colGeo, creamMat);
+  col.position.set(0, 1.55, 0);
+  col.castShadow = true;
+  group.add(col);
+  // Water disc (top of column)
+  const waterGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.12, 12);
+  const waterMat = new THREE.MeshLambertMaterial({ color: 0x66bbee, transparent: true, opacity: 0.7 });
+  const water = new THREE.Mesh(waterGeo, waterMat);
+  water.position.set(0, 2.88, 0);
+  group.add(water);
+  // Fountain cylinder collider
+  cylColliders.push({ lx: 0, lz: 0, radius: 3.8 });
+
+  // ── 3. Skyscrapers (3 towers around plaza) ────────────────────────────────
+  interface SkyscraperDef { lx: number; lz: number; w: number; d: number; h: number; mat: THREE.Material; rotY: number }
+  const skyscrapers: SkyscraperDef[] = [
+    { lx:  7, lz: -6, w: 8,  d: 7,  h: 38, mat: glassMat,    rotY: 0.1  },
+    { lx: -7, lz:  5, w: 7,  d: 8,  h: 32, mat: concreteMat, rotY: -0.05 },
+    { lx:  5, lz:  7, w: 6,  d: 6,  h: 28, mat: glassMat,    rotY: 0.05 },
+  ];
+
+  for (const sk of skyscrapers) {
+    // Main tower body
+    addBox(sk.w, sk.h, sk.d, sk.mat, sk.lx, sk.h / 2, sk.lz, sk.rotY, true, true);
+    // Stepped crown (smaller box on top)
+    addBox(sk.w * 0.6, 4, sk.d * 0.6, darkConcrete, sk.lx, sk.h + 2, sk.lz, sk.rotY);
+    // Antenna spire
+    const antGeo = new THREE.CylinderGeometry(0.06, 0.12, 8, 6);
+    const ant = new THREE.Mesh(antGeo, poleMatC);
+    ant.position.set(sk.lx, sk.h + 8, sk.lz);
+    ant.castShadow = true;
+    group.add(ant);
+    // Antenna beacon (tiny emissive sphere)
+    const beaconGeo = new THREE.SphereGeometry(0.2, 6, 5);
+    const beaconMat = new THREE.MeshLambertMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 1 });
+    const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+    beacon.position.set(sk.lx, sk.h + 12.3, sk.lz);
+    group.add(beacon);
+    // Horizontal window strips (every ~2.5 units of height)
+    for (let floor = 1; floor < Math.floor(sk.h / 2.5) - 1; floor++) {
+      const winH = 1.1;
+      const winGeo = new THREE.BoxGeometry(sk.w + 0.08, winH, sk.d + 0.08);
+      const win = new THREE.Mesh(winGeo, glassNightMat);
+      win.position.set(sk.lx, floor * 2.5 + 1.5, sk.lz);
+      win.rotation.y = sk.rotY;
+      group.add(win);
+    }
+    // Roof edge trim
+    addBox(sk.w + 0.3, 0.4, sk.d + 0.3, roofTrimMat, sk.lx, sk.h + 0.22, sk.lz, sk.rotY);
+  }
+
+  // ── 4. Medium office buildings (remaining 6 blocks) ───────────────────────
+  interface OfficeBlock { bx: number; bz: number }
+  const officeBlocks: OfficeBlock[] = [
+    { bx: -27, bz: -27 }, { bx: 0,   bz: -27 }, { bx: 27,  bz: -27 },
+    { bx: -27, bz:   0 },                         { bx: 27,  bz:   0 },
+    { bx: -27, bz:  27 }, { bx: 0,   bz:  27 }, { bx: 27,  bz:  27 },
+  ];
+
+  const officeMats = [concreteMat, creamMat, brickMat, concreteMat, creamMat, brickMat, concreteMat, creamMat];
+
+  for (let bi = 0; bi < officeBlocks.length; bi++) {
+    const { bx, bz } = officeBlocks[bi];
+    const blockMat = officeMats[bi % officeMats.length];
+    // Use deterministic layout per block (3-4 buildings arranged around the block centre)
+    const numBuildings = 2 + (bi % 3); // 2, 3, or 4 buildings per block
+    const buildingOffsets = [
+      [-3.5, -3.5], [3.5, -3.5], [-3.5, 3.5], [3.5, 3.5],
+    ].slice(0, numBuildings);
+
+    for (let i = 0; i < numBuildings; i++) {
+      const [ox, oz] = buildingOffsets[i];
+      const w = 5 + rng() * 4;   // 5–9 wide
+      const d = 4 + rng() * 4;   // 4–8 deep
+      const h = 6 + rng() * 12;  // 6–18 tall
+      const ry = (rng() - 0.5) * 0.2;
+      const lx = bx + ox;
+      const lz = bz + oz;
+      addBox(w, h, d, blockMat, lx, h / 2, lz, ry, true, true);
+      // Flat roof trim
+      addBox(w + 0.2, 0.35, d + 0.2, roofTrimMat, lx, h + 0.18, lz, ry);
+      // Window rows (every 2 units of height)
+      const windowCount = Math.floor(h / 2) - 1;
+      for (let floor = 1; floor <= windowCount; floor++) {
+        const winGeo = new THREE.BoxGeometry(w + 0.06, 0.85, d + 0.06);
+        const win = new THREE.Mesh(winGeo, glassNightMat);
+        win.position.set(lx, floor * 2 + 1, lz);
+        win.rotation.y = ry;
+        group.add(win);
+      }
+    }
+  }
+
+  // ── 5. Street lights ──────────────────────────────────────────────────────
+  // Place along each road edge at intervals
+  const lightPositions: [number, number][] = [];
+  for (let x = -36; x <= 36; x += 14) {
+    lightPositions.push([x, -18.5]);
+    lightPositions.push([x, -8.5]);
+    lightPositions.push([x,  8.5]);
+    lightPositions.push([x,  18.5]);
+  }
+  for (let z = -36; z <= 36; z += 14) {
+    lightPositions.push([-18.5, z]);
+    lightPositions.push([ -8.5, z]);
+    lightPositions.push([  8.5, z]);
+    lightPositions.push([ 18.5, z]);
+  }
+
+  for (const [lx, lz] of lightPositions) {
+    // Pole
+    const poleGeo = new THREE.CylinderGeometry(0.08, 0.12, 5.5, 6);
+    const pole = new THREE.Mesh(poleGeo, poleMatC);
+    pole.position.set(lx, 2.75, lz);
+    pole.castShadow = true;
+    group.add(pole);
+    // Arm extending over the road
+    const armGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.8, 5);
+    const arm = new THREE.Mesh(armGeo, poleMatC);
+    arm.rotation.z = Math.PI / 2;
+    arm.position.set(lx + 0.9, 5.5, lz);
+    group.add(arm);
+    // Lamp head
+    const lampGeo = new THREE.SphereGeometry(0.25, 8, 6);
+    const lamp = new THREE.Mesh(lampGeo, lampMat);
+    lamp.position.set(lx + 1.8, 5.5, lz);
+    group.add(lamp);
+  }
+
+  // ── 6. Road bollards at crossroads corners ────────────────────────────────
+  const bollardCorners: [number, number][] = [
+    [-9, -9], [9, -9], [-9, 9], [9, 9],
+    [-9, -18], [9, -18], [-9, 18], [9, 18],
+    [-18, -9], [18, -9], [-18, 9], [18, 9],
+  ];
+  for (const [bx, bz] of bollardCorners) {
+    const bGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.9, 6);
+    const bMesh = new THREE.Mesh(bGeo, darkConcrete);
+    bMesh.position.set(bx, 0.45, bz);
+    group.add(bMesh);
+  }
+
+  return { group, boxColliders, cylColliders };
+}
