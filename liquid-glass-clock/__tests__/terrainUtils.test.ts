@@ -1,4 +1,4 @@
-import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, flattenTerrainRect, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -372,6 +372,62 @@ describe("terrainUtils", () => {
       // This just ensures the function handles the null-guard gracefully.
       // Since initNoise() has already been called, this test verifies it runs without error.
       expect(() => modifyTerrainHeight(0, 0, 1, 5)).not.toThrow();
+    });
+  });
+
+  describe("flattenTerrainRect", () => {
+    beforeEach(() => {
+      initNoise(42);
+    });
+
+    it("sets terrain at the centre of the rect to targetY", () => {
+      const cx = -60;
+      const cz = -80;
+      const targetY = getTerrainHeightSampled(cx, cz);
+      flattenTerrainRect(cx, cz, 41, 41, targetY, 14);
+      const after = getTerrainHeightSampled(cx, cz);
+      expect(after).toBeCloseTo(targetY, 3);
+    });
+
+    it("sets terrain at an interior point (well inside core) to targetY", () => {
+      const cx = -60;
+      const cz = -80;
+      const targetY = 5.0;
+      flattenTerrainRect(cx, cz, 41, 41, targetY, 14);
+      // Point 20 units inside the core
+      const inner = getTerrainHeightSampled(cx + 15, cz + 15);
+      expect(inner).toBeCloseTo(targetY, 1);
+    });
+
+    it("does not affect terrain far outside the flattened region", () => {
+      const cx = -60;
+      const cz = -80;
+      const farX = 80;
+      const farZ = 80;
+      const before = getTerrainHeightSampled(farX, farZ);
+      flattenTerrainRect(cx, cz, 41, 41, 10, 14);
+      const after = getTerrainHeightSampled(farX, farZ);
+      expect(after).toBeCloseTo(before, 3);
+    });
+
+    it("blends height at the edge of the blend margin (not fully flat at outer edge)", () => {
+      const cx = 0;
+      const cz = 0;
+      const halfW = 30;
+      const blendMargin = 15;
+      const targetY = 20;
+      // Sample current height at a point just at the outer edge of the blend zone
+      const edgeX = cx + halfW + blendMargin - 1; // 1 unit inside outer edge
+      const before = getTerrainHeightSampled(edgeX, cz);
+      flattenTerrainRect(cx, cz, halfW, halfW, targetY, blendMargin);
+      const after = getTerrainHeightSampled(edgeX, cz);
+      // Should be partially blended — somewhere between before and targetY
+      const changedTowardTarget = Math.abs(after - before) > 0 && Math.abs(after - targetY) < Math.abs(before - targetY);
+      expect(changedTowardTarget).toBe(true);
+    });
+
+    it("does not throw when heightGrid is initialised", () => {
+      expect(() => flattenTerrainRect(0, 0, 20, 20, 0, 10)).not.toThrow();
     });
   });
 });

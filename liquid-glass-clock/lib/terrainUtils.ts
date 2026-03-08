@@ -155,6 +155,64 @@ export function modifyTerrainHeight(
 }
 
 /**
+ * Flatten the terrain heightGrid within a rectangular area to a target height.
+ * Vertices inside the core rectangle are set to targetY; vertices in the blend
+ * margin transition smoothly between their original height and targetY using a
+ * cosine falloff, so the city area merges naturally with the surrounding landscape.
+ *
+ * @param worldX      Centre X in world space
+ * @param worldZ      Centre Z in world space
+ * @param halfW       Half-width of the flat core region (along X axis)
+ * @param halfD       Half-depth of the flat core region (along Z axis)
+ * @param targetY     Height to flatten to
+ * @param blendMargin Extra distance beyond the core where blending occurs
+ */
+export function flattenTerrainRect(
+  worldX: number,
+  worldZ: number,
+  halfW: number,
+  halfD: number,
+  targetY: number,
+  blendMargin: number
+): void {
+  if (!heightGrid) return;
+  const N = TERRAIN_SEGMENTS + 1;
+  const halfSize = WORLD_SIZE / 2;
+  const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+
+  const outerHalfW = halfW + blendMargin;
+  const outerHalfD = halfD + blendMargin;
+
+  // Grid index bounds for the outer (blend) region
+  const xMinG = Math.max(0, Math.floor((worldX - outerHalfW + halfSize) / cellSize));
+  const xMaxG = Math.min(N - 1, Math.ceil((worldX + outerHalfW + halfSize) / cellSize));
+  const zMinG = Math.max(0, Math.floor((worldZ - outerHalfD + halfSize) / cellSize));
+  const zMaxG = Math.min(N - 1, Math.ceil((worldZ + outerHalfD + halfSize) / cellSize));
+
+  for (let j = zMinG; j <= zMaxG; j++) {
+    for (let i = xMinG; i <= xMaxG; i++) {
+      const vx = -halfSize + i * cellSize;
+      const vz = -halfSize + j * cellSize;
+
+      // Distance from the vertex to the core rectangle boundary (negative = inside)
+      const dx = Math.max(0, Math.abs(vx - worldX) - halfW);
+      const dz = Math.max(0, Math.abs(vz - worldZ) - halfD);
+      const distToEdge = Math.sqrt(dx * dx + dz * dz);
+
+      if (distToEdge >= blendMargin) continue; // outside blend zone
+
+      // t=0 at core boundary, t=1 deep inside core
+      const t = blendMargin > 0 ? 1 - distToEdge / blendMargin : 1;
+      // Smooth cosine blend
+      const blend = 0.5 - 0.5 * Math.cos(t * Math.PI);
+
+      const current = heightGrid[j * N + i];
+      heightGrid[j * N + i] = current + (targetY - current) * blend;
+    }
+  }
+}
+
+/**
  * Synchronise the Three.js terrain mesh geometry with the current heightGrid.
  * Call this after one or more `modifyTerrainHeight` calls.
  *
