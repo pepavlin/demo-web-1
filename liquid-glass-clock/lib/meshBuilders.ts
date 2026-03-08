@@ -3715,3 +3715,66 @@ export function buildCity(rng: () => number): CityResult {
 
   return { group, boxColliders, cylColliders };
 }
+
+// ─── Bomb ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds a classic round bomb mesh: black iron sphere with a short stick fuse
+ * on top and a glowing spark tip.
+ *
+ * The group origin sits at the bottom of the sphere so it rests on the ground.
+ *
+ * @param scale - uniform scale multiplier (default 1.0). Use ~0.55 for the
+ *   hand-held first-person version.
+ */
+export function buildBombMesh(scale = 1.0): THREE.Group {
+  const group = new THREE.Group();
+
+  // ── Main sphere body ──────────────────────────────────────────────────────
+  const bodyMat = new THREE.MeshLambertMaterial({
+    color: 0x1a1a1a,
+    emissive: new THREE.Color(0x050505),
+  });
+  const highlightMat = new THREE.MeshLambertMaterial({
+    color: 0x3a3a3a,
+  });
+
+  const bodyGeo = new THREE.SphereGeometry(0.38, 14, 10);
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.position.y = 0.38;
+  body.castShadow = true;
+  group.add(body);
+
+  // Small specular highlight sphere (lighter patch on top-left)
+  const highlightGeo = new THREE.SphereGeometry(0.10, 6, 5);
+  const highlight = new THREE.Mesh(highlightGeo, highlightMat);
+  highlight.position.set(-0.12, 0.60, 0.16);
+  group.add(highlight);
+
+  // ── Fuse stick (short brown cylinder) ────────────────────────────────────
+  const fuseMat = new THREE.MeshLambertMaterial({ color: 0x6b4226 });
+  const fuseGeo = new THREE.CylinderGeometry(0.025, 0.030, 0.28, 5);
+  const fuse = new THREE.Mesh(fuseGeo, fuseMat);
+  fuse.position.set(0.04, 0.80, 0.0);
+  fuse.rotation.z = 0.22; // slight lean
+  group.add(fuse);
+
+  // ── Spark / ember tip (tiny glowing orange-yellow sphere) ─────────────────
+  const sparkMat = new THREE.MeshLambertMaterial({
+    color: 0xffcc00,
+    emissive: new THREE.Color(0xff6600),
+    emissiveIntensity: 1.2,
+  });
+  const sparkGeo = new THREE.SphereGeometry(0.045, 6, 4);
+  const spark = new THREE.Mesh(sparkGeo, sparkMat);
+  // Position at the tip of the fuse
+  spark.position.set(
+    0.04 + Math.sin(0.22) * 0.14,
+    0.80 + Math.cos(0.22) * 0.14,
+    0.0
+  );
+  group.add(spark);
+
+  group.scale.setScalar(scale);
+  return group;
+}

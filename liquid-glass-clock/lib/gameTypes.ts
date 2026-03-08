@@ -288,7 +288,7 @@ export interface GameState {
 // ─── World Item (pickable / placeable objects) ─────────────────────────────
 
 /** All types of objects that can be picked up and placed in the world. */
-export type WorldItemType = "pumpkin";
+export type WorldItemType = "pumpkin" | "bomb";
 
 /** A pickable/placeable object that exists in the 3D world. */
 export interface WorldItem {
@@ -309,6 +309,20 @@ export interface PlacedWorldItemData {
   z: number;
   /** Y-axis rotation in radians at the time of placement. */
   rotY: number;
+}
+
+// ─── Bomb projectile system ────────────────────────────────────────────────
+
+/** A thrown bomb flying through the air toward the ground. */
+export interface BombProjectileData {
+  /** The visible bomb mesh in the scene. */
+  mesh: THREE.Group;
+  /** Current velocity vector (world space, units/s). */
+  velocity: THREE.Vector3;
+  /** Remaining fuse time in seconds before it auto-detonates. */
+  fuseTimer: number;
+  /** True once the explosion has been triggered (prevents double-explosion). */
+  exploded: boolean;
 }
 
 // ─── Rocket system ─────────────────────────────────────────────────────────
