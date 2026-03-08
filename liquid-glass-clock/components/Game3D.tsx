@@ -5614,6 +5614,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       let foxNear = false;
       let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
       let closestAliveFoxDist = Infinity;
+      /** Distance to nearest fox that is actively chasing the player (for growl volume). */
+      let closestChasingFoxDist = Infinity;
 
       // LOD radius for entities — on mobile we hide entities beyond this distance
       const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
@@ -5752,19 +5754,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Snap to the visual terrain surface (bilinear interpolation matches mesh)
         fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z);
 
-        if (distToPlayer < 18) {
+        // Fox is chasing (within chase radius) – track for growl + HUD warning
+        if (distToPlayer < FOX_PLAYER_CHASE_RADIUS) {
           foxNear = true;
+          if (distToPlayer < closestChasingFoxDist) {
+            closestChasingFoxDist = distToPlayer;
+          }
         }
       });
 
       setFoxWarning(foxNear);
 
-      // ── Fox growl (periodic when fox is chasing player) ─────────────────
-      if (foxNear) {
+      // ── Fox growl (periodic while a fox is chasing the player) ──────────
+      if (closestChasingFoxDist < Infinity) {
         foxGrowlCooldownRef.current -= dt;
         if (foxGrowlCooldownRef.current <= 0) {
-          soundManager.playFoxGrowl();
-          foxGrowlCooldownRef.current = 3 + Math.random() * 3;
+          soundManager.playFoxGrowl(closestChasingFoxDist);
+          // Closer fox → growls more frequently (1.5 s at 0 units → 4 s at max range)
+          const distFactor = Math.min(1, closestChasingFoxDist / FOX_PLAYER_CHASE_RADIUS);
+          foxGrowlCooldownRef.current = 1.5 + distFactor * 2.5;
         }
       }
 
