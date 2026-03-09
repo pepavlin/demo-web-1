@@ -73,6 +73,7 @@ import {
   buildAirstripSignMesh,
   buildCity,
   type CityResult,
+  type CityTerrainOptions,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
@@ -3151,8 +3152,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         citySeed = (citySeed * 1664525 + 1013904223) & 0xffffffff;
         return (citySeed >>> 0) / 0xffffffff;
       };
-      const cityResult: CityResult = buildCity(cityRng);
       const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
+      const cityTerrainOptions: CityTerrainOptions = {
+        terrainSampler: getTerrainHeightSampled,
+        worldX: CITY_X,
+        worldZ: CITY_Z,
+      };
+      const cityResult: CityResult = buildCity(cityRng, cityTerrainOptions);
       cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
       scene.add(cityResult.group);
 

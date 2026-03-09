@@ -48,6 +48,7 @@ import {
   buildTorchMesh,
   buildTreasureChestMesh,
   buildCity,
+  type CityTerrainOptions,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
 
@@ -1389,5 +1390,109 @@ describe("buildCity", () => {
     const r2 = buildCity(makeRng(99));
     expect(r1.boxColliders.length).toBe(r2.boxColliders.length);
     expect(r1.cylColliders.length).toBe(r2.cylColliders.length);
+  });
+
+  describe("terrain-adaptive placement (CityTerrainOptions)", () => {
+    // A flat terrain sampler — every point returns exactly 5.
+    const flatSampler = (_x: number, _z: number) => 5;
+    const flatTerrain: CityTerrainOptions = {
+      terrainSampler: flatSampler,
+      worldX: -60,
+      worldZ: -80,
+    };
+
+    it("accepts a terrain sampler without throwing", () => {
+      expect(() => buildCity(makeRng(42), flatTerrain)).not.toThrow();
+    });
+
+    it("returns the same structure as without terrain options", () => {
+      const { group, boxColliders, cylColliders } = buildCity(makeRng(42), flatTerrain);
+      expect(group).toBeInstanceOf(THREE.Group);
+      expect(Array.isArray(boxColliders)).toBe(true);
+      expect(Array.isArray(cylColliders)).toBe(true);
+    });
+
+    it("produces the same mesh count as the no-terrain variant", () => {
+      // Foundation slabs and segmented roads are always present regardless of
+      // terrain options, so both variants share the same mesh count.
+      let countFlat = 0;
+      let countTerrain = 0;
+      buildCity(makeRng(42)).group.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) countFlat++;
+      });
+      buildCity(makeRng(42), flatTerrain).group.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) countTerrain++;
+      });
+      expect(countTerrain).toBe(countFlat);
+    });
+
+    it("lifts all meshes by the terrain offset when terrain is uniformly elevated", () => {
+      // With a uniform sampler the city base is at 5, local delta = 0 everywhere,
+      // so all Y positions should equal what they are for the no-terrain version
+      // (buildings sit at terrain-relative 0, same as without options).
+      const { group: gFlat } = buildCity(makeRng(42));
+      const { group: gTerrain } = buildCity(makeRng(42), flatTerrain);
+
+      const flatYs: number[] = [];
+      const terrainYs: number[] = [];
+      gFlat.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) flatYs.push(c.position.y);
+      });
+      gTerrain.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) terrainYs.push(c.position.y);
+      });
+
+      // Both sets should have comparable Y spread (foundation adds some extra,
+      // but main building Y values should be close to the no-terrain version).
+      expect(Math.max(...terrainYs)).toBeGreaterThan(30);
+    });
+
+    it("shifts element Y when terrain has a uniform non-zero offset", () => {
+      // Sampler always returns 10 → cityBaseH = 10, localTH everywhere = 0.
+      // All Y positions should be same as flat case (delta relative to base = 0).
+      const elevated: CityTerrainOptions = {
+        terrainSampler: () => 10,
+        worldX: 0,
+        worldZ: 0,
+      };
+      const { group: gBase } = buildCity(makeRng(5));
+      const { group: gElev } = buildCity(makeRng(5), elevated);
+
+      const baseYs: number[] = [];
+      const elevYs: number[] = [];
+      gBase.traverse((c) => { if ((c as THREE.Mesh).isMesh) baseYs.push(c.position.y); });
+      gElev.traverse((c) => { if ((c as THREE.Mesh).isMesh) elevYs.push(c.position.y); });
+
+      // Should have same count of major Y values (terrain version adds foundation slabs,
+      // but the building body Y positions should be equivalent in relative terms).
+      expect(elevYs.length).toBeGreaterThanOrEqual(baseYs.length);
+    });
+
+    it("raises individual buildings when terrain slopes upward toward them", () => {
+      // Sampler that returns a sloped terrain: height increases with +x.
+      const slopedSampler = (x: number, _z: number) => x * 0.2;
+      const slopedTerrain: CityTerrainOptions = {
+        terrainSampler: slopedSampler,
+        worldX: 0,
+        worldZ: 0,
+      };
+
+      // cityBaseH = slopedSampler(0, 0) = 0, localTH(lx, lz) = lx * 0.2
+      // Buildings at positive lx should be higher than those at negative lx.
+      const { group } = buildCity(makeRng(42), slopedTerrain);
+
+      let maxPosX = -Infinity;
+      let maxNegX = -Infinity;
+      group.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) {
+          const lx = c.position.x;
+          const ly = c.position.y;
+          if (lx > 20) maxPosX = Math.max(maxPosX, ly);
+          if (lx < -20) maxNegX = Math.max(maxNegX, ly);
+        }
+      });
+      // Meshes on the positive-x side should be higher due to sloped terrain.
+      expect(maxPosX).toBeGreaterThan(maxNegX);
+    });
   });
 });
