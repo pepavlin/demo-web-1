@@ -3475,6 +3475,19 @@ export interface CityResult {
   cylColliders: RuinsCylCollider[];
 }
 
+/** Options for terrain-adaptive city placement. */
+export interface CityTerrainOptions {
+  /**
+   * Function that returns the world-space terrain height at (worldX, worldZ).
+   * When provided every city element is raised/lowered to sit on the terrain.
+   */
+  terrainSampler: (worldX: number, worldZ: number) => number;
+  /** World-space X of the city group origin (used to convert local→world coords). */
+  worldX: number;
+  /** World-space Z of the city group origin. */
+  worldZ: number;
+}
+
 /**
  * Builds a large procedural city: skyscrapers, office buildings, apartments,
  * roads, street lights, and a central plaza.
@@ -3485,10 +3498,41 @@ export interface CityResult {
  *
  * Returns a THREE.Group plus local-space collider arrays for Game3D.tsx.
  */
-export function buildCity(rng: () => number): CityResult {
+export function buildCity(rng: () => number, terrain?: CityTerrainOptions): CityResult {
   const group = new THREE.Group();
   const boxColliders: RuinsBoxCollider[] = [];
   const cylColliders: RuinsCylCollider[] = [];
+
+  // ── Terrain-adaptive helpers ───────────────────────────────────────────────
+  // cityBaseH: world-space terrain height at the city group origin.
+  // The city group is positioned at (worldX, cityBaseH, worldZ) in Game3D,
+  // so local Y=0 corresponds to the terrain at the city centre.
+  const cityBaseH = terrain
+    ? terrain.terrainSampler(terrain.worldX, terrain.worldZ)
+    : 0;
+
+  /**
+   * Returns the local-space terrain height at city-local offset (lx, lz).
+   * Use this to lift/lower individual elements so they sit on the actual ground.
+   * Returns 0 when no terrain sampler was provided (flat behaviour).
+   */
+  function localTH(lx: number, lz: number): number {
+    if (!terrain) return 0;
+    return terrain.terrainSampler(terrain.worldX + lx, terrain.worldZ + lz) - cityBaseH;
+  }
+
+  /**
+   * Samples terrain at multiple points along a line (lx0→lx1, lz0→lz1) and
+   * returns the average local terrain height.  Used to position road segments.
+   */
+  function avgTH(lx0: number, lz0: number, lx1: number, lz1: number, steps = 3): number {
+    let sum = 0;
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      sum += localTH(lx0 + (lx1 - lx0) * t, lz0 + (lz1 - lz0) * t);
+    }
+    return sum / (steps + 1);
+  }
 
   // ── Shared materials ──────────────────────────────────────────────────────
   const glassMat      = new THREE.MeshLambertMaterial({ color: 0x7ab4d4, transparent: true, opacity: 0.82 });
@@ -3504,6 +3548,7 @@ export function buildCity(rng: () => number): CityResult {
   const poleMatC      = new THREE.MeshLambertMaterial({ color: 0x555555 });
   const lampMat       = new THREE.MeshLambertMaterial({ color: 0xfff8c0, emissive: 0xfff8c0, emissiveIntensity: 0.9 });
   const roofTrimMat   = new THREE.MeshLambertMaterial({ color: 0x333333 });
+  const foundationMat = new THREE.MeshLambertMaterial({ color: 0x6e6e6e });
 
   // ── Helper: add a box mesh + optional collider ────────────────────────────
   function addBox(
@@ -3532,34 +3577,74 @@ export function buildCity(rng: () => number): CityResult {
   }
 
   // ── 1. Ground (roads + sidewalks) ────────────────────────────────────────
-  // Outer sidewalk plane
-  addBox(82, 0.12, 82, sidewalkMat, 0, 0.01, 0, 0, false);
-  // Road H-strips (z = –13.5 and +13.5)
-  addBox(82, 0.14, 9, roadMat, 0, 0.02, -13.5, 0, false);
-  addBox(82, 0.14, 9, roadMat, 0, 0.02,  13.5, 0, false);
-  // Road V-strips (x = –13.5 and +13.5)
-  addBox(9, 0.14, 82, roadMat, -13.5, 0.02, 0, 0, false);
-  addBox(9, 0.14, 82, roadMat,  13.5, 0.02, 0, 0, false);
+  // Sidewalk: subdivided into a 6×6 grid so each tile follows the terrain.
+  {
+    const COLS = 6;
+    const ROWS = 6;
+    const totalW = 82;
+    const totalD = 82;
+    const tileW = totalW / COLS;
+    const tileD = totalD / ROWS;
+    for (let ci = 0; ci < COLS; ci++) {
+      for (let ri = 0; ri < ROWS; ri++) {
+        const cx = -totalW / 2 + (ci + 0.5) * tileW;
+        const cz = -totalD / 2 + (ri + 0.5) * tileD;
+        const th = localTH(cx, cz);
+        addBox(tileW + 0.05, 0.12, tileD + 0.05, sidewalkMat, cx, th + 0.01, cz, 0, false);
+      }
+    }
+  }
+
+  // Road H-strips: 8 segments each so they follow terrain along their length.
+  {
+    const SEGS = 8;
+    const segLen = 82 / SEGS;
+    const roadZ = [-13.5, 13.5];
+    for (const rz of roadZ) {
+      for (let si = 0; si < SEGS; si++) {
+        const segCX = -41 + (si + 0.5) * segLen;
+        const th = avgTH(segCX - segLen / 2, rz, segCX + segLen / 2, rz);
+        addBox(segLen + 0.05, 0.14, 9, roadMat, segCX, th + 0.02, rz, 0, false);
+      }
+    }
+  }
+  // Road V-strips: 8 segments each.
+  {
+    const SEGS = 8;
+    const segLen = 82 / SEGS;
+    const roadX = [-13.5, 13.5];
+    for (const rx of roadX) {
+      for (let si = 0; si < SEGS; si++) {
+        const segCZ = -41 + (si + 0.5) * segLen;
+        const th = avgTH(rx, segCZ - segLen / 2, rx, segCZ + segLen / 2);
+        addBox(9, 0.14, segLen + 0.05, roadMat, rx, th + 0.02, segCZ, 0, false);
+      }
+    }
+  }
   // Centre crossroad box
-  addBox(9, 0.16, 9, roadMat, 0, 0.03, 0, 0, false);
+  {
+    const th = localTH(0, 0);
+    addBox(9, 0.16, 9, roadMat, 0, th + 0.03, 0, 0, false);
+  }
 
   // Yellow centre dashes – H roads
   for (let x = -38; x <= 38; x += 5) {
-    addBox(2.5, 0.18, 0.18, lineMat, x, 0.04, -13.5, 0, false);
-    addBox(2.5, 0.18, 0.18, lineMat, x, 0.04,  13.5, 0, false);
+    addBox(2.5, 0.18, 0.18, lineMat, x, localTH(x, -13.5) + 0.04, -13.5, 0, false);
+    addBox(2.5, 0.18, 0.18, lineMat, x, localTH(x,  13.5) + 0.04,  13.5, 0, false);
   }
   // Yellow centre dashes – V roads
   for (let z = -38; z <= 38; z += 5) {
-    addBox(0.18, 0.18, 2.5, lineMat, -13.5, 0.04, z, 0, false);
-    addBox(0.18, 0.18, 2.5, lineMat,  13.5, 0.04, z, 0, false);
+    addBox(0.18, 0.18, 2.5, lineMat, -13.5, localTH(-13.5, z) + 0.04, z, 0, false);
+    addBox(0.18, 0.18, 2.5, lineMat,  13.5, localTH( 13.5, z) + 0.04, z, 0, false);
   }
 
   // ── 2. Central plaza (block 0,0) ──────────────────────────────────────────
-  addBox(18, 0.15, 18, plazaMat, 0, 0.02, 0, 0, false);
+  const plazaTH = localTH(0, 0);
+  addBox(18, 0.15, 18, plazaMat, 0, plazaTH + 0.02, 0, 0, false);
   // Fountain base disc
   const fountainBaseGeo = new THREE.CylinderGeometry(3.2, 3.5, 0.5, 16);
   const fountainBase = new THREE.Mesh(fountainBaseGeo, concreteMat);
-  fountainBase.position.set(0, 0.35, 0);
+  fountainBase.position.set(0, plazaTH + 0.35, 0);
   fountainBase.castShadow = true;
   fountainBase.receiveShadow = true;
   group.add(fountainBase);
@@ -3567,19 +3652,19 @@ export function buildCity(rng: () => number): CityResult {
   const rimGeo = new THREE.TorusGeometry(3.2, 0.22, 8, 24);
   const rim = new THREE.Mesh(rimGeo, concreteMat);
   rim.rotation.x = -Math.PI / 2;
-  rim.position.set(0, 0.55, 0);
+  rim.position.set(0, plazaTH + 0.55, 0);
   group.add(rim);
   // Central column
   const colGeo = new THREE.CylinderGeometry(0.25, 0.3, 2.5, 10);
   const col = new THREE.Mesh(colGeo, creamMat);
-  col.position.set(0, 1.55, 0);
+  col.position.set(0, plazaTH + 1.55, 0);
   col.castShadow = true;
   group.add(col);
   // Water disc (top of column)
   const waterGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.12, 12);
   const waterMat = new THREE.MeshLambertMaterial({ color: 0x66bbee, transparent: true, opacity: 0.7 });
   const water = new THREE.Mesh(waterGeo, waterMat);
-  water.position.set(0, 2.88, 0);
+  water.position.set(0, plazaTH + 2.88, 0);
   group.add(water);
   // Fountain cylinder collider
   cylColliders.push({ lx: 0, lz: 0, radius: 3.8 });
@@ -3593,33 +3678,38 @@ export function buildCity(rng: () => number): CityResult {
   ];
 
   for (const sk of skyscrapers) {
-    // Main tower body
-    addBox(sk.w, sk.h, sk.d, sk.mat, sk.lx, sk.h / 2, sk.lz, sk.rotY, true, true);
+    const th = localTH(sk.lx, sk.lz);
+    // Foundation slab: extends 2 units below the terrain surface to prevent
+    // gaps when the building stands on a slope.
+    const foundH = 2.0;
+    addBox(sk.w + 0.6, foundH, sk.d + 0.6, foundationMat, sk.lx, th - foundH / 2, sk.lz, sk.rotY);
+    // Main tower body – base at terrain height
+    addBox(sk.w, sk.h, sk.d, sk.mat, sk.lx, th + sk.h / 2, sk.lz, sk.rotY, true, true);
     // Stepped crown (smaller box on top)
-    addBox(sk.w * 0.6, 4, sk.d * 0.6, darkConcrete, sk.lx, sk.h + 2, sk.lz, sk.rotY);
+    addBox(sk.w * 0.6, 4, sk.d * 0.6, darkConcrete, sk.lx, th + sk.h + 2, sk.lz, sk.rotY);
     // Antenna spire
     const antGeo = new THREE.CylinderGeometry(0.06, 0.12, 8, 6);
     const ant = new THREE.Mesh(antGeo, poleMatC);
-    ant.position.set(sk.lx, sk.h + 8, sk.lz);
+    ant.position.set(sk.lx, th + sk.h + 8, sk.lz);
     ant.castShadow = true;
     group.add(ant);
     // Antenna beacon (tiny emissive sphere)
     const beaconGeo = new THREE.SphereGeometry(0.2, 6, 5);
     const beaconMat = new THREE.MeshLambertMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 1 });
     const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-    beacon.position.set(sk.lx, sk.h + 12.3, sk.lz);
+    beacon.position.set(sk.lx, th + sk.h + 12.3, sk.lz);
     group.add(beacon);
     // Horizontal window strips (every ~2.5 units of height)
     for (let floor = 1; floor < Math.floor(sk.h / 2.5) - 1; floor++) {
       const winH = 1.1;
       const winGeo = new THREE.BoxGeometry(sk.w + 0.08, winH, sk.d + 0.08);
       const win = new THREE.Mesh(winGeo, glassNightMat);
-      win.position.set(sk.lx, floor * 2.5 + 1.5, sk.lz);
+      win.position.set(sk.lx, th + floor * 2.5 + 1.5, sk.lz);
       win.rotation.y = sk.rotY;
       group.add(win);
     }
     // Roof edge trim
-    addBox(sk.w + 0.3, 0.4, sk.d + 0.3, roofTrimMat, sk.lx, sk.h + 0.22, sk.lz, sk.rotY);
+    addBox(sk.w + 0.3, 0.4, sk.d + 0.3, roofTrimMat, sk.lx, th + sk.h + 0.22, sk.lz, sk.rotY);
   }
 
   // ── 4. Medium office buildings (remaining 6 blocks) ───────────────────────
@@ -3649,15 +3739,20 @@ export function buildCity(rng: () => number): CityResult {
       const ry = (rng() - 0.5) * 0.2;
       const lx = bx + ox;
       const lz = bz + oz;
-      addBox(w, h, d, blockMat, lx, h / 2, lz, ry, true, true);
+      const th = localTH(lx, lz);
+      // Foundation slab
+      const foundH = 1.5;
+      addBox(w + 0.4, foundH, d + 0.4, foundationMat, lx, th - foundH / 2, lz, ry);
+      // Building body – base at terrain height
+      addBox(w, h, d, blockMat, lx, th + h / 2, lz, ry, true, true);
       // Flat roof trim
-      addBox(w + 0.2, 0.35, d + 0.2, roofTrimMat, lx, h + 0.18, lz, ry);
+      addBox(w + 0.2, 0.35, d + 0.2, roofTrimMat, lx, th + h + 0.18, lz, ry);
       // Window rows (every 2 units of height)
       const windowCount = Math.floor(h / 2) - 1;
       for (let floor = 1; floor <= windowCount; floor++) {
         const winGeo = new THREE.BoxGeometry(w + 0.06, 0.85, d + 0.06);
         const win = new THREE.Mesh(winGeo, glassNightMat);
-        win.position.set(lx, floor * 2 + 1, lz);
+        win.position.set(lx, th + floor * 2 + 1, lz);
         win.rotation.y = ry;
         group.add(win);
       }
@@ -3681,22 +3776,23 @@ export function buildCity(rng: () => number): CityResult {
   }
 
   for (const [lx, lz] of lightPositions) {
+    const th = localTH(lx, lz);
     // Pole
     const poleGeo = new THREE.CylinderGeometry(0.08, 0.12, 5.5, 6);
     const pole = new THREE.Mesh(poleGeo, poleMatC);
-    pole.position.set(lx, 2.75, lz);
+    pole.position.set(lx, th + 2.75, lz);
     pole.castShadow = true;
     group.add(pole);
     // Arm extending over the road
     const armGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.8, 5);
     const arm = new THREE.Mesh(armGeo, poleMatC);
     arm.rotation.z = Math.PI / 2;
-    arm.position.set(lx + 0.9, 5.5, lz);
+    arm.position.set(lx + 0.9, th + 5.5, lz);
     group.add(arm);
     // Lamp head
     const lampGeo = new THREE.SphereGeometry(0.25, 8, 6);
     const lamp = new THREE.Mesh(lampGeo, lampMat);
-    lamp.position.set(lx + 1.8, 5.5, lz);
+    lamp.position.set(lx + 1.8, th + 5.5, lz);
     group.add(lamp);
   }
 
@@ -3707,9 +3803,10 @@ export function buildCity(rng: () => number): CityResult {
     [-18, -9], [18, -9], [-18, 9], [18, 9],
   ];
   for (const [bx, bz] of bollardCorners) {
+    const th = localTH(bx, bz);
     const bGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.9, 6);
     const bMesh = new THREE.Mesh(bGeo, darkConcrete);
-    bMesh.position.set(bx, 0.45, bz);
+    bMesh.position.set(bx, th + 0.45, bz);
     group.add(bMesh);
   }
 
