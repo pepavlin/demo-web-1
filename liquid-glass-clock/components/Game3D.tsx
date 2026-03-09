@@ -2179,19 +2179,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
-    // ── Bomb item on ruins island ────────────────────────────────────────────
-    // A single throwable bomb sits on the ruins platform waiting to be picked up.
+    // ── Bomb items scattered across the world ────────────────────────────────
+    // Multiple throwable bombs placed at strategic locations — near catapults,
+    // landmarks and remote areas so players always have bombs to find and throw.
     {
-      const bombMesh = buildBombMesh(1.0);
-      const bombGroundY = getTerrainHeightSampled(BOMB_SPAWN_X, BOMB_SPAWN_Z);
-      bombMesh.position.set(BOMB_SPAWN_X, bombGroundY, BOMB_SPAWN_Z);
-      bombMesh.castShadow = true;
-      scene.add(bombMesh);
-      worldItemsRef.current.push({
-        id: "bomb-ruins-0",
-        type: "bomb",
-        mesh: bombMesh,
-        isHeld: false,
+      const EXTRA_BOMB_SPAWNS: Array<{ id: string; x: number; z: number }> = [
+        { id: "bomb-ruins-0",      x: BOMB_SPAWN_X, z: BOMB_SPAWN_Z },   // Ruins island (original)
+        { id: "bomb-catapult-0",   x: 82,            z: 42  },            // Near north-east catapult
+        { id: "bomb-catapult-1",   x: -74,           z: 57  },            // Near north-west catapult
+        { id: "bomb-catapult-2",   x: 62,            z: -78 },            // Near south-east catapult
+        { id: "bomb-lighthouse-0", x: 108,           z: -52 },            // Near lighthouse
+        { id: "bomb-west-0",       x: -88,           z: 18  },            // Deep west
+        { id: "bomb-north-0",      x: 22,            z: -105},            // Far north
+        { id: "bomb-east-0",       x: 128,           z: 72  },            // East shore
+        { id: "bomb-center-0",     x: 12,            z: 32  },            // Open centre field
+      ];
+
+      EXTRA_BOMB_SPAWNS.forEach(({ id, x, z }) => {
+        const bombMesh = buildBombMesh(1.0);
+        const groundY = getTerrainHeightSampled(x, z);
+        bombMesh.position.set(x, groundY + 0.05, z);
+        bombMesh.castShadow = true;
+        scene.add(bombMesh);
+        worldItemsRef.current.push({
+          id,
+          type: "bomb",
+          mesh: bombMesh,
+          isHeld: false,
+        });
       });
     }
 
@@ -6926,6 +6941,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ctx.beginPath();
               ctx.arc(mx, mz, 2.5, 0, Math.PI * 2);
               ctx.fill();
+            }
+          });
+
+          // Bombs — bright red circles so players can spot pickups at a glance
+          worldItemsRef.current.forEach((item) => {
+            if (item.type !== "bomb" || item.isHeld) return;
+            const bmx = cx + item.mesh.position.x * scale;
+            const bmz = cy + item.mesh.position.z * scale;
+            if (bmx >= 0 && bmx <= W && bmz >= 0 && bmz <= W) {
+              // Outer glow ring
+              ctx.fillStyle = "rgba(255,60,0,0.35)";
+              ctx.beginPath();
+              ctx.arc(bmx, bmz, 5, 0, Math.PI * 2);
+              ctx.fill();
+              // Core dot
+              ctx.fillStyle = "#ff3c00";
+              ctx.beginPath();
+              ctx.arc(bmx, bmz, 2.5, 0, Math.PI * 2);
+              ctx.fill();
+              // "B" label
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 7px monospace";
+              ctx.fillText("B", bmx - 2.5, bmz + 2.5);
             }
           });
 
