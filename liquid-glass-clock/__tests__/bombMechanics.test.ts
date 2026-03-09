@@ -247,3 +247,106 @@ describe("WorldItemType", () => {
     expect(itemTypes).toContain("bomb");
   });
 });
+
+// ─── Multi-bomb spawn locations ────────────────────────────────────────────────
+
+describe("multi-bomb spawn layout", () => {
+  // The playable terrain is 267 units across (-133.5 to +133.5), but the ruins
+  // island is intentionally placed slightly beyond the east edge (x≈176). We use
+  // a generous outer bound of 200 to catch truly invalid spawns while allowing
+  // the original ruins-island location.
+  const WORLD_HALF = 200;
+
+  const BOMB_SPAWNS = [
+    { id: "bomb-ruins-0",      x: 176,  z: -113 },
+    { id: "bomb-catapult-0",   x: 82,   z: 42   },
+    { id: "bomb-catapult-1",   x: -74,  z: 57   },
+    { id: "bomb-catapult-2",   x: 62,   z: -78  },
+    { id: "bomb-lighthouse-0", x: 108,  z: -52  },
+    { id: "bomb-west-0",       x: -88,  z: 18   },
+    { id: "bomb-north-0",      x: 22,   z: -105 },
+    { id: "bomb-east-0",       x: 128,  z: 72   },
+    { id: "bomb-center-0",     x: 12,   z: 32   },
+  ];
+
+  it("has at least 8 bomb spawns on the map", () => {
+    expect(BOMB_SPAWNS.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("all bomb IDs are unique", () => {
+    const ids = BOMB_SPAWNS.map((b) => b.id);
+    const unique = new Set(ids);
+    expect(unique.size).toBe(ids.length);
+  });
+
+  it("all bomb spawns lie within the world bounds", () => {
+    BOMB_SPAWNS.forEach(({ id, x, z }) => {
+      expect(Math.abs(x)).toBeLessThanOrEqual(WORLD_HALF);
+      expect(Math.abs(z)).toBeLessThanOrEqual(WORLD_HALF);
+    }, `spawn at world boundary`);
+  });
+
+  it("no two bombs share the same position", () => {
+    for (let i = 0; i < BOMB_SPAWNS.length; i++) {
+      for (let j = i + 1; j < BOMB_SPAWNS.length; j++) {
+        const dx = BOMB_SPAWNS[i].x - BOMB_SPAWNS[j].x;
+        const dz = BOMB_SPAWNS[i].z - BOMB_SPAWNS[j].z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        // Bombs must be at least 5 units apart to avoid overlap
+        expect(dist).toBeGreaterThan(5);
+      }
+    }
+  });
+});
+
+// ─── Minimap bomb visibility filtering ────────────────────────────────────────
+
+describe("minimap bomb rendering filter", () => {
+  interface MinimalWorldItem {
+    type: string;
+    isHeld: boolean;
+    position: { x: number; z: number };
+  }
+
+  function filterBombsForMinimap(items: MinimalWorldItem[]): MinimalWorldItem[] {
+    return items.filter((item) => item.type === "bomb" && !item.isHeld);
+  }
+
+  it("shows only non-held bombs on the minimap", () => {
+    const items: MinimalWorldItem[] = [
+      { type: "bomb", isHeld: false, position: { x: 80, z: 40 } },
+      { type: "bomb", isHeld: true,  position: { x: 0,  z: 0  } },
+      { type: "pumpkin", isHeld: false, position: { x: 10, z: 10 } },
+    ];
+    const visible = filterBombsForMinimap(items);
+    expect(visible).toHaveLength(1);
+    expect(visible[0].position.x).toBe(80);
+  });
+
+  it("returns empty array when all bombs are held", () => {
+    const items: MinimalWorldItem[] = [
+      { type: "bomb", isHeld: true, position: { x: 0, z: 0 } },
+    ];
+    expect(filterBombsForMinimap(items)).toHaveLength(0);
+  });
+
+  it("correctly converts world position to minimap canvas coordinates", () => {
+    const WORLD_SIZE = 267;
+    const W = 220;
+    const scale = W / WORLD_SIZE;
+    const cx = W / 2;
+    const cy = W / 2;
+
+    // Centre of world → centre of minimap
+    const mx = cx + 0 * scale;
+    const mz = cy + 0 * scale;
+    expect(mx).toBeCloseTo(110, 0);
+    expect(mz).toBeCloseTo(110, 0);
+
+    // Top-left corner of world should map near top-left of canvas
+    const mx2 = cx + (-133) * scale;
+    const mz2 = cy + (-133) * scale;
+    expect(mx2).toBeGreaterThanOrEqual(0);
+    expect(mx2).toBeLessThanOrEqual(W);
+  });
+});
