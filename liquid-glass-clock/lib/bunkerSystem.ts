@@ -284,7 +284,7 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
   // Without this, when the earth-world group is hidden, there is zero ambient
   // light and the bunker interior looks completely black in corners.
   // A dim green-tinted ambient matches the underground laboratory atmosphere.
-  const ambientLight = new THREE.AmbientLight(0x182a18, 3.0);
+  const ambientLight = new THREE.AmbientLight(0x182a18, 9.0);
   group.add(ambientLight);
 
   // ── Shared materials ────────────────────────────────────────────────────────
@@ -523,10 +523,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     strip.position.set(0, CONTAINER_H - 0.05, lz);
     group.add(strip);
 
-    const light1 = new THREE.PointLight(0xaaffaa, 3.5, 14);
+    const light1 = new THREE.PointLight(0xaaffaa, 10.5, 14);
     light1.position.set(0, CONTAINER_H - 0.2, lz);
     group.add(light1);
-    lights.push({ light: light1, baseIntensity: 3.5, phase: 0.3 + lz * 0.1 });
+    lights.push({ light: light1, baseIntensity: 10.5, phase: 0.3 + lz * 0.1 });
   }
 
   // Emergency red light (container 1)
@@ -536,10 +536,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     em.position.set(CONTAINER_W / 2 - 0.25, CONTAINER_H - 0.25, 2.0);
     group.add(em);
 
-    const emLight = new THREE.PointLight(0xff2200, 1.5, 8);
+    const emLight = new THREE.PointLight(0xff2200, 4.5, 8);
     emLight.position.copy(em.position);
     group.add(emLight);
-    lights.push({ light: emLight, baseIntensity: 1.5, phase: 1.7 });
+    lights.push({ light: emLight, baseIntensity: 4.5, phase: 1.7 });
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -667,10 +667,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     strip.position.set(0, CONTAINER_H - 0.05, lz);
     group.add(strip);
 
-    const llight = new THREE.PointLight(0xaaffaa, 3.0, 13);
+    const llight = new THREE.PointLight(0xaaffaa, 9.0, 13);
     llight.position.set(0, CONTAINER_H - 0.15, lz);
     group.add(llight);
-    lights.push({ light: llight, baseIntensity: 3.0, phase: lz * 0.17 });
+    lights.push({ light: llight, baseIntensity: 9.0, phase: lz * 0.17 });
   }
 
   // Overhead pipes (ceiling runs in lab)
@@ -762,10 +762,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
   // Blue server room lighting — three lights for full coverage of 12-unit container
   {
     // Front blue fill
-    const lightFront = new THREE.PointLight(0x4488ff, 2.5, 14);
+    const lightFront = new THREE.PointLight(0x4488ff, 7.5, 14);
     lightFront.position.set(0, CONTAINER_H - 0.3, 26.0);
     group.add(lightFront);
-    lights.push({ light: lightFront, baseIntensity: 2.5, phase: 2.1 });
+    lights.push({ light: lightFront, baseIntensity: 7.5, phase: 2.1 });
 
     // Centre cold white overhead strip
     const stripGeo3 = new THREE.BoxGeometry(0.12, 0.04, 2.5);
@@ -776,16 +776,16 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     strip3.position.set(0, CONTAINER_H - 0.05, 30.0);
     group.add(strip3);
 
-    const whiteLight = new THREE.PointLight(0xaaccff, 2.5, 14);
+    const whiteLight = new THREE.PointLight(0xaaccff, 7.5, 14);
     whiteLight.position.set(0, CONTAINER_H - 0.2, 30.0);
     group.add(whiteLight);
-    lights.push({ light: whiteLight, baseIntensity: 2.5, phase: 0.9 });
+    lights.push({ light: whiteLight, baseIntensity: 7.5, phase: 0.9 });
 
     // Rear blue fill near back wall / exit
-    const lightRear = new THREE.PointLight(0x4466cc, 2.0, 12);
+    const lightRear = new THREE.PointLight(0x4466cc, 6.0, 12);
     lightRear.position.set(0, CONTAINER_H - 0.3, 34.0);
     group.add(lightRear);
-    lights.push({ light: lightRear, baseIntensity: 2.0, phase: 1.5 });
+    lights.push({ light: lightRear, baseIntensity: 6.0, phase: 1.5 });
   }
 
   // Emergency exit sign near ladder
@@ -830,10 +830,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     }
 
     // Ambient light near exit
-    const exitLight = new THREE.PointLight(0xffcc44, 0.9, 5);
+    const exitLight = new THREE.PointLight(0xffcc44, 2.7, 5);
     exitLight.position.set(0, 1.5, 35.0);
     group.add(exitLight);
-    lights.push({ light: exitLight, baseIntensity: 0.9, phase: 3.3 });
+    lights.push({ light: exitLight, baseIntensity: 2.7, phase: 3.3 });
 
     // Label on all sides for the return
     const labelGeo = new THREE.BoxGeometry(0.5, 0.18, 0.04);
