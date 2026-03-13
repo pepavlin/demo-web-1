@@ -68,6 +68,7 @@ import {
   buildMachineGunMesh,
   buildFlamethrowerMesh,
   buildFlameParticleMesh,
+  buildBurningEffect,
   buildWoodLogMesh,
   buildAirdropCrateMesh,
   buildParachuteMesh,
@@ -218,6 +219,20 @@ const FLAME_PARTICLE_COUNT = 4;
 const FLAME_PARTICLE_LIFETIME = 1.9;
 /** Half-angle of the flame cone spread (radians). */
 const FLAME_CONE_SPREAD = 0.28;
+
+// ─── Burning / Ignition Constants ────────────────────────────────────────────
+/** How long an entity burns after being ignited (seconds). */
+const BURN_DURATION = 6.0;
+/** Seconds between fire damage-over-time ticks. */
+const BURN_DOT_INTERVAL = 0.5;
+/** HP taken per DoT tick (= 10 HP/s continuous). */
+const BURN_DOT_DAMAGE = 5;
+/** Distance within which fire can spread to nearby entities (world units). */
+const BURN_SPREAD_RADIUS = 3.5;
+/** Seconds between fire-spread checks per burning entity. */
+const BURN_SPREAD_INTERVAL = 1.2;
+/** Chance (0–1) that a nearby entity catches fire each spread check. */
+const BURN_SPREAD_CHANCE = 0.55;
 
 // ─── Weapon Anchor System ─────────────────────────────────────────────────────
 // Defines weapon transforms for each view mode.  Adding a new weapon type only
@@ -1608,6 +1623,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
   }
 
+  // ─── Ignite entity (flamethrower burning system) ─────────────────────────────
+  /**
+   * Mark any burnable entity (sheep / fox / tree) as ignited.
+   * Attaches a visual burning effect and starts the burn-damage timer.
+   * Safe to call multiple times — re-ignition resets the timer.
+   */
+  function igniteEntity(
+    entity: { isBurning: boolean; burnTimer: number; burnDamageTimer: number; burnEffect: THREE.Group | null; mesh: THREE.Group },
+    scene: THREE.Scene,
+  ) {
+    entity.burnTimer = BURN_DURATION;
+    entity.burnDamageTimer = BURN_DOT_INTERVAL;
+    if (!entity.isBurning) {
+      entity.isBurning = true;
+      // Attach fire visual as child of entity mesh
+      const effect = buildBurningEffect();
+      effect.name = "__burnEffect";
+      entity.mesh.add(effect);
+      entity.burnEffect = effect;
+    }
+  }
+
   // ─── Player attack ───────────────────────────────────────────────────────────
   /**
    * Fire the currently equipped weapon.
@@ -1681,15 +1718,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         for (let fi = 0; fi < FLAME_PARTICLE_COUNT; fi++) {
           const flameMesh = buildFlameParticleMesh();
           flameMesh.position.copy(startPos);
-          scene.add(flameMesh);
           const spreadDir = forward.clone();
           spreadDir.x += (Math.random() - 0.5) * FLAME_CONE_SPREAD;
           spreadDir.y += (Math.random() - 0.5) * FLAME_CONE_SPREAD * 0.5;
           spreadDir.normalize();
+          // Orient the flame group so its +Y axis (= cone tip) points in travel direction
+          flameMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), spreadDir);
+          scene.add(flameMesh);
           const speed = weaponCfg.bulletSpeed * (0.75 + Math.random() * 0.5);
           bulletsRef.current.push({
             mesh: flameMesh,
-            velocity: spreadDir.multiplyScalar(speed),
+            velocity: spreadDir.clone().multiplyScalar(speed),
             lifetime: FLAME_PARTICLE_LIFETIME,
             weaponType: "flamethrower",
           });
@@ -3016,6 +3055,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         trunkRadius: result.trunkRadius,
         hasCollision: result.hasCollision,
         trunkMeshes,
+        isBurning: false,
+        burnTimer: 0,
+        burnDamageTimer: 0,
+        burnEffect: null,
       });
     });
 
@@ -3141,6 +3184,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         isDying: false,
         deathTimer: 0,
         deathRotationY: initialAngle,
+        // burning
+        isBurning: false,
+        burnTimer: 0,
+        burnDamageTimer: 0,
+        burnEffect: null,
       };
     });
 
@@ -3174,6 +3222,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         deathRotationY: 0,
         cachedNearestSheep: null,
         sheepSearchTimer: Math.random() * 0.25, // stagger initial searches
+        isBurning: false,
+        burnTimer: 0,
+        burnDamageTimer: 0,
+        burnEffect: null,
       };
     });
 
@@ -6368,11 +6420,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Move bullet forward
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
 
-        // ── Flame particle visual: expand as particle ages ───────────────────
+        // ── Flame particle visual: animated multi-layer fire group ───────────
         if (bullet.weaponType === "flamethrower") {
           const progress = 1 - bullet.lifetime / FLAME_PARTICLE_LIFETIME;
-          bullet.mesh.scale.setScalar(0.12 + progress * 0.55);
-          bullet.mesh.position.y += 0.8 * dt * progress;
+
+          // Expand as particle ages (billowing fire)
+          bullet.mesh.scale.setScalar(0.12 + progress * 0.62);
+
+          // Buoyancy: fire rises
+          bullet.mesh.position.y += 0.9 * dt * (0.3 + progress * 0.7);
+
+          // Organic wobble — rotate around all axes for realistic flicker
+          bullet.mesh.rotation.y += (Math.random() - 0.5) * 7 * dt;
+          bullet.mesh.rotation.x += (Math.random() - 0.5) * 4 * dt;
+          bullet.mesh.rotation.z += (Math.random() - 0.5) * 4 * dt;
+
+          // Color shift: young = bright yellow/orange, old = dark red/fading
+          // Decrease green channel of children as particle ages
+          if (progress > 0.35) {
+            const fadeG = Math.max(0, 1 - (progress - 0.35) * 1.6);
+            const fadeOpacity = Math.max(0, 1 - (progress - 0.55) * 2.2);
+            bullet.mesh.children.forEach((child) => {
+              const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+              if (mat && mat.color) {
+                mat.color.g = mat.color.g * 0.95 + fadeG * 0.05;
+                if (fadeOpacity < 1) mat.opacity = Math.max(0, mat.opacity * fadeOpacity);
+              }
+            });
+          }
         }
 
         // ── Arrow ground sticking (bow arrows only) ──────────────────────────
@@ -6411,6 +6486,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             soundManager.playFoxHit();
             setAttackEffect(`-${dmg}`);
             setTimeout(() => setAttackEffect(null), 700);
+            // Flamethrower ignites foxes
+            if (bullet.weaponType === "flamethrower") {
+              igniteEntity(fox, scene);
+            }
             if (fox.hp <= 0) {
               fox.isDying = true;
               fox.deathTimer = 0;
@@ -6501,6 +6580,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               soundManager.playSheepBleat(0.8);
               setAttackEffect(`-${dmg}`);
               setTimeout(() => setAttackEffect(null), 700);
+              // Flamethrower ignites sheep
+              if (weaponKey === "flamethrower") {
+                igniteEntity(sheep, scene);
+              }
               if (sheep.hp <= 0 && !sheep.isDying) {
                 sheep.isDying = true;
                 sheep.deathTimer = 0;
@@ -6570,6 +6653,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const dx = bx - cyl.x;
             const dz = bz - cyl.z;
             if (dx * dx + dz * dz < rawRadius * rawRadius) {
+              // Flamethrower: ignite the tree at this position
+              if (bullet.weaponType === "flamethrower") {
+                const hitTree = treeDataRef.current.find(
+                  (t) => !t.isChopped && Math.abs(t.x - cyl.x) < 0.5 && Math.abs(t.z - cyl.z) < 0.5
+                );
+                if (hitTree) igniteEntity(hitTree, scene);
+              }
               toRemove.push(bullet);
               bulletHit = true;
               break;
@@ -6652,6 +6742,50 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             tree.trunkMeshes.forEach((m) => {
               (m.material as THREE.MeshLambertMaterial).color.set(0x4a2a10);
             });
+          }
+        }
+
+        // ── Burning / fire damage-over-time ────────────────────────────────
+        if (tree.isBurning && !tree.isFalling) {
+          tree.burnTimer -= dt;
+          tree.burnDamageTimer -= dt;
+
+          // Animate burning effect
+          if (tree.burnEffect) {
+            tree.burnEffect.rotation.y += (Math.random() - 0.5) * 5 * dt;
+            const flicker = 0.9 + Math.sin(Date.now() * 0.011) * 0.2;
+            tree.burnEffect.scale.setScalar(flicker * 1.5); // trees get larger flames
+          }
+
+          // DoT tick — burn eventually fells the tree
+          if (tree.burnDamageTimer <= 0) {
+            tree.burnDamageTimer = BURN_DOT_INTERVAL;
+            tree.hp = Math.max(0, tree.hp - BURN_DOT_DAMAGE * 2); // 2× damage for trees (wood burns fast)
+            if (tree.hp <= 0 && !tree.isFalling) {
+              tree.isFalling = true;
+              tree.fallTimer = 0;
+            }
+          }
+
+          // Fire spread to nearby trees
+          if (tree.burnTimer % BURN_SPREAD_INTERVAL < dt) {
+            for (const other of treeDataRef.current) {
+              if (other === tree || other.isBurning || other.isChopped || other.isFalling) continue;
+              const d2 = (tree.x - other.x) ** 2 + (tree.z - other.z) ** 2;
+              if (d2 < BURN_SPREAD_RADIUS * BURN_SPREAD_RADIUS * 2) {
+                if (Math.random() < BURN_SPREAD_CHANCE * 0.4) igniteEntity(other, scene); // trees spread slower
+              }
+            }
+          }
+
+          // Extinguish (tree may still be standing)
+          if (tree.burnTimer <= 0) {
+            tree.isBurning = false;
+            tree.burnTimer = 0;
+            if (tree.burnEffect) {
+              tree.mesh.remove(tree.burnEffect);
+              tree.burnEffect = null;
+            }
           }
         }
 
@@ -6811,6 +6945,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Hit flash timer
         if (fox.hitFlashTimer > 0) {
           fox.hitFlashTimer = Math.max(0, fox.hitFlashTimer - dt);
+        }
+
+        // ── Burning / fire damage-over-time ──────────────────────────────────
+        if (fox.isBurning) {
+          fox.burnTimer -= dt;
+          fox.burnDamageTimer -= dt;
+
+          // Animate burning effect
+          if (fox.burnEffect) {
+            fox.burnEffect.rotation.y += (Math.random() - 0.5) * 8 * dt;
+            const flicker = 0.9 + Math.sin(Date.now() * 0.013) * 0.15;
+            fox.burnEffect.scale.setScalar(flicker);
+          }
+
+          // DoT tick
+          if (fox.burnDamageTimer <= 0) {
+            fox.burnDamageTimer = BURN_DOT_INTERVAL;
+            fox.hp = Math.max(0, fox.hp - BURN_DOT_DAMAGE);
+            if (fox.hp <= 0 && !fox.isDying) {
+              fox.isDying = true;
+              fox.deathTimer = 0;
+              foxesDefeatedRef.current++;
+              soundManager.playFoxDeath();
+            }
+          }
+
+          // Fire spread to nearby sheep (foxes spreading fire to sheep)
+          if (fox.burnTimer % BURN_SPREAD_INTERVAL < dt) {
+            for (const sheep of sheepListRef.current) {
+              if (sheep.isBurning || !sheep.isAlive || sheep.isDying) continue;
+              if (fox.mesh.position.distanceTo(sheep.mesh.position) < BURN_SPREAD_RADIUS) {
+                if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(sheep, scene);
+              }
+            }
+          }
+
+          // Extinguish
+          if (fox.burnTimer <= 0) {
+            fox.isBurning = false;
+            fox.burnTimer = 0;
+            if (fox.burnEffect) {
+              fox.mesh.remove(fox.burnEffect);
+              fox.burnEffect = null;
+            }
+          }
         }
 
         const distToPlayer = fm.position.distanceTo(playerPos);
@@ -7688,6 +7867,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Hit flash timer decay
         if (sheep.hitFlashTimer > 0) {
           sheep.hitFlashTimer = Math.max(0, sheep.hitFlashTimer - dt);
+        }
+
+        // ── Burning / fire damage-over-time ──────────────────────────────────
+        if (sheep.isBurning) {
+          sheep.burnTimer -= dt;
+          sheep.burnDamageTimer -= dt;
+
+          // Animate burning effect (flicker by rotating child fire group)
+          if (sheep.burnEffect) {
+            sheep.burnEffect.rotation.y += (Math.random() - 0.5) * 8 * dt;
+            const flicker = 0.9 + Math.sin(Date.now() * 0.012) * 0.15;
+            sheep.burnEffect.scale.setScalar(flicker);
+          }
+
+          // DoT tick
+          if (sheep.burnDamageTimer <= 0) {
+            sheep.burnDamageTimer = BURN_DOT_INTERVAL;
+            sheep.hp = Math.max(0, sheep.hp - BURN_DOT_DAMAGE);
+            if (sheep.hp <= 0 && !sheep.isDying) {
+              sheep.isDying = true;
+              sheep.deathTimer = 0;
+              sheep.deathRotationY = sheep.mesh.rotation.y;
+              spawnBloodParticles(scene, sheep.mesh.position);
+            }
+          }
+
+          // Fire spread to nearby sheep
+          if (sheep.burnTimer % BURN_SPREAD_INTERVAL < dt) {
+            for (const other of sheepListRef.current) {
+              if (other === sheep || other.isBurning || !other.isAlive || other.isDying) continue;
+              if (sheep.mesh.position.distanceTo(other.mesh.position) < BURN_SPREAD_RADIUS) {
+                if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(other, scene);
+              }
+            }
+          }
+
+          // Extinguish
+          if (sheep.burnTimer <= 0) {
+            sheep.isBurning = false;
+            sheep.burnTimer = 0;
+            if (sheep.burnEffect) {
+              sheep.mesh.remove(sheep.burnEffect);
+              sheep.burnEffect = null;
+            }
+          }
         }
 
         const dx = playerPos.x - s.position.x;
