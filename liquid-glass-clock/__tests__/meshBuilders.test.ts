@@ -35,6 +35,7 @@ import {
   buildBulletMesh,
   buildArrowProjectileMesh,
   buildSwordMesh,
+  buildAxeMesh,
   buildBowMesh,
   buildCrossbowMesh,
   buildBoatMesh,
@@ -650,6 +651,41 @@ describe("buildSwordMesh", () => {
     const mat = blade.material as THREE.MeshLambertMaterial;
     // THREE.js stores color in linear space; 0xd0e8ff ≈ 0.63 in linear red
     // Just check it's a relatively light color (r + g + b > 1.5)
+    const brightness = mat.color.r + mat.color.g + mat.color.b;
+    expect(brightness).toBeGreaterThan(1.5);
+  });
+});
+
+describe("buildAxeMesh", () => {
+  it("returns a THREE.Group", () => {
+    const axe = buildAxeMesh();
+    expect(axe).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has multiple parts (blade, handle, bands, pommel, etc.)", () => {
+    const axe = buildAxeMesh();
+    expect(axe.children.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("all parts are THREE.Mesh instances", () => {
+    const axe = buildAxeMesh();
+    axe.children.forEach((child) => {
+      expect(child).toBeInstanceOf(THREE.Mesh);
+    });
+  });
+
+  it("each call creates an independent group (no shared state)", () => {
+    const a = buildAxeMesh();
+    const b = buildAxeMesh();
+    expect(a).not.toBe(b);
+  });
+
+  it("blade material has a light steel color (blade part)", () => {
+    const axe = buildAxeMesh();
+    // First child is the blade body
+    const blade = axe.children[0] as THREE.Mesh;
+    const mat = blade.material as THREE.MeshLambertMaterial;
+    // Light steel color 0xc0d8e8 — should be a relatively bright color
     const brightness = mat.color.r + mat.color.g + mat.color.b;
     expect(brightness).toBeGreaterThan(1.5);
   });

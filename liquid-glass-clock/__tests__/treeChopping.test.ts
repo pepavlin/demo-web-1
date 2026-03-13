@@ -73,6 +73,91 @@ describe("TreeData interface", () => {
   });
 });
 
+// ─── Axe weapon config ────────────────────────────────────────────────────────
+
+describe("Axe weapon config", () => {
+  const axe = WEAPON_CONFIGS.axe;
+
+  test("axe exists in WEAPON_CONFIGS", () => {
+    expect(axe).toBeDefined();
+  });
+
+  test("axe has expected label 'Sekera'", () => {
+    expect(axe.label).toBe("Sekera");
+  });
+
+  test("axe is melee-only (bulletSpeed === 0)", () => {
+    expect(axe.bulletSpeed).toBe(0);
+  });
+
+  test("axe has treeDamageMultiplier of 3", () => {
+    expect(axe.treeDamageMultiplier).toBe(3);
+  });
+
+  test("axe tree damage equals damage * treeDamageMultiplier", () => {
+    const chopDamage = axe.damage * (axe.treeDamageMultiplier ?? 1);
+    expect(chopDamage).toBe(135);
+  });
+
+  test("axe range is greater than sword range", () => {
+    expect(axe.range).toBeGreaterThan(WEAPON_CONFIGS.sword.range);
+  });
+
+  test("axe cooldown is greater than sword cooldown (slower swing)", () => {
+    expect(axe.cooldown).toBeGreaterThan(WEAPON_CONFIGS.sword.cooldown);
+  });
+});
+
+// ─── Axe tree chopping ────────────────────────────────────────────────────────
+
+describe("Tree chopping with axe", () => {
+  const axe = WEAPON_CONFIGS.axe;
+
+  test("one axe hit fells a small tree (55 HP)", () => {
+    const tree = makeTreeData({ hp: 55, maxHp: 55, hasCollision: false });
+    const chopDamage = Math.round(axe.damage * (axe.treeDamageMultiplier ?? 1));
+    tree.hp = Math.max(0, tree.hp - chopDamage);
+    expect(tree.hp).toBe(0);
+  });
+
+  test("two axe hits fells a large tree (165 HP)", () => {
+    const tree = makeTreeData();
+    const chopDamage = Math.round(axe.damage * (axe.treeDamageMultiplier ?? 1));
+    tree.hp = Math.max(0, tree.hp - chopDamage); // 165 - 135 = 30
+    tree.hp = Math.max(0, tree.hp - chopDamage); // 0
+    expect(tree.hp).toBe(0);
+  });
+
+  test("axe is faster at felling trees than sword (fewer hits needed)", () => {
+    const sword = WEAPON_CONFIGS.sword;
+    const tree165hp = 165;
+    const axeChopDamage = Math.round(axe.damage * (axe.treeDamageMultiplier ?? 1));
+    const swordChopDamage = sword.damage; // sword has no treeDamageMultiplier
+
+    const axeHits = Math.ceil(tree165hp / axeChopDamage);
+    const swordHits = Math.ceil(tree165hp / swordChopDamage);
+    expect(axeHits).toBeLessThan(swordHits);
+  });
+
+  test("HP never goes below 0", () => {
+    const tree = makeTreeData({ hp: 10, maxHp: 165 });
+    const chopDamage = Math.round(axe.damage * (axe.treeDamageMultiplier ?? 1));
+    tree.hp = Math.max(0, tree.hp - chopDamage);
+    expect(tree.hp).toBe(0);
+  });
+
+  test("isFalling is set when HP reaches 0", () => {
+    const tree = makeTreeData({ hp: 55, maxHp: 55, hasCollision: false });
+    const chopDamage = Math.round(axe.damage * (axe.treeDamageMultiplier ?? 1));
+    tree.hp = Math.max(0, tree.hp - chopDamage);
+    if (tree.hp <= 0) {
+      tree.isFalling = true;
+      tree.fallTimer = 0;
+    }
+    expect(tree.isFalling).toBe(true);
+  });
+});
+
 // ─── Sword damage against trees ───────────────────────────────────────────────
 
 describe("Tree chopping with sword", () => {

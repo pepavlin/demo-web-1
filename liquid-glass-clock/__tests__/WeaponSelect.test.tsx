@@ -16,20 +16,22 @@ describe("WeaponSelect component", () => {
     expect(screen.getByTestId("weapon-select-overlay")).toBeInTheDocument();
   });
 
-  it("shows all four weapon cards including sniper", () => {
+  it("shows all five weapon cards including axe", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByTestId("weapon-card-sword")).toBeInTheDocument();
     expect(screen.getByTestId("weapon-card-bow")).toBeInTheDocument();
     expect(screen.getByTestId("weapon-card-crossbow")).toBeInTheDocument();
     expect(screen.getByTestId("weapon-card-sniper")).toBeInTheDocument();
+    expect(screen.getByTestId("weapon-card-axe")).toBeInTheDocument();
   });
 
-  it("shows weapon names in Czech including sniper", () => {
+  it("shows weapon names in Czech including axe", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByText("Meč")).toBeInTheDocument();
     expect(screen.getByText("Luk")).toBeInTheDocument();
     expect(screen.getByText("Kuše")).toBeInTheDocument();
     expect(screen.getByText("Odstřelovačka")).toBeInTheDocument();
+    expect(screen.getByText("Sekera")).toBeInTheDocument();
   });
 
   it("renders a confirm button", () => {
@@ -119,12 +121,44 @@ describe("WeaponSelect component", () => {
     expect(onConfirm).toHaveBeenCalledWith("crossbow");
   });
 
-  it("shows keyboard shortcut hints [1] [2] [3] [4]", () => {
+  it("shows keyboard shortcut hints [1] through [5]", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByText("[1]")).toBeInTheDocument();
     expect(screen.getByText("[2]")).toBeInTheDocument();
     expect(screen.getByText("[3]")).toBeInTheDocument();
     expect(screen.getByText("[4]")).toBeInTheDocument();
+    expect(screen.getByText("[5]")).toBeInTheDocument();
+  });
+
+  it("keyboard shortcut '5' selects axe", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "5" });
+    });
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Sekera/);
+  });
+
+  it("selecting axe and confirming calls onConfirm with 'axe'", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByTestId("weapon-card-axe"));
+    fireEvent.click(screen.getByTestId("weapon-confirm-btn"));
+    expect(onConfirm).toHaveBeenCalledWith("axe");
+  });
+
+  it("axe card is not pressed by default", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const axeCard = screen.getByTestId("weapon-card-axe");
+    expect(axeCard).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("clicking axe card updates aria-pressed", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    const axeCard = screen.getByTestId("weapon-card-axe");
+    fireEvent.click(axeCard);
+    expect(axeCard).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("weapon-card-sword")).toHaveAttribute("aria-pressed", "false");
   });
 
   it("keyboard shortcut '4' selects sniper", () => {

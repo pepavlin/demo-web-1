@@ -60,6 +60,7 @@ import {
   buildBulletMesh,
   buildArrowProjectileMesh,
   buildSwordMesh,
+  buildAxeMesh,
   buildBowMesh,
   buildCrossbowMesh,
   buildBoatMesh,
@@ -222,6 +223,7 @@ const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
   bow:      { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
   crossbow: { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
   sniper:   { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
+  axe:      { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
 };
 
 /** Third-person: weapon positioned relative to the "handR" anchor on the player body.
@@ -231,6 +233,7 @@ const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
   bow:      { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
   crossbow: { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
   sniper:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+  axe:      { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
 };
 
 // ─── Bomb Constants ───────────────────────────────────────────────────────────
@@ -1042,6 +1045,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       type === "bow" ? buildBowMesh()
       : type === "crossbow" ? buildCrossbowMesh()
       : type === "sniper" ? buildSniperMesh()
+      : type === "axe" ? buildAxeMesh()
       : buildSwordMesh();
 
     weaponMeshRef.current = newMesh;
@@ -1522,8 +1526,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
 
-    // ── Sword swing animation trigger ───────────────────────────────────────
-    if (weaponCfg.type === "sword") {
+    // ── Sword / axe swing animation trigger ─────────────────────────────────
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       swordSwingTimerRef.current = 0; // restart the swing timer
     }
 
@@ -1581,10 +1585,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
-    // ── Melee hit (sword only — ranged weapons deal damage through projectile collision) ───
+    // ── Melee hit (sword / axe — ranged weapons deal damage through projectile collision) ───
     // In third-person cam.position is behind the player; use body position for hit detection.
     const playerPos = cameraModeRef.current === "third" ? playerBodyPosRef.current : cam.position;
-    if (weaponCfg.type === "sword") {
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       let closest: (typeof foxListRef.current)[0] | null = null;
       let closestDist = weaponCfg.range;
 
@@ -1616,7 +1620,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Melee hit on catapults ───────────────────────────────────────────────
-    if (weaponCfg.type === "sword") {
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       let closestCatapult: CatapultData | null = null;
       let closestCatapultDist = weaponCfg.range * 2; // sword can reach catapult from a bit further
 
@@ -1645,7 +1649,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Melee hit on spiders ─────────────────────────────────────────────────
-    if (weaponCfg.type === "sword") {
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       let closestSpider: SpiderData | null = null;
       let closestSpiderDist = weaponCfg.range * 1.2; // slight range boost for large spiders
 
@@ -1676,8 +1680,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
     }
 
-    // ── Melee chop on trees (sword only) ────────────────────────────────────
-    if (weaponCfg.type === "sword") {
+    // ── Melee chop on trees (sword & axe) ───────────────────────────────────
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       const TREE_CHOP_RANGE = weaponCfg.range * 1.5; // trees are wide — slightly more reach
       let closestTree: TreeData | null = null;
       let closestTreeDist = TREE_CHOP_RANGE;
@@ -1693,7 +1697,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       if (closestTree) {
         const tree = closestTree as TreeData;
-        tree.hp = Math.max(0, tree.hp - weaponCfg.damage);
+        // Axe deals bonus damage vs trees via treeDamageMultiplier
+        const chopDamage = Math.round(weaponCfg.damage * (weaponCfg.treeDamageMultiplier ?? 1));
+        tree.hp = Math.max(0, tree.hp - chopDamage);
         tree.hitFlashTimer = 0.2;
 
         // Flash trunk meshes red
@@ -1702,7 +1708,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
 
         soundManager.playTreeChop();
-        setAttackEffect(`-${weaponCfg.damage} 🪓`);
+        setAttackEffect(`-${chopDamage} 🪓`);
         setTimeout(() => setAttackEffect(null), 700);
 
         if (tree.hp <= 0) {
@@ -1714,9 +1720,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
     }
 
-    // ── Melee hit on sheep (sword only — ranged weapons use projectile collision) ──
+    // ── Melee hit on sheep (sword / axe — ranged weapons use projectile collision) ──
     if (!sceneRef.current) return;
-    if (weaponCfg.type === "sword") {
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       let closestSheep: SheepData | null = null;
       let closestSheepDist = weaponCfg.range;
 
@@ -1886,6 +1892,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       wType === "bow" ? buildBowMesh()
       : wType === "crossbow" ? buildCrossbowMesh()
       : wType === "sniper" ? buildSniperMesh()
+      : wType === "axe" ? buildAxeMesh()
       : buildSwordMesh(); // sword
     // Apply canonical first-person transform via the config system
     applyWeaponTransform(weaponGroup, wType, "first");
@@ -4128,10 +4135,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Digit keys 1–4 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
+      // Digit keys 1–5 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
       if (e.type === "keydown" && buildModeRef.current === "explore") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper"];
-        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4") {
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe"];
+        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
           if (newWeapon) {
@@ -4231,7 +4238,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
       } else if (buildModeRef.current === "explore") {
         // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe"];
         const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
         const curIdx = cur < 0 ? 0 : cur;
         const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
@@ -8263,11 +8270,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — all 4 weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow", "sniper"] as WeaponType[]).map((w, idx) => {
+          {/* Weapon slots HUD — all 5 weapons, active one highlighted */}
+          {(["sword", "bow", "crossbow", "sniper", "axe"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : "🎯";
             const onCooldown = isActive && !gameState.attackReady;
             const RING_R = 10;
             const ringCircumference = 2 * Math.PI * RING_R;
