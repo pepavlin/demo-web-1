@@ -92,6 +92,10 @@ interface AirplaneData {
 - Press **[E]** while flying to exit.  Player is dropped at the airplane's current position with mild downward velocity; gravity takes over.
 - Weapons are hidden while on the airplane.
 
+### Scene Isolation
+
+Boarding is **blocked in all interior scenes**. Both the proximity prompt and the E-key handler check `!inBunkerRef.current && !inSpaceStationRef.current` before allowing interaction. This prevents the boarding prompt from appearing (and the player from boarding) while inside a bunker or the space station — even if the airplane happens to be geometrically close to the interior world position.
+
 ---
 
 ## Mesh Structure (buildAirplane3DMesh)

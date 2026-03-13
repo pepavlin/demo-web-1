@@ -446,3 +446,141 @@ describe("Sniper tower staircase height formula", () => {
     }
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. Scene isolation — airplane boarding blocked inside interior scenes
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Mirrors the airplane boarding proximity check from Game3D.tsx (isNear variable)
+ * and the E-key boarding gate condition.
+ *
+ * Fix: both checks now include `!inBunker && !inStation` guards so that
+ * the boarding prompt never appears and the E key cannot board the plane
+ * while the player is inside any interior scene (bunker or space station).
+ */
+const AIRPLANE_BOARD_RADIUS = 8;
+
+interface BoardingContext {
+  distToAirplane: number;
+  inBunker: boolean;
+  inStation: boolean;
+  onBoat: boolean;
+  onRocket: boolean;
+  possessed: boolean;
+}
+
+/** Mirrors the `isNear` computation from the airplane idle-state update block. */
+function airplaneIsNearForPrompt(ctx: BoardingContext): boolean {
+  return (
+    ctx.distToAirplane < AIRPLANE_BOARD_RADIUS &&
+    !ctx.possessed &&
+    !ctx.onBoat &&
+    !ctx.onRocket &&
+    !ctx.inBunker &&
+    !ctx.inStation
+  );
+}
+
+/** Mirrors the E-key boarding gate (nearAirplaneForBoardRef.current && ...). */
+function canBoardAirplaneOnKeyE(nearPrompt: boolean, ctx: Omit<BoardingContext, "distToAirplane">): boolean {
+  return (
+    nearPrompt &&
+    !ctx.possessed &&
+    !ctx.onBoat &&
+    !ctx.onRocket &&
+    !ctx.inBunker &&
+    !ctx.inStation
+  );
+}
+
+describe("Airplane boarding: scene isolation (bunker / space station)", () => {
+  const openWorldCtx: BoardingContext = {
+    distToAirplane: 4,   // within AIRPLANE_BOARD_RADIUS
+    inBunker: false,
+    inStation: false,
+    onBoat: false,
+    onRocket: false,
+    possessed: false,
+  };
+
+  // ── Prompt visibility ────────────────────────────────────────────────────
+
+  it("shows boarding prompt when player is close to airplane in the open world", () => {
+    expect(airplaneIsNearForPrompt(openWorldCtx)).toBe(true);
+  });
+
+  it("does NOT show boarding prompt when player is inside the bunker", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, inBunker: true })).toBe(false);
+  });
+
+  it("does NOT show boarding prompt when player is inside the space station", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, inStation: true })).toBe(false);
+  });
+
+  it("does NOT show boarding prompt when airplane is out of range (even in open world)", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, distToAirplane: AIRPLANE_BOARD_RADIUS + 1 })).toBe(false);
+  });
+
+  it("does NOT show boarding prompt when player is possessing a sheep", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, possessed: true })).toBe(false);
+  });
+
+  it("does NOT show boarding prompt when player is on a boat", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, onBoat: true })).toBe(false);
+  });
+
+  it("does NOT show boarding prompt when player is on the rocket", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, onRocket: true })).toBe(false);
+  });
+
+  // ── E key boarding gate ──────────────────────────────────────────────────
+
+  it("E key boards airplane when near prompt is true in open world", () => {
+    const ctx = { inBunker: false, inStation: false, onBoat: false, onRocket: false, possessed: false };
+    expect(canBoardAirplaneOnKeyE(true, ctx)).toBe(true);
+  });
+
+  it("E key does NOT board airplane when player is in the bunker (even if prompt was set)", () => {
+    // This covers the case where nearAirplaneForBoardRef was set true but player
+    // simultaneously entered a bunker (race condition between frame callbacks).
+    const ctx = { inBunker: true, inStation: false, onBoat: false, onRocket: false, possessed: false };
+    expect(canBoardAirplaneOnKeyE(true, ctx)).toBe(false);
+  });
+
+  it("E key does NOT board airplane when player is in the space station (even if prompt was set)", () => {
+    const ctx = { inBunker: false, inStation: true, onBoat: false, onRocket: false, possessed: false };
+    expect(canBoardAirplaneOnKeyE(true, ctx)).toBe(false);
+  });
+
+  it("E key boarding gate returns false when nearPrompt is false", () => {
+    const ctx = { inBunker: false, inStation: false, onBoat: false, onRocket: false, possessed: false };
+    expect(canBoardAirplaneOnKeyE(false, ctx)).toBe(false);
+  });
+
+  // ── Both layers together (defence-in-depth) ───────────────────────────────
+
+  it("both prompt and gate are false inside bunker — full scene isolation", () => {
+    const bunkerCtx: BoardingContext = { ...openWorldCtx, inBunker: true };
+    const prompt = airplaneIsNearForPrompt(bunkerCtx);
+    const gate = canBoardAirplaneOnKeyE(prompt, bunkerCtx);
+    expect(prompt).toBe(false);
+    expect(gate).toBe(false);
+  });
+
+  it("both prompt and gate are false inside space station — full scene isolation", () => {
+    const stationCtx: BoardingContext = { ...openWorldCtx, inStation: true };
+    const prompt = airplaneIsNearForPrompt(stationCtx);
+    const gate = canBoardAirplaneOnKeyE(prompt, stationCtx);
+    expect(prompt).toBe(false);
+    expect(gate).toBe(false);
+  });
+
+  it("exact boundary: at AIRPLANE_BOARD_RADIUS distance, prompt is false", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, distToAirplane: AIRPLANE_BOARD_RADIUS })).toBe(false);
+  });
+
+  it("just inside boundary: at AIRPLANE_BOARD_RADIUS - 0.01, prompt is true in open world", () => {
+    expect(airplaneIsNearForPrompt({ ...openWorldCtx, distToAirplane: AIRPLANE_BOARD_RADIUS - 0.01 })).toBe(true);
+  });
+});

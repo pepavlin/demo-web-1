@@ -4101,7 +4101,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           onAirplaneRef.current = false;
           setOnAirplane(false);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
-        } else if (nearAirplaneForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current) {
+        } else if (nearAirplaneForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current && !inBunkerRef.current && !inSpaceStationRef.current) {
           // ── Board the airplane ──────────────────────────────────────────────
           const ad = airplaneDataRef.current;
           if (ad && (ad.state === 'idle' || ad.state === 'flying')) {
@@ -5856,7 +5856,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const dx = ad.position.x - playerPos3.x;
             const dz = ad.position.z - playerPos3.z;
             const dist = Math.sqrt(dx * dx + dz * dz);
-            const isNear = dist < AIRPLANE_BOARD_RADIUS && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current;
+            const isNear = dist < AIRPLANE_BOARD_RADIUS && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current && !inBunkerRef.current && !inSpaceStationRef.current;
             nearAirplaneForBoardRef.current = isNear;
             setNearAirplanePrompt(isNear);
           } else {
