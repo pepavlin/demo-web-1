@@ -243,3 +243,88 @@ describe("getWalkableSurfaceY", () => {
     expect(result).toBe(-Infinity);
   });
 });
+
+// ─── isTrigger flag ───────────────────────────────────────────────────────────
+
+describe("isTrigger flag on collider types", () => {
+  it("BoxCollider3D accepts isTrigger: true without error", () => {
+    const box: BoxCollider3D = {
+      cx: 0, cy: 1, cz: 0,
+      halfW: 2, halfH: 1, halfD: 2,
+      rotY: 0,
+      walkable: false,
+      isTrigger: true,
+    };
+    expect(box.isTrigger).toBe(true);
+  });
+
+  it("BoxCollider3D defaults to no isTrigger (undefined = solid)", () => {
+    const box: BoxCollider3D = {
+      cx: 0, cy: 1, cz: 0,
+      halfW: 2, halfH: 1, halfD: 2,
+      rotY: 0,
+      walkable: false,
+    };
+    expect(box.isTrigger).toBeUndefined();
+    // undefined is falsy: solid collider blocks projectiles
+    expect(!box.isTrigger).toBe(true);
+  });
+
+  it("CylinderCollider3D accepts isTrigger: true", () => {
+    const cyl: CylinderCollider3D = {
+      x: 0, baseY: 0, z: 0,
+      radius: 2, height: 5,
+      walkable: false,
+      isTrigger: true,
+    };
+    expect(cyl.isTrigger).toBe(true);
+  });
+
+  it("CylinderCollider3D defaults to no isTrigger (solid)", () => {
+    const cyl: CylinderCollider3D = {
+      x: 0, baseY: 0, z: 0,
+      radius: 2, height: 5,
+      walkable: false,
+    };
+    expect(!cyl.isTrigger).toBe(true);
+  });
+
+  it("SphereCollider3D accepts isTrigger: true", () => {
+    const sphere: SphereCollider3D = {
+      x: 0, y: 1, z: 0,
+      radius: 1.5,
+      isTrigger: true,
+    };
+    expect(sphere.isTrigger).toBe(true);
+  });
+
+  it("bullet-vs-cylinder: point inside non-trigger cylinder is blocked", () => {
+    // Simulate the bullet collision check: rawRadius = cyl.radius - PLAYER_RADIUS
+    const PLAYER_RADIUS = 0.5;
+    const cyl: CylinderCollider3D = { x: 0, baseY: 0, z: 0, radius: 1.5 + PLAYER_RADIUS, height: 5, walkable: false };
+    const bulletX = 0.5, bulletZ = 0;
+    const rawRadius = Math.max(0, cyl.radius - PLAYER_RADIUS); // 1.5
+    const dx = bulletX - cyl.x;
+    const dz = bulletZ - cyl.z;
+    const inside = dx * dx + dz * dz < rawRadius * rawRadius;
+    expect(inside).toBe(true);
+    // Same bullet vs trigger cylinder — game logic skips it (isTrigger check)
+    const triggerCyl: CylinderCollider3D = { ...cyl, isTrigger: true };
+    expect(triggerCyl.isTrigger).toBe(true); // would be skipped in game loop
+  });
+
+  it("bullet-vs-box: point inside non-trigger box is blocked", () => {
+    const box: BoxCollider3D = {
+      cx: 0, cy: 1, cz: 0,
+      halfW: 3, halfH: 2, halfD: 3,
+      rotY: 0,
+      walkable: false,
+    };
+    const bulletY = 1.5; // inside vertical range [cy-halfH, cy+halfH] = [-1, 3]
+    const inYRange = bulletY >= box.cy - box.halfH && bulletY <= box.cy + box.halfH;
+    expect(inYRange).toBe(true);
+    // XZ check via testOBBXZ
+    const { inside } = testOBBXZ(0.5, 0.5, box.cx, box.cz, box.halfW, box.halfD, box.rotY);
+    expect(inside).toBe(true);
+  });
+});

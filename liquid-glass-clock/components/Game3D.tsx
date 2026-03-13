@@ -94,6 +94,7 @@ import {
   resolveBoxCollision3D,
   resolveCylinderCollision3D,
   getWalkableSurfaceY,
+  testOBBXZ,
 } from "@/lib/collisionSystem";
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData } from "@/lib/gameTypes";
 import {
@@ -2412,12 +2413,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         bombMesh.position.set(x, groundY + 0.05, z);
         bombMesh.castShadow = true;
         scene.add(bombMesh);
-        worldItemsRef.current.push({
-          id,
+        const bombId = id;
+        const bombItem: WorldItem = {
+          id: bombId,
           type: "bomb",
           mesh: bombMesh,
           isHeld: false,
-        });
+          onBulletHit: (_bullet) => {
+            // Remove this bomb from the world and detonate it immediately
+            worldItemsRef.current = worldItemsRef.current.filter(
+              (wi) => wi.id !== bombId
+            );
+            scene.remove(bombMesh);
+            spawnBombExplosion(scene, bombMesh.position.clone());
+            return true; // consume the projectile
+          },
+        };
+        worldItemsRef.current.push(bombItem);
       });
     }
 
@@ -6134,6 +6146,61 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 spawnBloodParticles(scene, sheep.mesh.position);
               }
               toRemove.push(bullet);
+              break;
+            }
+          }
+        }
+
+        // ── WorldItem hit callbacks (e.g. bombs explode when shot) ──────────
+        if (!bulletHit) {
+          for (const item of worldItemsRef.current) {
+            if (item.isHeld || !item.onBulletHit) continue;
+            const ITEM_HIT_RADIUS = 0.6;
+            const dist = bullet.mesh.position.distanceTo(item.mesh.position);
+            if (dist < ITEM_HIT_RADIUS) {
+              const consumed = item.onBulletHit(bullet);
+              if (consumed) {
+                toRemove.push(bullet);
+                bulletHit = true;
+              }
+              break;
+            }
+          }
+        }
+
+        // ── Bullet vs solid cylinder colliders (trees, walls, towers) ───────
+        // Cylinders have radius pre-inflated by PLAYER_RADIUS; subtract it
+        // back to get the actual object surface radius for bullet collision.
+        if (!bulletHit) {
+          const bx = bullet.mesh.position.x;
+          const by = bullet.mesh.position.y;
+          const bz = bullet.mesh.position.z;
+          for (const cyl of treeCollisionRef.current) {
+            if (cyl.isTrigger) continue;
+            if (by < cyl.baseY || by > cyl.baseY + cyl.height) continue;
+            const rawRadius = Math.max(0, cyl.radius - PLAYER_RADIUS);
+            const dx = bx - cyl.x;
+            const dz = bz - cyl.z;
+            if (dx * dx + dz * dz < rawRadius * rawRadius) {
+              toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
+        // ── Bullet vs solid box colliders (buildings, ruins, etc.) ──────────
+        if (!bulletHit) {
+          const bx = bullet.mesh.position.x;
+          const by = bullet.mesh.position.y;
+          const bz = bullet.mesh.position.z;
+          for (const box of boxCollidersRef.current) {
+            if (box.isTrigger) continue;
+            if (by < box.cy - box.halfH || by > box.cy + box.halfH) continue;
+            const { inside } = testOBBXZ(bx, bz, box.cx, box.cz, box.halfW, box.halfD, box.rotY);
+            if (inside) {
+              toRemove.push(bullet);
+              bulletHit = true;
               break;
             }
           }
