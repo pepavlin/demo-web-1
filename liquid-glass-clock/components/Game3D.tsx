@@ -429,8 +429,8 @@ function getSunIntensity(t: number): number {
 }
 
 function getAmbientIntensity(t: number): number {
-  if (t < 0.18 || t > 0.82) return 0.08;
-  return 0.08 + smoothstep(0.18, 0.35, t) * 0.45;
+  if (t < 0.18 || t > 0.82) return 0.15;
+  return 0.15 + smoothstep(0.18, 0.35, t) * 0.50;
 }
 
 
@@ -1789,7 +1789,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
     mountNode.appendChild(renderer.domElement);
@@ -1879,14 +1879,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     trajectoryArcRef.current = trajectoryArc;
 
     // ── Lighting ────────────────────────────────────────────────────────────
-    const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambient);
     ambientRef.current = ambient;
 
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.4);
     sun.position.set(100, 150, 80);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(512, 512);
+    sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 0.5;
     sun.shadow.camera.far = 700;
     sun.shadow.camera.left = -250;
@@ -2054,7 +2054,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uSunDir:       { value: new THREE.Vector3(0.58, 0.77, 0.27) },
         uSunColor:     { value: new THREE.Color(1.0, 0.95, 0.80) },
         uSunIntensity: { value: 1.0 },
-        uAmbientColor: { value: new THREE.Color(0.30, 0.38, 0.52) },
+        uAmbientColor: { value: new THREE.Color(0.42, 0.50, 0.62) },
         // Biome detail textures
         uTexGrass:     { value: terrainTexGrass },
         uTexRock:      { value: terrainTexRock  },
@@ -3425,6 +3425,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Position above the world, slightly to the north, tilted to look dramatic
     shipGroup.position.set(0, 170, -60);
     shipGroup.rotation.z = 0.06; // very slight list
+    // Enable shadows on all mothership mesh children
+    shipGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
     scene.add(shipGroup);
     motherShipRef.current = shipGroup;
     motherShipLightsRef.current = shipLights;
@@ -4444,10 +4451,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         } else {
           tm.uniforms.uSunColor.value.setRGB(0.15, 0.18, 0.30);
         }
-        // Ambient brightens a bit at golden hour
-        const ambR = 0.25 + si * 0.08;
-        const ambG = 0.32 + si * 0.08;
-        const ambB = 0.48 + (1.0 - si) * 0.08;
+        // Ambient brightens a bit at golden hour — kept higher so ground shows light
+        const ambR = 0.38 + si * 0.10;
+        const ambG = 0.46 + si * 0.08;
+        const ambB = 0.58 + (1.0 - si) * 0.05;
         tm.uniforms.uAmbientColor.value.setRGB(ambR, ambG, ambB);
       }
 

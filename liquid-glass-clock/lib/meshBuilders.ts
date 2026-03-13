@@ -1490,6 +1490,7 @@ export function buildSniperTowerMesh(): SniperTowerResult {
   const floorGeo = new THREE.CylinderGeometry(TOWER_RADIUS - 0.1, TOWER_RADIUS - 0.1, 0.15, 16);
   const floor = new THREE.Mesh(floorGeo, woodMat);
   floor.position.y = TOP_Y + 0.52;
+  floor.castShadow = true;
   floor.receiveShadow = true;
   group.add(floor);
 
@@ -2219,18 +2220,18 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
 
   // ── Shared materials ──────────────────────────────────────────────────────
   const hullMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2233,
-    roughness: 0.8,
-    metalness: 0.6,
+    color: 0x2a3a52,
+    roughness: 0.7,
+    metalness: 0.5,
   });
   const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x1c2b3a,
-    roughness: 0.7,
+    color: 0x2c3e50,
+    roughness: 0.6,
     metalness: 0.4,
   });
   const ceilingMat = new THREE.MeshStandardMaterial({
-    color: 0x111924,
-    roughness: 0.9,
+    color: 0x1e2d3d,
+    roughness: 0.8,
     metalness: 0.3,
   });
   const panelMat = new THREE.MeshStandardMaterial({
@@ -2339,12 +2340,15 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     const floorGeo = new THREE.BoxGeometry(w - 0.1, 0.12, d - 0.1);
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.position.set(cx, minY + 0.06, cz);
+    floor.receiveShadow = true;
     group.add(floor);
 
     // Ceiling
     const ceilGeo = new THREE.BoxGeometry(w - 0.1, 0.12, d - 0.1);
     const ceil = new THREE.Mesh(ceilGeo, ceilingMat);
     ceil.position.set(cx, maxY - 0.06, cz);
+    ceil.castShadow = true;
+    ceil.receiveShadow = true;
     group.add(ceil);
 
     // Walls (hull panels — will be partially overridden with decorative meshes)
@@ -2352,22 +2356,30 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     const wallLGeo = new THREE.BoxGeometry(0.15, h, d);
     const wallL = new THREE.Mesh(wallLGeo, hullMat);
     wallL.position.set(minX + 0.07, cy, cz);
+    wallL.castShadow = true;
+    wallL.receiveShadow = true;
     group.add(wallL);
 
     // Right wall (+X face)
     const wallR = new THREE.Mesh(wallLGeo, hullMat);
     wallR.position.set(maxX - 0.07, cy, cz);
+    wallR.castShadow = true;
+    wallR.receiveShadow = true;
     group.add(wallR);
 
     // Front wall (+Z face)
     const wallFGeo = new THREE.BoxGeometry(w, h, 0.15);
     const wallF = new THREE.Mesh(wallFGeo, hullMat);
     wallF.position.set(cx, cy, maxZ - 0.07);
+    wallF.castShadow = true;
+    wallF.receiveShadow = true;
     group.add(wallF);
 
     // Back wall (-Z face)
     const wallB = new THREE.Mesh(wallFGeo, hullMat);
     wallB.position.set(cx, cy, minZ + 0.07);
+    wallB.castShadow = true;
+    wallB.receiveShadow = true;
     group.add(wallB);
 
     // Floor accent strips
@@ -2385,10 +2397,15 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     group.add(ceilLight);
 
     // Add a point light for this room
-    const pLight = new THREE.PointLight(0x4488ff, 1.5, Math.max(w, d) * 1.8);
+    const pLight = new THREE.PointLight(0x6aabff, 2.8, Math.max(w, d) * 2.2);
     pLight.position.set(cx, maxY - 0.5, cz);
+    pLight.castShadow = true;
+    pLight.shadow.mapSize.set(512, 512);
+    pLight.shadow.camera.near = 0.1;
+    pLight.shadow.camera.far = Math.max(w, d) * 2.2;
+    pLight.shadow.bias = -0.001;
     group.add(pLight);
-    lights.push({ light: pLight, baseIntensity: 1.5, phase: Math.random() * Math.PI * 2 });
+    lights.push({ light: pLight, baseIntensity: 2.8, phase: Math.random() * Math.PI * 2 });
   };
 
   // Helper: add a door frame between rooms
@@ -3110,6 +3127,7 @@ export function buildCaveMesh(): THREE.Group {
     stoneMat
   );
   leftWall.position.set(-interiorWidth / 2 - 0.75, interiorHeight / 2, -interiorDepth / 2);
+  leftWall.castShadow = true;
   leftWall.receiveShadow = true;
   group.add(leftWall);
 
@@ -3119,6 +3137,7 @@ export function buildCaveMesh(): THREE.Group {
     stoneMat
   );
   rightWall.position.set(interiorWidth / 2 + 0.75, interiorHeight / 2, -interiorDepth / 2);
+  rightWall.castShadow = true;
   rightWall.receiveShadow = true;
   group.add(rightWall);
 
@@ -3128,6 +3147,7 @@ export function buildCaveMesh(): THREE.Group {
     darkMat
   );
   ceiling.position.set(0, interiorHeight + 0.9, -interiorDepth / 2);
+  ceiling.castShadow = true;
   ceiling.receiveShadow = true;
   group.add(ceiling);
 
@@ -3137,6 +3157,7 @@ export function buildCaveMesh(): THREE.Group {
     stoneMat
   );
   backWall.position.set(0, interiorHeight / 2, -interiorDepth - 1);
+  backWall.castShadow = true;
   backWall.receiveShadow = true;
   group.add(backWall);
 
@@ -3579,6 +3600,7 @@ export function buildAirstripMesh(): THREE.Group {
   // Asphalt surface
   const runwayGeo = new THREE.BoxGeometry(6, 0.08, 32);
   const runway = new THREE.Mesh(runwayGeo, runwayMat);
+  runway.castShadow = true;
   runway.receiveShadow = true;
   group.add(runway);
 
