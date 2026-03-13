@@ -292,6 +292,41 @@ export interface GameState {
   catapultsDefeated: number;
   spidersDefeated: number;
   attackReady: boolean;
+  woodCollected: number;
+}
+
+// ─── Tree chopping system ──────────────────────────────────────────────────────
+
+/** A choppable tree with hit points. Replaces the purely-static tree mesh. */
+export interface TreeData {
+  /** Root Three.js group rendered in the scene — same as what buildTreeMesh returns. */
+  mesh: THREE.Group;
+  /** Sub-group containing only the foliage — used for wind animation. */
+  foliageGroup: THREE.Group;
+  /** Current health. 0 → tree has been felled. */
+  hp: number;
+  /** Maximum health (varies by tree size). */
+  maxHp: number;
+  /** True while the fall animation is playing (hp = 0 but mesh still in scene). */
+  isFalling: boolean;
+  /** True once the fall animation has completed and the mesh is removed. */
+  isChopped: boolean;
+  /** Countdown from 0.25 s → 0 to drive the hit-flash on the trunk. */
+  hitFlashTimer: number;
+  /** Elapsed seconds since the fall started (drives fall-over animation). */
+  fallTimer: number;
+  /** Accumulated fall rotation (X axis) in radians. */
+  fallRotationX: number;
+  /** World X position (same as mesh.position.x — stored for distance checks). */
+  x: number;
+  /** World Z position (same as mesh.position.z). */
+  z: number;
+  /** Trunk collision radius (from buildTreeMesh). */
+  trunkRadius: number;
+  /** True for large trees that have collision — their entries must be removed from treeCollisionRef on chop. */
+  hasCollision: boolean;
+  /** Original trunk materials before hit-flash (for restoring colour). */
+  trunkMeshes: THREE.Mesh[];
 }
 
 // ─── World Item (pickable / placeable objects) ─────────────────────────────

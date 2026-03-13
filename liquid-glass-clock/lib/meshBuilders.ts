@@ -4289,3 +4289,41 @@ export function buildMountainWithWaterfallAndCave(_terrain?: CityTerrainOptions)
 
   return { group, boxColliders, cylColliders };
 }
+
+// ─── Wood Log (collectible dropped by felled trees) ───────────────────────────
+
+/**
+ * Creates a small wood log collectible mesh — a short horizontal cylinder
+ * with bark material on the sides and a lighter end-grain cap on each face.
+ * Designed to sit on the ground and be picked up by the player.
+ */
+export function buildWoodLogMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const barkMat = new THREE.MeshLambertMaterial({ color: 0x5c3317 });
+  const grainMat = new THREE.MeshLambertMaterial({ color: 0x8b5e3c });
+
+  // Main cylinder (horizontal log)
+  const logGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.7, 10);
+  const log = new THREE.Mesh(logGeo, barkMat);
+  log.rotation.z = Math.PI / 2; // lay it on its side
+  log.castShadow = true;
+  group.add(log);
+
+  // End-grain caps
+  const capGeo = new THREE.CircleGeometry(0.22, 10);
+  const capA = new THREE.Mesh(capGeo, grainMat);
+  capA.position.set(-0.35, 0, 0);
+  capA.rotation.y = Math.PI / 2;
+  group.add(capA);
+
+  const capB = new THREE.Mesh(capGeo, grainMat);
+  capB.position.set(0.35, 0, 0);
+  capB.rotation.y = -Math.PI / 2;
+  group.add(capB);
+
+  // Slight random lean
+  group.rotation.y = Math.random() * Math.PI * 2;
+
+  return group;
+}
