@@ -57,7 +57,22 @@ export function getTerrainHeight(x: number, z: number): number {
   const distFromCenter = Math.sqrt(x * x + z * z);
   const flattenFactor = Math.min(1, distFromCenter / 80);
 
-  return (h1 + h2 + h3) * flattenFactor;
+  // ── Boundary mountain ring ───────────────────────────────────────────────
+  // Terrain rises steeply near world edges, forming a continuous mountain wall
+  // that encloses the world from all four sides. The cubic (ef³) curve creates
+  // a gentle approach slope that steepens dramatically at the boundary.
+  const halfSize = WORLD_SIZE / 2;
+  const RISE_ZONE = 50;           // mountains begin this many units from the edge
+  const MAX_MOUNTAIN_HEIGHT = 55; // peak addition (puts summits in rock/snow territory)
+  // Clamp to 0 so points outside the world don't exceed peak height
+  const distFromEdge = Math.max(
+    0,
+    Math.min(halfSize - Math.abs(x), halfSize - Math.abs(z)),
+  );
+  const ef = Math.max(0, 1 - distFromEdge / RISE_ZONE);
+  const edgeRise = ef * ef * ef * MAX_MOUNTAIN_HEIGHT;
+
+  return (h1 + h2 + h3) * flattenFactor + edgeRise;
 }
 
 /**
