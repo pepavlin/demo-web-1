@@ -17,6 +17,7 @@ import {
   getVoxelDensity,
   generateChunkGeometry,
   generateVoxelTerrain,
+  generateVoxelTerrainAsync,
   getVoxelChunkMeshes,
   VOXEL_SIZE,
   CHUNK_SIZE,
@@ -107,6 +108,15 @@ describe("getVoxelDensity", () => {
     const d1 = getVoxelDensity(77, -5, 33);
     const d2 = getVoxelDensity(77, -5, 33);
     expect(d1).toBe(d2);
+  });
+
+  it("pre-computed surfaceY parameter gives same result as auto-computed", () => {
+    const { getTerrainHeight } = require("@/lib/terrainUtils");
+    const x = 40, y = -5, z = 55;
+    const surfY = getTerrainHeight(x, z);
+    const dAuto = getVoxelDensity(x, y, z);
+    const dPre  = getVoxelDensity(x, y, z, surfY);
+    expect(dPre).toBeCloseTo(dAuto, 10);
   });
 
   it("cave noise can carve density above zero underground (within carving depth)", () => {
@@ -240,11 +250,12 @@ describe("generateVoxelTerrain", () => {
     vertexColors: false,
   } as any;
 
-  it("returns an object with group and refreshChunksAt", () => {
+  it("returns an object with group, refreshChunksAt, and chunkMeshes", () => {
     const result = generateVoxelTerrain(mockMaterial);
     expect(result).toBeDefined();
     expect(result.group).toBeDefined();
     expect(typeof result.refreshChunksAt).toBe("function");
+    expect(Array.isArray(result.chunkMeshes)).toBe(true);
   });
 
   it("group has at least one child mesh (the world has surface terrain)", () => {
@@ -259,7 +270,15 @@ describe("generateVoxelTerrain", () => {
     }
   });
 
-  it("getVoxelChunkMeshes returns the same meshes as group.children", () => {
+  it("chunkMeshes matches group.children count and contents", () => {
+    const result = generateVoxelTerrain(mockMaterial);
+    expect(result.chunkMeshes.length).toBe(result.group.children.length);
+    result.chunkMeshes.forEach((m) => {
+      expect(result.group.children).toContain(m);
+    });
+  });
+
+  it("getVoxelChunkMeshes (legacy) returns same meshes as group.children", () => {
     const result = generateVoxelTerrain(mockMaterial);
     const meshes = getVoxelChunkMeshes(result.group);
     expect(meshes.length).toBe(result.group.children.length);
@@ -275,6 +294,16 @@ describe("generateVoxelTerrain", () => {
     }).not.toThrow();
   });
 
+  it("refreshChunksAt updates chunkMeshes cache (length may change)", () => {
+    const result = generateVoxelTerrain(mockMaterial);
+    const before = result.chunkMeshes.length;
+    result.refreshChunksAt(0, 0, 10, mockMaterial);
+    // After refresh, chunkMeshes should still be in sync with group.children
+    expect(result.chunkMeshes.length).toBe(result.group.children.length);
+    // The count should be close to the original (refresh only touches nearby chunks)
+    expect(Math.abs(result.chunkMeshes.length - before)).toBeLessThan(20);
+  });
+
   it("material.vertexColors is NOT modified during generation (shader declares attribute manually)", () => {
     // generateVoxelTerrain does NOT set vertexColors=true.  Setting it would
     // cause Three.js to inject 'in vec3 color' into the shader preamble, which
@@ -283,6 +312,45 @@ describe("generateVoxelTerrain", () => {
     const mat = { vertexColors: false } as any;
     generateVoxelTerrain(mat);
     expect(mat.vertexColors).toBe(false);
+  });
+});
+
+// ─── Async terrain generation ───────────────────────────────────────────────────
+
+describe("generateVoxelTerrainAsync", () => {
+  const mockMaterial = { vertexColors: false } as any;
+
+  it("resolves to a VoxelTerrainResult with group, refreshChunksAt, and chunkMeshes", async () => {
+    const result = await generateVoxelTerrainAsync(mockMaterial);
+    expect(result).toBeDefined();
+    expect(result.group).toBeDefined();
+    expect(typeof result.refreshChunksAt).toBe("function");
+    expect(Array.isArray(result.chunkMeshes)).toBe(true);
+  });
+
+  it("produces the same number of chunks as the sync version", async () => {
+    const sync  = generateVoxelTerrain(mockMaterial);
+    const async = await generateVoxelTerrainAsync(mockMaterial);
+    expect(async.group.children.length).toBe(sync.group.children.length);
+  });
+
+  it("calls onProgress with final count equal to total", async () => {
+    let lastGenerated = 0;
+    let lastTotal = 0;
+    await generateVoxelTerrainAsync(mockMaterial, (gen, total) => {
+      lastGenerated = gen;
+      lastTotal = total;
+    });
+    expect(lastGenerated).toBe(lastTotal);
+    expect(lastTotal).toBeGreaterThan(0);
+  });
+
+  it("chunkMeshes matches group.children after completion", async () => {
+    const result = await generateVoxelTerrainAsync(mockMaterial);
+    expect(result.chunkMeshes.length).toBe(result.group.children.length);
+    result.chunkMeshes.forEach((m) => {
+      expect(result.group.children).toContain(m);
+    });
   });
 });
 

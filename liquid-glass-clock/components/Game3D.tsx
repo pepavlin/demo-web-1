@@ -20,8 +20,7 @@ import {
 } from "@/lib/terrainUtils";
 import {
   initVoxelNoise,
-  generateVoxelTerrain,
-  getVoxelChunkMeshes,
+  generateVoxelTerrainAsync,
   type VoxelTerrainResult,
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
@@ -2561,13 +2560,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       `,
     });
-    // Generate the full voxel terrain (may take ~1-2 s on first load)
-    // generateVoxelTerrain sets material.vertexColors = true internally.
-    const voxelResult = generateVoxelTerrain(terrainMat);
-    scene.add(voxelResult.group);
-    terrainMeshRef.current = voxelResult.group;
-    voxelTerrainRef.current = voxelResult;
-    terrainMatRef.current  = terrainMat;
+    // Kick off async voxel terrain generation.
+    // The empty group is added to the scene immediately so the game starts
+    // without waiting; chunks are populated in small batches across frames.
+    terrainMatRef.current = terrainMat;
+    generateVoxelTerrainAsync(terrainMat).then((voxelResult) => {
+      if (!mountRef.current) return; // component unmounted during generation
+      scene.add(voxelResult.group);
+      terrainMeshRef.current  = voxelResult.group;
+      voxelTerrainRef.current = voxelResult;
+    });
 
     // ── Building system: ghost block ──────────────────────────────────────────
     const ghost = buildGhostMesh("wood");
@@ -3861,13 +3863,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Input ─────────────────────────────────────────────────────────────────
     // ── Helper: place held item via raycast from camera ───────────────────────
     const tryPlaceHeldItemViaRaycast = (): boolean => {
-      if (!heldItemRef.current || !cameraRef.current || !terrainMeshRef.current) return false;
+      if (!heldItemRef.current || !cameraRef.current || !voxelTerrainRef.current) return false;
       const cam = cameraRef.current;
       const raycaster = buildRaycasterRef.current;
       raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
       // Gather objects to intersect: terrain + placed blocks
       const targets: THREE.Object3D[] = [
-        ...getVoxelChunkMeshes(terrainMeshRef.current),
+        ...voxelTerrainRef.current.chunkMeshes,
         ...Array.from(placedBlockMeshesRef.current.values()),
       ];
       const hits = raycaster.intersectObjects(targets, false);
@@ -6084,8 +6086,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const raycaster = buildRaycasterRef.current;
         raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
         raycaster.far = BUILD_RANGE;
-        const rayTargets: THREE.Object3D[] = terrainMeshRef.current
-          ? [...getVoxelChunkMeshes(terrainMeshRef.current), ...placedBlockMeshesRef.current.values()]
+        const rayTargets: THREE.Object3D[] = voxelTerrainRef.current
+          ? [...voxelTerrainRef.current.chunkMeshes, ...placedBlockMeshesRef.current.values()]
           : [...placedBlockMeshesRef.current.values()];
         const hits = raycaster.intersectObjects(rayTargets, false);
         if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
@@ -7593,12 +7595,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (heldItemRef.current) {
           // Show placement ghost at terrain surface in front of player
           const ghost = itemPlacementGhostRef.current;
-          if (ghost && cameraRef.current && terrainMeshRef.current) {
+          if (ghost && cameraRef.current && voxelTerrainRef.current) {
             const cam = cameraRef.current;
             const raycaster = buildRaycasterRef.current;
             raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
             const targets: THREE.Object3D[] = [
-              ...getVoxelChunkMeshes(terrainMeshRef.current),
+              ...voxelTerrainRef.current.chunkMeshes,
               ...Array.from(placedBlockMeshesRef.current.values()),
             ];
             const hits = raycaster.intersectObjects(targets, false);
