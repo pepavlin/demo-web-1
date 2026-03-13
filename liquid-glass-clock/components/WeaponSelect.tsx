@@ -387,6 +387,111 @@ function AxeSVG({ selected }: { selected: boolean }) {
   );
 }
 
+function MachineGunSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 140 80"
+      width="140"
+      height="80"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #f97316)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "mg-idle 3.5s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes mg-idle {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          30% { transform: translateY(-4px) rotate(0.6deg); }
+          65% { transform: translateY(-2px) rotate(-0.4deg); }
+        }
+        @keyframes mg-recoil {
+          0%, 78%, 100% { transform: translateX(0); }
+          80% { transform: translateX(5px); }
+          84% { transform: translateX(-2px); }
+          88% { transform: translateX(1px); }
+        }
+        @keyframes mg-flash {
+          0%, 76%, 84%, 100% { opacity: 0; }
+          79% { opacity: 1; }
+          81% { opacity: 0.4; }
+        }
+        @keyframes mg-eject {
+          0%, 79%, 100% { opacity: 0; transform: translate(0,0) rotate(0deg); }
+          80% { opacity: 1; transform: translate(2px,-3px) rotate(20deg); }
+          84% { opacity: 0; transform: translate(8px,-10px) rotate(60deg); }
+        }
+      `}</style>
+
+      <g style={{ animation: "mg-recoil 2.2s ease-in-out infinite" }}>
+        {/* Long barrel */}
+        <rect x="5" y="37" width="66" height="5" rx="2" fill="#1a1a1a" />
+
+        {/* Perforated cooling jacket rings */}
+        <line x1="14" y1="36" x2="14" y2="43" stroke="#3a3a3a" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="22" y1="36" x2="22" y2="43" stroke="#3a3a3a" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="30" y1="36" x2="30" y2="43" stroke="#3a3a3a" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="38" y1="36" x2="38" y2="43" stroke="#3a3a3a" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="46" y1="36" x2="46" y2="43" stroke="#3a3a3a" strokeWidth="2.5" strokeLinecap="round" />
+
+        {/* Muzzle brake */}
+        <rect x="2" y="35.5" width="7" height="8" rx="2" fill="#333" />
+
+        {/* Muzzle flash (animates on fire) */}
+        <g style={{ animation: "mg-flash 2.2s ease-in-out infinite" }}>
+          <polygon points="0,39.5 -10,34 -7,39.5 -10,45" fill="#ff8800" opacity="0.9" />
+          <polygon points="0,39.5 -12,39.5 -8,36 -8,43" fill="#ffcc00" opacity="0.7" />
+        </g>
+
+        {/* Receiver body */}
+        <rect x="65" y="33" width="38" height="14" rx="2" fill="#2a2a2a" />
+        <rect x="66" y="34" width="36" height="3" rx="1" fill="white" opacity="0.06" />
+
+        {/* Carry handle / top rail */}
+        <rect x="66" y="23" width="27" height="9" rx="3" fill="#222" />
+        <rect x="67" y="24" width="25" height="2" rx="1" fill="white" opacity="0.07" />
+
+        {/* Ejection port */}
+        <rect x="80" y="34" width="10" height="5" rx="1" fill="#111" />
+        {/* Ejected shell casing (animates) */}
+        <g style={{ animation: "mg-eject 2.2s ease-in-out infinite" }}>
+          <rect x="82" y="33" width="5" height="8" rx="1" fill="#cc9900" opacity="0.9" />
+        </g>
+
+        {/* Shoulder stock */}
+        <rect x="101" y="33.5" width="32" height="11" rx="3" fill="#5a3010" />
+        <rect x="102" y="34.5" width="30" height="3" rx="1" fill="#7a4a20" opacity="0.4" />
+        {/* Butt plate */}
+        <rect x="130" y="32" width="5" height="14" rx="1" fill="#1a1a1a" />
+
+        {/* Pistol grip */}
+        <polygon points="88,47 100,47 96,64 84,64" fill="#111" />
+
+        {/* Box magazine */}
+        <rect x="70" y="47" width="17" height="22" rx="2" fill="#1a1a1a" />
+        <rect x="71" y="48" width="15" height="3" rx="1" fill="white" opacity="0.05" />
+        {/* Magazine feed lips */}
+        <rect x="68" y="45" width="21" height="4" rx="1" fill="#333" />
+
+        {/* Trigger */}
+        <rect x="91" y="46" width="3" height="7" rx="1" fill="#555" />
+        {/* Trigger guard */}
+        <path d="M88 47 Q84 56 94 53" stroke="#444" strokeWidth="2" fill="none" strokeLinecap="round" />
+
+        {/* Bipod legs */}
+        <line x1="17" y1="42" x2="11" y2="60" stroke="#444" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="21" y1="42" x2="27" y2="60" stroke="#444" strokeWidth="2.5" strokeLinecap="round" />
+
+        {/* Front sight */}
+        <rect x="56" y="32" width="3" height="5" rx="1" fill="#333" />
+        <rect x="52" y="35" width="11" height="2" rx="1" fill="#2a2a2a" />
+
+        {/* Orange accent — hot barrel glow */}
+        <rect x="5" y="38" width="30" height="1" rx="0.5" fill="#f97316" opacity="0.3" />
+      </g>
+    </svg>
+  );
+}
+
 // ─── Weapon card ──────────────────────────────────────────────────────────────
 interface WeaponCardProps {
   type: WeaponType;
@@ -452,6 +557,16 @@ const WEAPON_META: Record<
     ],
     description: "Dřevorubecká sekera. Specializovaná na kácení stromů — trojnásobné poškození dřevin. Také účinná v boji zblízka.",
     key: "5",
+  },
+  machinegun: {
+    icon: null,
+    stats: [
+      { label: "Poškození", value: 22, max: 100 },
+      { label: "Dostřel", value: 65, max: 100 },
+      { label: "Rychlost střelby", value: 100, max: 100 },
+    ],
+    description: "Těžký kulomet s bleskovou kadencí. Drž levé tlačítko a seč nepřítele dávkami — nejrychlejší zbraň v arzenálu.",
+    key: "6",
   },
 };
 
@@ -544,6 +659,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         {type === "crossbow" && <CrossbowSVG selected={selected} />}
         {type === "sniper" && <SniperSVG selected={selected} />}
         {type === "axe" && <AxeSVG selected={selected} />}
+        {type === "machinegun" && <MachineGunSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -631,6 +747,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
       if (e.key === "3") setSelected("crossbow");
       if (e.key === "4") setSelected("sniper");
       if (e.key === "5") setSelected("axe");
+      if (e.key === "6") setSelected("machinegun");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -681,12 +798,12 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
+            gridTemplateColumns: "repeat(6, 1fr)",
             gap: 12,
             marginBottom: 24,
           }}
         >
-          {(["sword", "bow", "crossbow", "sniper", "axe"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>
@@ -728,7 +845,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             color: "rgba(255,255,255,0.2)",
           }}
         >
-          Klávesy [1] [2] [3] [4] [5] pro výběr · [Enter] pro potvrzení
+          Klávesy [1] [2] [3] [4] [5] [6] pro výběr · [Enter] pro potvrzení
         </p>
       </div>
     </div>

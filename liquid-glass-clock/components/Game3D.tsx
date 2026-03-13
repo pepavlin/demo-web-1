@@ -81,6 +81,7 @@ import {
   buildCity,
   buildSniperTowerMesh,
   buildSniperMesh,
+  buildMachineGunMesh,
   buildWoodLogMesh,
   SNIPER_TOWER_HEIGHT,
   type CityResult,
@@ -219,21 +220,23 @@ type WeaponTransformConfig = {
 
 /** First-person: weapon positioned in camera-local space (bottom-right of screen). */
 const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
-  bow:      { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
-  crossbow: { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
-  sniper:   { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
-  axe:      { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
+  sword:      { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
+  bow:        { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
+  crossbow:   { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
+  sniper:     { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
+  axe:        { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
+  machinegun: { pos: [0.20, -0.22, -0.54], rot: [0,            -0.08, 0   ], scale: 1.2 },
 };
 
 /** Third-person: weapon positioned relative to the "handR" anchor on the player body.
  *  The anchor is at the tip of armR so the weapon moves naturally with arm swing. */
 const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
-  bow:      { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
-  crossbow: { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
-  sniper:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
-  axe:      { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
+  sword:      { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
+  bow:        { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
+  crossbow:   { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
+  sniper:     { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+  axe:        { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
+  machinegun: { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
 };
 
 // ─── Bomb Constants ───────────────────────────────────────────────────────────
@@ -1046,6 +1049,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : type === "crossbow" ? buildCrossbowMesh()
       : type === "sniper" ? buildSniperMesh()
       : type === "axe" ? buildAxeMesh()
+      : type === "machinegun" ? buildMachineGunMesh()
       : buildSwordMesh();
 
     weaponMeshRef.current = newMesh;
@@ -1893,6 +1897,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : wType === "crossbow" ? buildCrossbowMesh()
       : wType === "sniper" ? buildSniperMesh()
       : wType === "axe" ? buildAxeMesh()
+      : wType === "machinegun" ? buildMachineGunMesh()
       : buildSwordMesh(); // sword
     // Apply canonical first-person transform via the config system
     applyWeaponTransform(weaponGroup, wType, "first");
@@ -4135,10 +4140,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Digit keys 1–5 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
+      // Digit keys 1–6 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
       if (e.type === "keydown" && buildModeRef.current === "explore") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe"];
-        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5") {
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun"];
+        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
           if (newWeapon) {
@@ -4238,7 +4243,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
       } else if (buildModeRef.current === "explore") {
         // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun"];
         const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
         const curIdx = cur < 0 ? 0 : cur;
         const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
@@ -8270,11 +8275,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — all 5 weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow", "sniper", "axe"] as WeaponType[]).map((w, idx) => {
+          {/* Weapon slots HUD — all 6 weapons, active one highlighted */}
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : "🎯";
             const onCooldown = isActive && !gameState.attackReady;
             const RING_R = 10;
             const ringCircumference = 2 * Math.PI * RING_R;
