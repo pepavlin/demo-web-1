@@ -36,6 +36,7 @@ interface BoxCollider3D {
   halfW: number; halfH: number; halfD: number;  // half-extents
   rotY: number;     // Y-rotation of the box
   walkable: boolean; // true → player can stand on the top face
+  isTrigger?: boolean; // true → projectiles pass through (default false = solid)
 }
 ```
 
@@ -47,6 +48,7 @@ interface CylinderCollider3D {
   radius: number;   // includes PLAYER_RADIUS (legacy convention)
   height: number;   // full height
   walkable: boolean;
+  isTrigger?: boolean; // true → projectiles pass through (default false = solid)
 }
 ```
 
@@ -56,6 +58,7 @@ interface CylinderCollider3D {
 interface SphereCollider3D {
   x: number; y: number; z: number;  // centre
   radius: number;  // includes PLAYER_RADIUS
+  isTrigger?: boolean; // true → projectiles pass through (default false = solid)
 }
 ```
 
@@ -158,6 +161,64 @@ This was already present in the codebase and is used for raycasting in the build
 
 ---
 
+## Projectile Collision (Bullet / Arrow Blocking)
+
+Bullets and arrows now stop when they hit **solid** (non-trigger) colliders.
+
+### How it works
+
+In the `Game3D.tsx` bullet update loop, after entity hit-checks, two additional
+passes test projectile position against registered colliders:
+
+1. **Cylinder pass** (`treeCollisionRef`) – checks each non-trigger cylinder.
+   `rawRadius = cyl.radius - PLAYER_RADIUS` (un-inflate stored radius).
+   If bullet XZ distance to cylinder centre < `rawRadius` **and** bullet Y is
+   within `[cyl.baseY, cyl.baseY + cyl.height]` → bullet is removed.
+
+2. **Box pass** (`boxCollidersRef`) – checks each non-trigger box.
+   Uses `testOBBXZ(bx, bz, box.cx, box.cz, box.halfW, box.halfD, box.rotY)`.
+   Height check: `bx ∈ [box.cy − box.halfH, box.cy + box.halfH]` → bullet removed.
+
+Mark a collider `isTrigger: true` to let bullets fly through it (e.g. fog volumes,
+invisible spawn zones, or detection areas that should not block projectiles).
+
+---
+
+## WorldItem `onBulletHit` Callback
+
+Any `WorldItem` can define custom behaviour when struck by a bullet or arrow:
+
+```typescript
+interface WorldItem {
+  // …
+  onBulletHit?: (bullet: BulletData) => boolean;
+  // return true  → consume the projectile (it stops here)
+  // return false → projectile continues (pass-through)
+}
+```
+
+**Example – bomb detonation on hit** (implemented in `Game3D.tsx`):
+
+```typescript
+const bombItem: WorldItem = {
+  id: bombId,
+  type: "bomb",
+  mesh: bombMesh,
+  isHeld: false,
+  onBulletHit: (_bullet) => {
+    worldItemsRef.current = worldItemsRef.current.filter(wi => wi.id !== bombId);
+    scene.remove(bombMesh);
+    spawnBombExplosion(scene, bombMesh.position.clone());
+    return true; // consume the bullet
+  },
+};
+```
+
+The game loop checks `item.isHeld` first — held items are never hit.
+Hit radius for world items is `0.6` units (checked against `bullet.mesh.position.distanceTo(item.mesh.position)`).
+
+---
+
 ## Testing
 
 `__tests__/collisionSystem.test.ts` covers:
@@ -166,3 +227,4 @@ This was already present in the codebase and is used for raycasting in the build
 - `resolveCylinderCollision3D` – push-out, vertical skip conditions
 - `resolveSphereCollision3D` – push-out
 - `getWalkableSurfaceY` – single/multiple boxes, cylinders, non-walkable exclusion, player-below skip
+- `isTrigger` flag – solid vs trigger semantics, bullet-vs-cylinder, bullet-vs-box logic

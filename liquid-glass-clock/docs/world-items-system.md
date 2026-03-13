@@ -12,9 +12,23 @@ Players can pick up specific objects (e.g. pumpkins) scattered around the world,
 
 | Type | Description |
 |------|-------------|
-| `WorldItemType` | Union type of all placeable item types (`"pumpkin"`) |
-| `WorldItem` | Runtime item: `id`, `type`, `mesh`, `isHeld` |
+| `WorldItemType` | Union type of all placeable item types (`"pumpkin" \| "bomb"`) |
+| `WorldItem` | Runtime item: `id`, `type`, `mesh`, `isHeld`, optional `onBulletHit` |
 | `PlacedWorldItemData` | Serialisable snapshot: `type`, `x`, `y`, `z`, `rotY` |
+
+#### `WorldItem.onBulletHit`
+
+Optional callback invoked when a projectile (bullet or arrow) hits the item:
+
+```typescript
+onBulletHit?: (bullet: BulletData) => boolean;
+```
+
+- Return `true` → consume the bullet (it stops at this item).
+- Return `false` → bullet continues (pass-through).
+- `undefined` (default) → item is not hittable by projectiles.
+
+Held items (`isHeld: true`) are always skipped — the check only runs for items placed in the world.
 
 ### Mesh Builder (`lib/meshBuilders.ts`)
 
@@ -81,3 +95,16 @@ Players can pick up specific objects (e.g. pumpkins) scattered around the world,
 ## Saving
 
 Placements are saved after every `placeHeldItem()` call. Only non-held items are serialised. The save includes absolute world position and Y rotation.
+
+## Bomb Explosion on Bullet Hit
+
+All bomb `WorldItem`s are created with an `onBulletHit` callback that:
+
+1. Removes the bomb from `worldItemsRef` (prevents double-hit).
+2. Removes the bomb mesh from the scene.
+3. Calls `spawnBombExplosion(scene, position)` — same explosion as a thrown bomb
+   (full blast radius damage, crater deformation, visual effects).
+4. Returns `true` — the projectile is consumed.
+
+**Hit radius**: `0.6` world units (checked in the bullet update loop before the
+solid-collider checks).
