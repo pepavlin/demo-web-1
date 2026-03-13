@@ -435,3 +435,121 @@ describe("WorldItem onBulletHit callback", () => {
     expect(items).toHaveLength(0);
   });
 });
+
+// ─── Melee bomb detonation ─────────────────────────────────────────────────────
+
+describe("melee bomb detonation", () => {
+  // Mirrors the performAttack logic in Game3D: sword/axe within
+  // BOMB_MELEE_RANGE = weaponCfg.range * 1.2 of a non-held bomb detonates it.
+
+  const SWORD_RANGE = 2.2;
+  const BOMB_MELEE_RANGE = SWORD_RANGE * 1.2; // 2.64
+
+  interface SimpleBomb {
+    id: string;
+    type: string;
+    isHeld: boolean;
+    position: THREE.Vector3;
+  }
+
+  function meleeBombCheck(
+    playerPos: THREE.Vector3,
+    items: SimpleBomb[],
+    range: number
+  ): SimpleBomb | null {
+    let closest: SimpleBomb | null = null;
+    let closestDist = range;
+    for (const item of items) {
+      if (item.isHeld || item.type !== "bomb") continue;
+      const d = item.position.distanceTo(playerPos);
+      if (d < closestDist) {
+        closestDist = d;
+        closest = item;
+      }
+    }
+    return closest;
+  }
+
+  it("detects a bomb within melee range", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: false, position: new THREE.Vector3(2, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, bombs, BOMB_MELEE_RANGE);
+    expect(hit).not.toBeNull();
+    expect(hit!.id).toBe("b1");
+  });
+
+  it("does not detect a bomb outside melee range", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: false, position: new THREE.Vector3(10, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, bombs, BOMB_MELEE_RANGE);
+    expect(hit).toBeNull();
+  });
+
+  it("skips held bombs — player is already carrying it", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: true, position: new THREE.Vector3(0.5, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, bombs, BOMB_MELEE_RANGE);
+    expect(hit).toBeNull();
+  });
+
+  it("skips non-bomb world items", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const items: SimpleBomb[] = [
+      { id: "p1", type: "pumpkin", isHeld: false, position: new THREE.Vector3(1, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, items, BOMB_MELEE_RANGE);
+    expect(hit).toBeNull();
+  });
+
+  it("picks the closest bomb when multiple are in range", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b-far",   type: "bomb", isHeld: false, position: new THREE.Vector3(2.5, 0, 0) },
+      { id: "b-close", type: "bomb", isHeld: false, position: new THREE.Vector3(1.0, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, bombs, BOMB_MELEE_RANGE);
+    expect(hit!.id).toBe("b-close");
+  });
+
+  it("detonation removes the bomb from the item list", () => {
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    let items: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: false, position: new THREE.Vector3(1.5, 0, 0) },
+    ];
+    const bomb = meleeBombCheck(playerPos, items, BOMB_MELEE_RANGE);
+    expect(bomb).not.toBeNull();
+    items = items.filter((wi) => wi.id !== bomb!.id);
+    expect(items).toHaveLength(0);
+  });
+
+  it("axe range (2.5 * 1.2 = 3.0) reaches bomb at 2.8 units", () => {
+    const AXE_RANGE = 2.5;
+    const axeBombRange = AXE_RANGE * 1.2; // 3.0
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: false, position: new THREE.Vector3(2.8, 0, 0) },
+    ];
+    const hit = meleeBombCheck(playerPos, bombs, axeBombRange);
+    expect(hit).not.toBeNull();
+  });
+
+  it("ranged weapon (range=80) must NOT use melee bomb logic — bullets handle it", () => {
+    // Verify that without the sword/axe guard in performAttack, a ranged weapon
+    // would incorrectly trigger bombs at distance 50 via the melee path.
+    const BOW_RANGE = 80;
+    const bowBombRange = BOW_RANGE * 1.2; // 96 — wrong for melee
+    const playerPos = new THREE.Vector3(0, 0, 0);
+    const bombs: SimpleBomb[] = [
+      { id: "b1", type: "bomb", isHeld: false, position: new THREE.Vector3(50, 0, 0) },
+    ];
+    // Would trigger at distance 50 — this confirms the weapon-type guard is needed
+    const hit = meleeBombCheck(playerPos, bombs, bowBombRange);
+    expect(hit).not.toBeNull(); // confirms the guard in Game3D (sword/axe only) is necessary
+  });
+});

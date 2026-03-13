@@ -1911,6 +1911,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
     }
 
+    // ── Melee hit on world bombs (sword / axe) ───────────────────────────────
+    // Melee weapons detonate a nearby bomb on hit. Ranged weapons already
+    // trigger bombs via bullet collision (onBulletHit), so only check here
+    // for melee types to avoid double-detonation and wrong long-range triggers.
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
+      const BOMB_MELEE_RANGE = weaponCfg.range * 1.2;
+      let closestBomb: WorldItem | null = null;
+      let closestBombDist = BOMB_MELEE_RANGE;
+
+      worldItemsRef.current.forEach((item) => {
+        if (item.isHeld || item.type !== "bomb") return;
+        const d = item.mesh.position.distanceTo(playerPos);
+        if (d < closestBombDist) {
+          closestBombDist = d;
+          closestBomb = item;
+        }
+      });
+
+      if (closestBomb && sceneRef.current) {
+        const bomb = closestBomb as WorldItem;
+        const bombPos = bomb.mesh.position.clone();
+        worldItemsRef.current = worldItemsRef.current.filter(
+          (wi) => wi.id !== bomb.id
+        );
+        sceneRef.current.remove(bomb.mesh);
+        spawnBombExplosion(sceneRef.current, bombPos);
+      }
+    }
+
     // ── Melee hit on remote players (PvP — sword / axe) ─────────────────────
     if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
       let closestRemoteId: string | null = null;
