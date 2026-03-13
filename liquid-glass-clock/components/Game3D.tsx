@@ -83,12 +83,16 @@ import {
   buildSniperMesh,
   buildMachineGunMesh,
   buildWoodLogMesh,
+  buildBiolumFlowerMesh,
+  buildBiolumMushroomMesh,
+  buildBiolumFernMesh,
   SNIPER_TOWER_HEIGHT,
   type CityResult,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
   type SniperTowerResult,
+  type BiolumPlantResult,
 } from "@/lib/meshBuilders";
 import {
   type BoxCollider3D,
@@ -159,6 +163,7 @@ const COIN_COUNT  = IS_MOBILE ? 20 : 35;
 const TREE_COUNT  = IS_MOBILE ? 70 : 180;
 const BUSH_COUNT  = IS_MOBILE ? 80 : 220;
 const ROCK_COUNT  = IS_MOBILE ? 35 : 90;
+const BIOLUM_COUNT = IS_MOBILE ? 60 : 180; // Avatar bioluminescent plants
 const PLAYER_RADIUS = 0.5; // for tree trunk collision
 const SHEEP_SPEED = 1.4;       // slow peaceful walk (was 2.5)
 const SHEEP_FLEE_RADIUS = 12;
@@ -434,7 +439,7 @@ function smoothstep(a: number, b: number, t: number): number {
 }
 
 // ─── Sky color palette by time of day (0..1) ─────────────────────────────────
-const SKY_NIGHT = new THREE.Color(0x04091f);
+const SKY_NIGHT = new THREE.Color(0x020a18); // deep Avatar Pandora night — rich dark blue-teal
 const SKY_DAWN = new THREE.Color(0xf07030);
 const SKY_DAY = new THREE.Color(0x87ceeb);
 const SKY_DUSK = new THREE.Color(0xe05030);
@@ -587,6 +592,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const sunCoronaRef = useRef<THREE.Mesh | null>(null);
   const cloudsRef = useRef<Array<{ mesh: THREE.Group; vx: number; vz: number }>>([]);
   const waterMatRef = useRef<THREE.ShaderMaterial | null>(null);
+  // Bioluminescent Avatar plants — emissive intensity driven by nightFactor
+  const biolumPlantsRef = useRef<Array<{
+    emissiveMats: THREE.MeshLambertMaterial[];
+    posX: number;
+    posZ: number;
+    pulsePhase: number; // per-plant pulse offset
+    pulseSpeed: number; // glow pulse speed
+  }>>([]);
   // Flora animation & collision data
   const floraRef = useRef<Array<{
     foliageGroup: THREE.Group;
@@ -1968,8 +1981,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     fill.position.set(-80, 50, -80);
     scene.add(fill);
 
-    // Moon light (cool blue, active at night)
-    const moon = new THREE.DirectionalLight(0x8899cc, 0.0);
+    // Moon light (Avatar teal-blue, active at night)
+    const moon = new THREE.DirectionalLight(0x4488bb, 0.0);
     moon.position.set(-100, 80, -50);
     scene.add(moon);
     moonRef.current = moon;
@@ -2914,6 +2927,31 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         maxSway: 0.06 + bushRng() * 0.04,
         posX: p.x,
         posZ: p.z,
+      });
+    });
+
+    // ── Bioluminescent Avatar Plants ────────────────────────────────────────
+    // Scatter glowing flora across the world — they light up at night.
+    let biolumSeed = 9173;
+    const biolumRng = () => {
+      biolumSeed = (biolumSeed * 1664525 + 1013904223) & 0xffffffff;
+      return (biolumSeed >>> 0) / 0xffffffff;
+    };
+    const biolumPoints = generateSpawnPoints(BIOLUM_COUNT, 6, 360, 9173);
+    const biolumBuilders = [buildBiolumFlowerMesh, buildBiolumMushroomMesh, buildBiolumFernMesh];
+    biolumPoints.forEach((p) => {
+      // Pick plant type randomly
+      const builderFn = biolumBuilders[Math.floor(biolumRng() * biolumBuilders.length)];
+      const result: BiolumPlantResult = builderFn(biolumRng);
+      result.group.position.set(p.x, p.y, p.z);
+      result.group.rotation.y = biolumRng() * Math.PI * 2;
+      scene.add(result.group);
+      biolumPlantsRef.current.push({
+        emissiveMats: result.emissiveMats,
+        posX: p.x,
+        posZ: p.z,
+        pulsePhase: biolumRng() * Math.PI * 2,
+        pulseSpeed: 0.6 + biolumRng() * 1.2,
       });
     });
 
@@ -4369,9 +4407,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           Math.sin(moonAngle) * 180,
           -80
         );
+        // Stronger Avatar moon gives the bioluminescent plants better ambient contrast
         moonRef.current.intensity =
-          smoothstep(0.82, 0.9, dayFraction) * 0.35 +
-          smoothstep(0.18, 0.1, dayFraction) * 0.35;
+          smoothstep(0.82, 0.9, dayFraction) * 0.55 +
+          smoothstep(0.18, 0.1, dayFraction) * 0.55;
       }
 
       if (ambientRef.current) {
@@ -4640,6 +4679,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
           flora.foliageGroup.rotation.x = Math.sin(t) * flora.maxSway;
           flora.foliageGroup.rotation.z = Math.cos(t * 0.71) * flora.maxSway * 0.6;
+        });
+      }
+
+      // ── Avatar bioluminescent plants — glow at night ──────────────────────
+      // Update every 3rd frame; glow is smooth so the lower rate is invisible.
+      if (frameCount % 3 === 0 && biolumPlantsRef.current.length > 0) {
+        const LOD_BIOLUM_SQ = IS_MOBILE ? 80 * 80 : 160 * 160;
+        const camX = cameraRef.current ? cameraRef.current.position.x : 0;
+        const camZ = cameraRef.current ? cameraRef.current.position.z : 0;
+        biolumPlantsRef.current.forEach((plant) => {
+          const dx = plant.posX - camX;
+          const dz = plant.posZ - camZ;
+          if (dx * dx + dz * dz > LOD_BIOLUM_SQ) return;
+          // Soft sinusoidal pulse layered on top of the nightFactor ramp
+          const pulse = 0.75 + 0.25 * Math.sin(elapsed * plant.pulseSpeed + plant.pulsePhase);
+          const targetIntensity = nightFactor * pulse;
+          plant.emissiveMats.forEach((mat) => {
+            // Lerp toward target so the transition is buttery smooth
+            mat.emissiveIntensity += (targetIntensity - mat.emissiveIntensity) * Math.min(1, dt * 3);
+          });
         });
       }
 

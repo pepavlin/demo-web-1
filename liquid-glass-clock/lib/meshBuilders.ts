@@ -4523,6 +4523,198 @@ export function buildMountainWithWaterfallAndCave(_terrain?: CityTerrainOptions)
   return { group, boxColliders, cylColliders };
 }
 
+// ─── Bioluminescent Avatar Plants ─────────────────────────────────────────────
+
+/**
+ * Represents a bioluminescent plant mesh for Avatar night mode.
+ * `emissiveMats` holds all glowing materials so `emissiveIntensity`
+ * can be driven each frame by nightFactor.
+ */
+export interface BiolumPlantResult {
+  group: THREE.Group;
+  emissiveMats: THREE.MeshLambertMaterial[];
+}
+
+// Avatar palette: deep ocean blues, bioluminescent cyans, alien magentas
+const AVATAR_COLORS = [
+  { base: 0x003344, emissive: 0x00ffee },
+  { base: 0x001833, emissive: 0x0088ff },
+  { base: 0x1a0033, emissive: 0x8800ff },
+  { base: 0x002211, emissive: 0x00ff88 },
+  { base: 0x220033, emissive: 0xff00aa },
+  { base: 0x001122, emissive: 0x00ddff },
+];
+
+/** Bioluminescent flower — tall stem with glowing bulb and radial petals. */
+export function buildBiolumFlowerMesh(rng: () => number): BiolumPlantResult {
+  const group = new THREE.Group();
+  const emissiveMats: THREE.MeshLambertMaterial[] = [];
+  const palette = AVATAR_COLORS[Math.floor(rng() * AVATAR_COLORS.length)];
+  const stemH = 0.6 + rng() * 1.2;
+  const stemR = 0.025 + rng() * 0.02;
+
+  const stemMat = new THREE.MeshLambertMaterial({
+    color: palette.base,
+    emissive: new THREE.Color(palette.emissive).multiplyScalar(0.15),
+    emissiveIntensity: 0,
+  });
+  emissiveMats.push(stemMat);
+  const stem = new THREE.Mesh(
+    new THREE.CylinderGeometry(stemR * 0.5, stemR, stemH, 6), stemMat
+  );
+  stem.position.y = stemH / 2;
+  group.add(stem);
+
+  const bulbR = 0.06 + rng() * 0.08;
+  const bulbMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(palette.emissive).multiplyScalar(0.4),
+    emissive: new THREE.Color(palette.emissive),
+    emissiveIntensity: 0,
+  });
+  emissiveMats.push(bulbMat);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(bulbR, 8, 6), bulbMat);
+  bulb.position.y = stemH + bulbR * 0.6;
+  group.add(bulb);
+
+  const petalCount = 4 + Math.floor(rng() * 4);
+  const petalMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(palette.emissive).multiplyScalar(0.25),
+    emissive: new THREE.Color(palette.emissive),
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 0.75,
+    side: THREE.DoubleSide,
+  });
+  emissiveMats.push(petalMat);
+  const petalLen = 0.08 + rng() * 0.1;
+  for (let i = 0; i < petalCount; i++) {
+    const angle = (i / petalCount) * Math.PI * 2;
+    const geo = new THREE.SphereGeometry(petalLen * 0.5, 4, 3);
+    geo.scale(0.35, 0.9, 1.0);
+    const petal = new THREE.Mesh(geo, petalMat);
+    petal.position.set(
+      Math.cos(angle) * (bulbR + petalLen * 0.4),
+      stemH + bulbR * 0.4,
+      Math.sin(angle) * (bulbR + petalLen * 0.4)
+    );
+    petal.rotation.y = angle;
+    petal.rotation.z = 0.4 + rng() * 0.3;
+    group.add(petal);
+  }
+  group.rotation.z = (rng() - 0.5) * 0.18;
+  group.rotation.x = (rng() - 0.5) * 0.12;
+  return { group, emissiveMats };
+}
+
+/** Bioluminescent mushroom — glowing cap with luminous spots. */
+export function buildBiolumMushroomMesh(rng: () => number): BiolumPlantResult {
+  const group = new THREE.Group();
+  const emissiveMats: THREE.MeshLambertMaterial[] = [];
+  const palette = AVATAR_COLORS[Math.floor(rng() * AVATAR_COLORS.length)];
+  const stalkH = 0.25 + rng() * 0.8;
+  const stalkR = 0.04 + rng() * 0.06;
+  const capR   = stalkR * 2.2 + rng() * 0.18;
+
+  const stalkMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(palette.base).multiplyScalar(1.5),
+    emissive: new THREE.Color(palette.emissive),
+    emissiveIntensity: 0,
+  });
+  emissiveMats.push(stalkMat);
+  const stalk = new THREE.Mesh(
+    new THREE.CylinderGeometry(stalkR * 0.7, stalkR, stalkH, 7), stalkMat
+  );
+  stalk.position.y = stalkH / 2;
+  group.add(stalk);
+
+  const capMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(palette.emissive).multiplyScalar(0.3),
+    emissive: new THREE.Color(palette.emissive),
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 0.9,
+  });
+  emissiveMats.push(capMat);
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(capR, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), capMat
+  );
+  cap.position.y = stalkH;
+  group.add(cap);
+
+  const spotCount = 3 + Math.floor(rng() * 4);
+  const spotMat = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    emissive: new THREE.Color(palette.emissive).multiplyScalar(1.5),
+    emissiveIntensity: 0,
+  });
+  emissiveMats.push(spotMat);
+  for (let i = 0; i < spotCount; i++) {
+    const theta = rng() * Math.PI * 2;
+    const phi   = rng() * 0.4 + 0.1;
+    const spotR = capR * 0.06 + rng() * capR * 0.08;
+    const spot = new THREE.Mesh(new THREE.SphereGeometry(spotR, 5, 4), spotMat);
+    spot.position.set(
+      Math.sin(phi) * Math.cos(theta) * capR * 0.75,
+      stalkH + Math.cos(phi) * capR * 0.6,
+      Math.sin(phi) * Math.sin(theta) * capR * 0.75
+    );
+    group.add(spot);
+  }
+  group.rotation.y = rng() * Math.PI * 2;
+  return { group, emissiveMats };
+}
+
+/** Bioluminescent fern — arching fronds with glowing leaf tips. */
+export function buildBiolumFernMesh(rng: () => number): BiolumPlantResult {
+  const group = new THREE.Group();
+  const emissiveMats: THREE.MeshLambertMaterial[] = [];
+  const palette = AVATAR_COLORS[Math.floor(rng() * AVATAR_COLORS.length)];
+  const frondCount = 4 + Math.floor(rng() * 5);
+  const scale = 0.4 + rng() * 0.8;
+
+  const stemMat = new THREE.MeshLambertMaterial({
+    color: palette.base,
+    emissive: new THREE.Color(palette.emissive).multiplyScalar(0.08),
+    emissiveIntensity: 0,
+  });
+  emissiveMats.push(stemMat);
+  const leafMat = new THREE.MeshLambertMaterial({
+    color: new THREE.Color(palette.emissive).multiplyScalar(0.2),
+    emissive: new THREE.Color(palette.emissive),
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide,
+  });
+  emissiveMats.push(leafMat);
+
+  for (let i = 0; i < frondCount; i++) {
+    const angle = (i / frondCount) * Math.PI * 2 + rng() * 0.5;
+    const frondLen = (0.35 + rng() * 0.5) * scale;
+    const archH = frondLen * 0.55;
+    const leafletCount = 4 + Math.floor(rng() * 4);
+    for (let j = 0; j < leafletCount; j++) {
+      const t = (j + 1) / (leafletCount + 1);
+      const xzDist = Math.sin(t * Math.PI * 0.6) * frondLen;
+      const y      = Math.sin(t * Math.PI) * archH;
+      const leafL  = (0.06 + rng() * 0.05) * scale * (1 - t * 0.4);
+      const geo = new THREE.SphereGeometry(leafL * 0.5, 4, 3);
+      geo.scale(0.45, 0.5, 1.0);
+      const side = j % 2 === 0 ? 0.12 * scale : -0.12 * scale;
+      const isGlowTip = j === leafletCount - 1;
+      const leaflet = new THREE.Mesh(geo, isGlowTip ? leafMat : stemMat);
+      leaflet.position.set(
+        Math.cos(angle) * xzDist + Math.cos(angle + Math.PI / 2) * side,
+        y,
+        Math.sin(angle) * xzDist + Math.sin(angle + Math.PI / 2) * side
+      );
+      leaflet.rotation.y = angle + (j % 2 === 0 ? 0.35 : -0.35);
+      group.add(leaflet);
+    }
+  }
+  return { group, emissiveMats };
+}
+
 // ─── Wood Log (collectible dropped by felled trees) ───────────────────────────
 
 /**
