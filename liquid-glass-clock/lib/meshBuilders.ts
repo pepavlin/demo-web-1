@@ -857,6 +857,75 @@ export function buildSwordMesh(): THREE.Group {
   return group;
 }
 
+// ─── Weapon (axe) ─────────────────────────────────────────────────────────────
+/**
+ * First-person woodcutting axe.  The head (blade + poll) sits at the front with
+ * the handle extending toward the player.  Oriented along -Z so it lines up with
+ * the sword in the weapon anchor system.
+ */
+export function buildAxeMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  // Materials
+  const bladeMat = new THREE.MeshLambertMaterial({ color: 0xc0d8e8, emissive: 0x335566, emissiveIntensity: 0.12 });
+  const pollMat  = new THREE.MeshLambertMaterial({ color: 0x888ea0 });
+  const edgeMat  = new THREE.MeshLambertMaterial({ color: 0xe8f4ff, emissive: 0x99bbdd, emissiveIntensity: 0.25 });
+  const handleMat = new THREE.MeshLambertMaterial({ color: 0x7a4a1a });
+  const bandMat   = new THREE.MeshLambertMaterial({ color: 0x3d2008 });
+
+  // ── Axe head ────────────────────────────────────────────────────────────────
+  // Blade body — wide flat trapezoidal shape (BoxGeometry approximation)
+  const bladeGeo = new THREE.BoxGeometry(0.14, 0.11, 0.022);
+  const blade = new THREE.Mesh(bladeGeo, bladeMat);
+  blade.position.set(0, 0.03, -0.22);
+  group.add(blade);
+
+  // Bevelled cutting edge — slightly thinner, offset toward front
+  const edgeGeo = new THREE.BoxGeometry(0.145, 0.12, 0.008);
+  const edge = new THREE.Mesh(edgeGeo, edgeMat);
+  edge.position.set(0, 0.03, -0.231);
+  group.add(edge);
+
+  // Poll (back of axe head, square butt)
+  const pollGeo = new THREE.BoxGeometry(0.038, 0.038, 0.022);
+  const poll = new THREE.Mesh(pollGeo, pollMat);
+  poll.position.set(0, 0.03, -0.195);
+  group.add(poll);
+
+  // Eye socket collar where handle meets head
+  const eyeGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.048, 8);
+  const eye = new THREE.Mesh(eyeGeo, pollMat);
+  eye.rotation.x = Math.PI / 2;
+  eye.position.set(0, 0.03, -0.205);
+  group.add(eye);
+
+  // ── Handle ──────────────────────────────────────────────────────────────────
+  // Main shaft — tapers slightly toward butt
+  const shaftGeo = new THREE.CylinderGeometry(0.014, 0.018, 0.32, 8);
+  const shaft = new THREE.Mesh(shaftGeo, handleMat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.set(0, 0.03, -0.04);
+  group.add(shaft);
+
+  // Grip wrap bands
+  const bandGeo = new THREE.CylinderGeometry(0.017, 0.017, 0.008, 8);
+  const bandPositions = [-0.02, 0.04, 0.10, 0.14];
+  bandPositions.forEach((z) => {
+    const band = new THREE.Mesh(bandGeo.clone(), bandMat);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(0, 0.03, z);
+    group.add(band);
+  });
+
+  // Pommel cap at butt end
+  const pommelGeo = new THREE.SphereGeometry(0.022, 8, 8);
+  const pommel = new THREE.Mesh(pommelGeo, pollMat);
+  pommel.position.set(0, 0.03, 0.20);
+  group.add(pommel);
+
+  return group;
+}
+
 // ─── Weapon (sniper rifle) ────────────────────────────────────────────────────
 /** Simple first-person sniper rifle shown in bottom-right of viewport. */
 export function buildSniperMesh(): THREE.Group {

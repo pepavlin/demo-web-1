@@ -321,6 +321,72 @@ function SniperSVG({ selected }: { selected: boolean }) {
   );
 }
 
+function AxeSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 60 80"
+      width="60"
+      height="80"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #a3e635)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "axe-idle 4s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes axe-idle {
+          0%, 100% { transform: rotate(-3deg) translateY(0px); }
+          30% { transform: rotate(3deg) translateY(-6px); }
+          60% { transform: rotate(-1deg) translateY(-4px); }
+          80% { transform: rotate(4deg) translateY(-7px); }
+        }
+        @keyframes axe-chop {
+          0%, 65%, 100% { transform: rotate(0deg); transform-origin: 30px 72px; }
+          72% { transform: rotate(-18deg); transform-origin: 30px 72px; }
+          82% { transform: rotate(10deg); transform-origin: 30px 72px; }
+          90% { transform: rotate(-4deg); transform-origin: 30px 72px; }
+        }
+        @keyframes axe-blade-shimmer {
+          0%, 100% { opacity: 0.1; }
+          50% { opacity: 0.35; }
+        }
+        @keyframes axe-edge-glow {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0.9; }
+        }
+      `}</style>
+
+      {/* Handle */}
+      <rect x="27" y="14" width="6" height="58" rx="3" fill="#7a4a1a" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+      {/* Handle grip bands */}
+      <rect x="26" y="55" width="8" height="2.5" rx="1" fill="#3d2008" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+      <rect x="26" y="62" width="8" height="2.5" rx="1" fill="#3d2008" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+      <rect x="26" y="69" width="8" height="2.5" rx="1" fill="#3d2008" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+
+      {/* Axe head group */}
+      <g style={{ animation: "axe-chop 3.5s ease-in-out infinite" }}>
+        {/* Head body */}
+        <path d="M30,8 L12,20 L10,34 L30,28 Z" fill="#8899aa" />
+        {/* Blade highlight */}
+        <path d="M30,8 L12,20 L10,34 L30,28 Z" fill="#c0d8e8" opacity="0.55" />
+        {/* Cutting edge */}
+        <path d="M10,20 Q4,27 10,34" stroke="#e8f4ff" strokeWidth="2.5" fill="none" strokeLinecap="round"
+          style={{ animation: "axe-edge-glow 2s ease-in-out infinite" }} />
+        {/* Poll (back) */}
+        <rect x="28" y="14" width="8" height="14" rx="2" fill="#666e7a" />
+        {/* Eye collar */}
+        <rect x="26" y="20" width="8" height="8" rx="2" fill="#555e6a" />
+        {/* Blade shimmer */}
+        <path d="M16,22 L12,30" stroke="white" strokeWidth="1.5" strokeLinecap="round"
+          style={{ animation: "axe-blade-shimmer 2.5s ease-in-out infinite" }} />
+      </g>
+
+      {/* Pommel cap */}
+      <ellipse cx="30" cy="74" rx="5" ry="4" fill="#7a4a1a" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+      <ellipse cx="30" cy="74" rx="3" ry="2.5" fill="#a06030" style={{ animation: "axe-chop 3.5s ease-in-out infinite" }} />
+    </svg>
+  );
+}
+
 // ─── Weapon card ──────────────────────────────────────────────────────────────
 interface WeaponCardProps {
   type: WeaponType;
@@ -376,6 +442,16 @@ const WEAPON_META: Record<
     ],
     description: "Precizní odstřelovačka s optickým zaměřovačem. Pravé tlačítko = přiblížení jako dalekohled. Také na věži na hoře.",
     key: "4",
+  },
+  axe: {
+    icon: null,
+    stats: [
+      { label: "Poškození", value: 60, max: 100 },
+      { label: "Kácení stromů", value: 95, max: 100 },
+      { label: "Rychlost útoku", value: 70, max: 100 },
+    ],
+    description: "Dřevorubecká sekera. Specializovaná na kácení stromů — trojnásobné poškození dřevin. Také účinná v boji zblízka.",
+    key: "5",
   },
 };
 
@@ -467,6 +543,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         {type === "bow" && <BowSVG selected={selected} />}
         {type === "crossbow" && <CrossbowSVG selected={selected} />}
         {type === "sniper" && <SniperSVG selected={selected} />}
+        {type === "axe" && <AxeSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -546,13 +623,14 @@ interface WeaponSelectProps {
 export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
   const [selected, setSelected] = useState<WeaponType>("sword");
 
-  // Keyboard shortcuts 1/2/3/4 to pick weapon, Enter to confirm
+  // Keyboard shortcuts 1/2/3/4/5 to pick weapon, Enter to confirm
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "1") setSelected("sword");
       if (e.key === "2") setSelected("bow");
       if (e.key === "3") setSelected("crossbow");
       if (e.key === "4") setSelected("sniper");
+      if (e.key === "5") setSelected("axe");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -582,7 +660,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 24,
           padding: "36px 36px 32px",
-          width: "min(780px, 94vw)",
+          width: "min(960px, 96vw)",
           boxShadow: "0 24px 80px rgba(0,0,0,0.7)",
           color: "white",
           fontFamily: "system-ui, -apple-system, sans-serif",
@@ -603,12 +681,12 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 14,
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: 12,
             marginBottom: 24,
           }}
         >
-          {(["sword", "bow", "crossbow", "sniper"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow", "sniper", "axe"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>
@@ -650,7 +728,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             color: "rgba(255,255,255,0.2)",
           }}
         >
-          Klávesy [1] [2] [3] [4] pro výběr · [Enter] pro potvrzení
+          Klávesy [1] [2] [3] [4] [5] pro výběr · [Enter] pro potvrzení
         </p>
       </div>
     </div>

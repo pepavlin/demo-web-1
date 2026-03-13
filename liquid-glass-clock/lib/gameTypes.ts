@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // ─── Weapon system ────────────────────────────────────────────────────────────
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -17,6 +17,8 @@ export interface WeaponConfig {
   bulletSpeed: number;
   /** CSS accent color for UI elements */
   color: string;
+  /** Multiplier applied to damage when hitting trees (default 1 if omitted) */
+  treeDamageMultiplier?: number;
 }
 
 export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
@@ -55,6 +57,16 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     cooldown: 2.8,
     bulletSpeed: 220,
     color: "#a78bfa",
+  },
+  axe: {
+    type: "axe",
+    label: "Sekera",
+    damage: 45,
+    range: 2.5,
+    cooldown: 0.65,
+    bulletSpeed: 0, // melee only — sekání
+    color: "#a3e635",
+    treeDamageMultiplier: 3, // 3× damage vs trees → 135 per swing
   },
 };
 
