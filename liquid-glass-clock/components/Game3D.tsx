@@ -12,6 +12,8 @@ import {
   initNoise,
   modifyTerrainHeight,
   updateTerrainGeometry,
+  findBestElevatedPosition,
+  findPositionsInSectors,
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
   WATER_LEVEL,
@@ -209,9 +211,11 @@ const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable bounda
 const MOUNTAIN_X = -60;
 const MOUNTAIN_Z = -80;
 
-// ─── Sniper Tower Constants ────────────────────────────────────────────────────
-const SNIPER_TOWER_X = 88;      // northeast elevated area, away from other landmarks
-const SNIPER_TOWER_Z = -82;     // high terrain near map edge
+// ─── Sniper Tower Position ─────────────────────────────────────────────────────
+// Initialised to safe fallback values; overwritten after terrain pre-generation
+// in the game useEffect so the tower is guaranteed to land on dry land.
+let SNIPER_TOWER_X = 88;
+let SNIPER_TOWER_Z = -82;
 /** Radius within which the sniper-pickup prompt appears (at tower top). */
 const SNIPER_PICKUP_RADIUS = 6;
 /** Right-click scope FOV (degrees). */
@@ -1632,6 +1636,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (!mountNode) return;
     initNoise(42);
 
+    // ── Terrain pre-analysis ──────────────────────────────────────────────────
+    // The height grid is now fully populated.  Query it BEFORE any mesh or
+    // structure is created so every placement decision is based on the actual
+    // terrain rather than hardcoded guesses.
+
+    // Sniper tower — find the highest hill in the 60-120 unit ring
+    const sniperPos = findBestElevatedPosition(60, 120, 5.0, 6.0);
+    if (sniperPos) {
+      SNIPER_TOWER_X = sniperPos.x;
+      SNIPER_TOWER_Z = sniperPos.z;
+    }
+
+    // Catapults — one per angular sector, all on dry land
+    const dynamicCatapultPositions = findPositionsInSectors(
+      CATAPULT_COUNT,
+      35,
+      95,
+      WATER_LEVEL + 0.5,
+      5.0,
+    );
+
     // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -2966,19 +2991,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
 
     // ── Catapults ─────────────────────────────────────────────────────────────
-    // Placed at fixed strategic positions around the map (not random so they
-    // don't spawn in water). 4 distant + 2 closer ones for early encounters.
-    const catapultPositions = [
-      { x:  80, z:  40 },
-      { x: -75, z:  55 },
-      { x:  60, z: -80 },
-      { x: -55, z: -65 },
-      { x:  38, z:  32 },   // closer to spawn — encountered early
-      { x: -34, z: -38 },   // closer to spawn — encountered early
-    ];
-    catapultListRef.current = catapultPositions.slice(0, CATAPULT_COUNT).reduce<CatapultData[]>((acc, p) => {
+    // Positions were pre-computed from the fully-generated height grid above,
+    // guaranteeing all catapults land on dry land spread evenly around the map.
+    catapultListRef.current = dynamicCatapultPositions.slice(0, CATAPULT_COUNT).reduce<CatapultData[]>((acc, p) => {
       const ty = getTerrainHeightSampled(p.x, p.z);
-      // Skip positions that would place the catapult in water
+      // Safety guard (should never trigger given pre-analysis, but keeps the
+      // reducer predictable if the terrain grid is not yet ready)
       if (ty < WATER_LEVEL) return acc;
       const { group, armGroup } = buildCatapultMesh();
       group.position.set(p.x, ty, p.z);
