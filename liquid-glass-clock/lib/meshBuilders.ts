@@ -1022,15 +1022,22 @@ export function buildBowMesh(): THREE.Group {
   // ── Upper limb – segment 2 (K u1 → u2) ──────────────────────────────────
   const u2Len = Math.hypot(K.u2[0] - K.u1[0], K.u2[1] - K.u1[1]);
   const u2 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, u2Len, 7), woodMat);
+  u2.name = "bowUpperSeg2";
   u2.position.set((K.u1[0] + K.u2[0]) / 2, (K.u1[1] + K.u2[1]) / 2, 0);
   u2.rotation.z = bowLimbRotZ(K.u1[0], K.u1[1], K.u2[0], K.u2[1]);
+  // Store base transform so Game3D can compute flex offsets relative to rest pose
+  u2.userData.baseRotZ = u2.rotation.z;
+  u2.userData.basePosZ = 0;
   group.add(u2);
 
   // ── Upper limb – segment 3 (K u2 → u3, tip) ─────────────────────────────
   const u3Len = Math.hypot(K.u3[0] - K.u2[0], K.u3[1] - K.u2[1]);
   const u3 = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.009, u3Len, 6), woodMat);
+  u3.name = "bowUpperSeg3";
   u3.position.set((K.u2[0] + K.u3[0]) / 2, (K.u2[1] + K.u3[1]) / 2, 0);
   u3.rotation.z = bowLimbRotZ(K.u2[0], K.u2[1], K.u3[0], K.u3[1]);
+  u3.userData.baseRotZ = u3.rotation.z;
+  u3.userData.basePosZ = 0;
   group.add(u3);
 
   // ── Lower limb – segment 1 (K l0 → l1) ──────────────────────────────────
@@ -1045,15 +1052,21 @@ export function buildBowMesh(): THREE.Group {
   // ── Lower limb – segment 2 (K l1 → l2) ──────────────────────────────────
   const l2Len = Math.hypot(K.l2[0] - K.l1[0], K.l2[1] - K.l1[1]);
   const l2 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, l2Len, 7), woodMat);
+  l2.name = "bowLowerSeg2";
   l2.position.set((K.l1[0] + K.l2[0]) / 2, (K.l1[1] + K.l2[1]) / 2, 0);
   l2.rotation.z = bowLimbRotZ(K.l1[0], K.l1[1], K.l2[0], K.l2[1]);
+  l2.userData.baseRotZ = l2.rotation.z;
+  l2.userData.basePosZ = 0;
   group.add(l2);
 
   // ── Lower limb – segment 3 (K l2 → l3, tip) ─────────────────────────────
   const l3Len = Math.hypot(K.l3[0] - K.l2[0], K.l3[1] - K.l2[1]);
   const l3 = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.009, l3Len, 6), woodMat);
+  l3.name = "bowLowerSeg3";
   l3.position.set((K.l2[0] + K.l3[0]) / 2, (K.l2[1] + K.l3[1]) / 2, 0);
   l3.rotation.z = bowLimbRotZ(K.l2[0], K.l2[1], K.l3[0], K.l3[1]);
+  l3.userData.baseRotZ = l3.rotation.z;
+  l3.userData.basePosZ = 0;
   group.add(l3);
 
   // ── Bowstring group (animated – pulled back when drawing) ─────────────────

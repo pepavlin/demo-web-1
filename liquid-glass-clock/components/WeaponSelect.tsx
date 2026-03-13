@@ -88,10 +88,15 @@ function BowSVG({ selected }: { selected: boolean }) {
           40% { transform: translateY(-4px) rotate(1deg); }
           70% { transform: translateY(-2px) rotate(-0.8deg); }
         }
-        @keyframes bow-draw {
-          0%, 75%, 100% { d: path("M30,12 Q18,40 30,68"); }
-          80% { d: path("M34,12 Q16,40 34,68"); }
-          88% { d: path("M30,12 Q18,40 30,68"); }
+        @keyframes bow-draw-main {
+          0%, 75%, 100% { d: path("M90,10 Q105,40 90,70"); }
+          80% { d: path("M86,10 Q104,40 86,70"); }
+          88% { d: path("M90,10 Q105,40 90,70"); }
+        }
+        @keyframes bow-draw-highlight {
+          0%, 75%, 100% { d: path("M91,10 Q106,40 91,70"); }
+          80% { d: path("M87,10 Q105,40 87,70"); }
+          88% { d: path("M91,10 Q106,40 91,70"); }
         }
         @keyframes string-vibrate {
           0%, 70%, 100% { transform: scaleX(1); }
@@ -99,40 +104,62 @@ function BowSVG({ selected }: { selected: boolean }) {
           84% { transform: scaleX(0.97); }
           90% { transform: scaleX(1.02); }
         }
+        @keyframes string-draw {
+          0%, 72%, 100% { transform: translateX(0); }
+          78% { transform: translateX(-6px); }
+          85% { transform: translateX(0); }
+        }
         @keyframes arrow-fly {
           0%, 72%, 100% { opacity: 1; transform: translateX(0); }
           73% { opacity: 1; transform: translateX(0); }
-          80% { opacity: 0; transform: translateX(50px); }
+          80% { opacity: 0; transform: translateX(-55px); }
           82%, 99% { opacity: 0; }
         }
       `}</style>
 
-      {/* Bow limb (curved path) */}
-      <path d="M30,10 Q15,40 30,70" stroke="#7a4a1a" strokeWidth="5" fill="none" strokeLinecap="round" />
+      {/* Bow limb (curved path) — bow faces LEFT, arrow flies left toward enemy */}
+      <path
+        d="M90,10 Q105,40 90,70"
+        stroke="#7a4a1a"
+        strokeWidth="5"
+        fill="none"
+        strokeLinecap="round"
+        style={{ animation: "bow-draw-main 3s ease-in-out infinite" }}
+      />
       {/* Bow limb highlight */}
-      <path d="M29,10 Q14,40 29,70" stroke="#a06030" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5" />
+      <path
+        d="M91,10 Q106,40 91,70"
+        stroke="#a06030"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.5"
+        style={{ animation: "bow-draw-highlight 3s ease-in-out infinite" }}
+      />
 
-      {/* Bowstring */}
-      <g style={{ animation: "string-vibrate 3s ease-in-out infinite" }}>
-        <line x1="30" y1="10" x2="30" y2="70" stroke="#ddd0aa" strokeWidth="1.5" />
+      {/* Bowstring — animates draw + vibration after release */}
+      <g style={{ animation: "string-draw 3s ease-in-out infinite" }}>
+        <g style={{ animation: "string-vibrate 3s ease-in-out infinite" }}>
+          <line x1="90" y1="10" x2="90" y2="70" stroke="#ddd0aa" strokeWidth="1.5" />
+        </g>
       </g>
 
-      {/* Arrow */}
+      {/* Arrow — flies LEFT toward the target */}
       <g style={{ animation: "arrow-fly 3s ease-in-out infinite" }}>
         {/* Arrow shaft */}
-        <line x1="30" y1="40" x2="90" y2="40" stroke="#8b5e3c" strokeWidth="3" strokeLinecap="round" />
-        {/* Arrowhead */}
-        <polygon points="90,40 80,36 82,40 80,44" fill="#aaaaaa" />
-        {/* Fletching */}
-        <polygon points="33,40 30,33 36,40" fill="#cc3333" opacity="0.85" />
-        <polygon points="33,40 30,47 36,40" fill="#cc3333" opacity="0.85" />
+        <line x1="90" y1="40" x2="30" y2="40" stroke="#8b5e3c" strokeWidth="3" strokeLinecap="round" />
+        {/* Arrowhead — tip points LEFT */}
+        <polygon points="30,40 40,36 38,40 40,44" fill="#aaaaaa" />
+        {/* Fletching — at the nock end near the string (right side) */}
+        <polygon points="87,40 90,33 84,40" fill="#cc3333" opacity="0.85" />
+        <polygon points="87,40 90,47 84,40" fill="#cc3333" opacity="0.85" />
       </g>
 
-      {/* Grip wrap */}
-      <rect x="25" y="34" width="9" height="12" rx="2" fill="#4a2a08" />
-      <line x1="26" y1="36" x2="33" y2="36" stroke="#3a1a04" strokeWidth="1.2" />
-      <line x1="26" y1="39" x2="33" y2="39" stroke="#3a1a04" strokeWidth="1.2" />
-      <line x1="26" y1="42" x2="33" y2="42" stroke="#3a1a04" strokeWidth="1.2" />
+      {/* Grip wrap — on the right side where the hand holds the bow */}
+      <rect x="86" y="34" width="9" height="12" rx="2" fill="#4a2a08" />
+      <line x1="87" y1="36" x2="94" y2="36" stroke="#3a1a04" strokeWidth="1.2" />
+      <line x1="87" y1="39" x2="94" y2="39" stroke="#3a1a04" strokeWidth="1.2" />
+      <line x1="87" y1="42" x2="94" y2="42" stroke="#3a1a04" strokeWidth="1.2" />
     </svg>
   );
 }
