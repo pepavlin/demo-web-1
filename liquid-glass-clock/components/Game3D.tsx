@@ -113,6 +113,18 @@ import {
 import { WEAPON_CONFIGS, SPIDER_TYPE_CONFIGS, type SpiderType } from "@/lib/gameTypes";
 import { soundManager } from "@/lib/soundManager";
 import {
+  BUNKER_CONFIGS,
+  BUNKER_INTERIOR_WORLD_X,
+  BUNKER_INTERIOR_WORLD_Y,
+  BUNKER_INTERIOR_WORLD_Z,
+  buildBunkerExteriorMesh,
+  buildBunkerInteriorScene,
+  checkBunkerProximity,
+  isNearBunkerExit,
+  type BunkerConfig,
+  type BunkerInteriorResult,
+} from "@/lib/bunkerSystem";
+import {
   type WeatherState,
   WEATHER_CONFIGS,
   nextWeatherState,
@@ -730,6 +742,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const spaceStationAnimMeshesRef = useRef<SpaceStationInteriorResult['animatedMeshes']>([]);
   const inSpaceStationRef = useRef(false);
 
+  // ─── Bunker Refs ──────────────────────────────────────────────────────────────
+  const bunkerGroupRef = useRef<THREE.Group | null>(null);
+  const bunkerRoomsRef = useRef<THREE.Box3[]>([]);
+  const bunkerLightsRef = useRef<BunkerInteriorResult["lights"]>([]);
+  const bunkerAnimMeshesRef = useRef<BunkerInteriorResult["animatedMeshes"]>([]);
+  const bunkerExitLocalPosRef = useRef(new THREE.Vector3());
+  const inBunkerRef = useRef(false);
+  const nearBunkerRef = useRef<BunkerConfig | null>(null);
+  const currentBunkerRef = useRef<BunkerConfig | null>(null);
+  const bunkerWelcomeTimerRef = useRef(0);
+
   // ─── Scene Group Refs (for two-scene separation) ──────────────────────────────
   // Earth scene group contains all world objects; toggled invisible when in station.
   // This eliminates rendering ~300+ Earth objects while inside the space station.
@@ -782,6 +805,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [nearAirlockExit, setNearAirlockExit] = useState(false);
   const [stationWelcome, setStationWelcome] = useState(false);
   const stationWelcomeTimerRef = useRef(0);
+  // ─── Bunker UI State ────────────────────────────────────────────────────────
+  const [inBunker, setInBunker] = useState(false);
+  const [nearBunkerPrompt, setNearBunkerPrompt] = useState(false);
+  const [bunkerExitPrompt, setBunkerExitPrompt] = useState(false);
+  const [bunkerWelcome, setBunkerWelcome] = useState(false);
+  const [currentBunkerName, setCurrentBunkerName] = useState("");
 
   const [gameState, setGameState] = useState<GameState>({
     sheepCollected: 0,
@@ -1482,7 +1511,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
     // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
-    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current) return;
+    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current || inBunkerRef.current) return;
     if (heldItemRef.current) return; // holding an item — must place it first
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
@@ -3485,6 +3514,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       spaceStationAnimMeshesRef.current = stationResult.animatedMeshes;
     }
 
+    // ── Bunker Interior (shared lab scene — hidden until player enters) ─────────
+    {
+      const bunkerResult = buildBunkerInteriorScene();
+      bunkerResult.group.position.set(
+        BUNKER_INTERIOR_WORLD_X,
+        BUNKER_INTERIOR_WORLD_Y,
+        BUNKER_INTERIOR_WORLD_Z
+      );
+      scene.add(bunkerResult.group);
+      bunkerGroupRef.current = bunkerResult.group;
+      bunkerRoomsRef.current = bunkerResult.rooms;
+      bunkerLightsRef.current = bunkerResult.lights;
+      bunkerAnimMeshesRef.current = bunkerResult.animatedMeshes;
+      bunkerExitLocalPosRef.current.copy(bunkerResult.exitLocalPos);
+      // Hidden by default — only visible when player is inside a bunker
+      bunkerResult.group.visible = false;
+    }
+
+    // ── Bunker Exterior Entrances ──────────────────────────────────────────────
+    {
+      BUNKER_CONFIGS.forEach((config) => {
+        const groundY = Math.max(getTerrainHeightSampled(config.worldX, config.worldZ), WATER_LEVEL + 0.3);
+        const ext = buildBunkerExteriorMesh(config);
+        ext.position.set(config.worldX, groundY, config.worldZ);
+        ext.rotation.y = config.rotation;
+        scene.add(ext);
+      });
+    }
+
     // ── Airplane & Airstrip ────────────────────────────────────────────────────
     {
       // Find the nearest above-water position starting from the preferred spawn
@@ -3553,12 +3611,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const earthGroup = new THREE.Group();
       earthGroup.name = 'earthWorld';
       const stationGroup = spaceStationGroupRef.current!;
-      // Collect every current scene child EXCEPT the camera and the station group.
-      // The camera must stay as a direct scene child so its children (weapon, etc.)
-      // always render regardless of which scene the player is in.
+      const bunkerGroup = bunkerGroupRef.current!;
+      // Collect every current scene child EXCEPT the camera, the station group,
+      // and the bunker interior group. These special groups must remain as direct
+      // scene children so they can be toggled independently of the earth world.
       const toMove: THREE.Object3D[] = [];
       scene.children.forEach((child) => {
-        if (child !== stationGroup && child !== camera) {
+        if (child !== stationGroup && child !== bunkerGroup && child !== camera) {
           toMove.push(child);
         }
       });
@@ -3765,6 +3824,69 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             // scene.background will be restored by the day/night cycle on the next frame
             return;
           }
+        }
+
+        // ── Exit bunker via exit ladder ──────────────────────────────────────
+        if (inBunkerRef.current && cameraRef.current) {
+          const cam = cameraRef.current;
+          const localX = cam.position.x - BUNKER_INTERIOR_WORLD_X;
+          const localZ = cam.position.z - BUNKER_INTERIOR_WORLD_Z;
+          if (isNearBunkerExit(localX, localZ)) {
+            inBunkerRef.current = false;
+            setInBunker(false);
+            setBunkerExitPrompt(false);
+            setBunkerWelcome(false);
+            bunkerWelcomeTimerRef.current = 0;
+            // Return player to the surface near the bunker they entered from
+            const bc = currentBunkerRef.current;
+            const returnX = bc ? bc.worldX + 2 : 0;
+            const returnZ = bc ? bc.worldZ + 2 : 0;
+            const returnY = getTerrainHeightSampled(returnX, returnZ);
+            cam.position.set(returnX, returnY + PLAYER_HEIGHT, returnZ);
+            playerBodyPosRef.current.copy(cam.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+            currentBunkerRef.current = null;
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+            // ── Scene switch: restore Earth world, hide bunker interior ────────
+            if (earthSceneGroupRef.current) earthSceneGroupRef.current.visible = true;
+            if (bunkerGroupRef.current) bunkerGroupRef.current.visible = false;
+            // Restore Earth fog
+            scene.fog = new THREE.FogExp2(0x87ceeb, 0.006);
+            return;
+          }
+          // Allow other E actions inside bunker (entry ladder exit handled above)
+        }
+
+        // ── Enter bunker via entry ladder ─────────────────────────────────────
+        if (nearBunkerRef.current && !inBunkerRef.current && cameraRef.current
+          && !possessedSheepRef.current && !onBoatRef.current
+          && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current) {
+          const bc = nearBunkerRef.current;
+          inBunkerRef.current = true;
+          setInBunker(true);
+          currentBunkerRef.current = bc;
+          setCurrentBunkerName(bc.name);
+          bunkerWelcomeTimerRef.current = 4;
+          setBunkerWelcome(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+          // Teleport player into bunker entry (near the entry ladder)
+          const cam = cameraRef.current;
+          cam.position.set(
+            BUNKER_INTERIOR_WORLD_X,
+            BUNKER_INTERIOR_WORLD_Y + PLAYER_HEIGHT,
+            BUNKER_INTERIOR_WORLD_Z + 1.5
+          );
+          playerBodyPosRef.current.copy(cam.position);
+          playerRef.current.velY = 0;
+          playerRef.current.onGround = true;
+          // ── Scene switch: hide Earth world, show bunker interior ───────────
+          if (earthSceneGroupRef.current) earthSceneGroupRef.current.visible = false;
+          if (bunkerGroupRef.current) bunkerGroupRef.current.visible = true;
+          // Underground atmosphere: no sky, dark ambient
+          scene.fog = null;
+          scene.background = new THREE.Color(0x080808);
+          return;
         }
 
         if (onAirplaneRef.current) {
@@ -4145,10 +4267,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Earth-world visual updates (skipped while inside the space station) ──
-      // When inSpaceStation, earthGroup.visible=false already prevents rendering,
-      // but we also skip these CPU-side updates to avoid touching null fog, running
-      // AI for 200 sheep, weather transitions, etc.
+      // When inSpaceStation or inBunker, earthGroup.visible=false already prevents
+      // rendering, but we also skip CPU-side AI updates for performance.
       const _inStation = inSpaceStationRef.current;
+      const _inBunker = inBunkerRef.current;
 
       // ── Day / Night cycle ──────────────────────────────────────────────────
       dayTimeRef.current = (dayTimeRef.current + dt) % DAY_DURATION;
@@ -4175,8 +4297,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           : WEATHER_CONFIGS[weatherStateRef.current].cloudDarkness;
       const stormGrey = new THREE.Color(0.38, 0.40, 0.45);
       const skyColor = baseSkyColor.clone().lerp(stormGrey, stormBlend * 0.7);
-      // Only update Earth sky/fog visuals when NOT in the station (fog is null there)
-      if (!_inStation) {
+      // Only update Earth sky/fog visuals when NOT in the station or bunker (fog is null there)
+      if (!_inStation && !_inBunker) {
         scene.background = skyColor;
         if (scene.fog) (scene.fog as THREE.FogExp2).color = skyColor;
         if (skyMeshRef.current) {
@@ -4324,8 +4446,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             Math.max(0, (0.07 + Math.sin(elapsed * 0.4) * 0.025) * (1 - wCfg.cloudDarkness));
         }
 
-        // Fog density (unless underwater which overrides separately, or in station where fog is null)
-        if (!isUnderwaterRef.current && !_inStation && scene.fog) {
+        // Fog density (unless underwater which overrides separately, or in station/bunker where fog is null)
+        if (!isUnderwaterRef.current && !_inStation && !_inBunker && scene.fog) {
           (scene.fog as THREE.FogExp2).density = wCfg.fogDensity;
         }
 
@@ -4482,9 +4604,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Flora (tree & bush foliage) wind sway + visibility LOD ───────────
-      // Skip entirely when in space station — earthGroup is already hidden, and
+      // Skip entirely when in space station or bunker — earthGroup is hidden, and
       // iterating 300+ flora objects for nothing wastes CPU budget.
-      if (!_inStation) {
+      if (!_inStation && !_inBunker) {
         // Visibility culling: on mobile hide objects beyond a tight radius to keep
         // the GPU load proportional to what the player can actually see.
         const LOD_FLORA_DIST_SQ = 80 * 80;
@@ -4740,8 +4862,121 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, on airplane, in station, or sailing) ─
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current && !activeHarborShipRef.current) {
+      // ── Bunker welcome timer ────────────────────────────────────────────────
+      if (bunkerWelcomeTimerRef.current > 0) {
+        bunkerWelcomeTimerRef.current -= dt;
+        if (bunkerWelcomeTimerRef.current <= 0) {
+          bunkerWelcomeTimerRef.current = 0;
+          setBunkerWelcome(false);
+        }
+      }
+
+      // ── Bunker interior movement & animation ───────────────────────────────
+      if (isLockedRef.current && _inBunker) {
+        const cam = cameraRef.current!;
+        const keys = keysRef.current;
+
+        const speed = MOVE_SPEED;
+        const forward = new THREE.Vector3(-Math.sin(yawRef.current), 0, -Math.cos(yawRef.current));
+        const right   = new THREE.Vector3( Math.cos(yawRef.current), 0, -Math.sin(yawRef.current));
+        const move = new THREE.Vector3();
+
+        if (keys["KeyW"] || keys["ArrowUp"])    move.addScaledVector(forward,  speed * dt);
+        if (keys["KeyS"] || keys["ArrowDown"])  move.addScaledVector(forward, -speed * dt);
+        if (keys["KeyA"] || keys["ArrowLeft"])  move.addScaledVector(right,   -speed * dt);
+        if (keys["KeyD"] || keys["ArrowRight"]) move.addScaledVector(right,    speed * dt);
+
+        const prevPos = cam.position.clone();
+        cam.position.add(move);
+
+        // Collision: keep player inside walkable bunker rooms
+        const BWOX = BUNKER_INTERIOR_WORLD_X;
+        const BWOZ = BUNKER_INTERIOR_WORLD_Z;
+        const isInBunkerRoom = (px: number, pz: number) =>
+          bunkerRoomsRef.current.some(
+            (room) =>
+              px >= room.min.x - PLAYER_RADIUS + BWOX &&
+              px <= room.max.x + PLAYER_RADIUS + BWOX &&
+              pz >= room.min.z - PLAYER_RADIUS + BWOZ &&
+              pz <= room.max.z + PLAYER_RADIUS + BWOZ
+          );
+
+        if (!isInBunkerRoom(cam.position.x, cam.position.z)) {
+          cam.position.x = prevPos.x + move.x;
+          cam.position.z = prevPos.z;
+          if (!isInBunkerRoom(cam.position.x, cam.position.z)) {
+            cam.position.x = prevPos.x;
+            cam.position.z = prevPos.z + move.z;
+            if (!isInBunkerRoom(cam.position.x, cam.position.z)) {
+              cam.position.z = prevPos.z;
+            }
+          }
+        }
+
+        // Vertical physics
+        const player = playerRef.current;
+        const bunkerFloorY = BUNKER_INTERIOR_WORLD_Y + PLAYER_HEIGHT;
+        if (!player.onGround) {
+          player.velY += GRAVITY * dt;
+        }
+        cam.position.y += player.velY * dt;
+        if (cam.position.y <= bunkerFloorY) {
+          cam.position.y = bunkerFloorY;
+          player.velY = 0;
+          player.onGround = true;
+        } else {
+          player.onGround = false;
+        }
+        // Ceiling clamp
+        const bunkerCeilY = BUNKER_INTERIOR_WORLD_Y + 2.6;
+        if (cam.position.y > bunkerCeilY) {
+          cam.position.y = bunkerCeilY;
+          player.velY = 0;
+        }
+        // Jump
+        if (keys["Space"] && player.onGround) {
+          player.velY = JUMP_FORCE * 0.5; // reduced jump in tight space
+          player.onGround = false;
+        }
+
+        playerBodyPosRef.current.copy(cam.position);
+        cam.rotation.order = "YXZ";
+        cam.rotation.y = yawRef.current;
+        cam.rotation.x = pitchRef.current;
+
+        // Exit ladder proximity (for UI prompt)
+        const localX = cam.position.x - BWOX;
+        const localZ = cam.position.z - BWOZ;
+        setBunkerExitPrompt(isNearBunkerExit(localX, localZ));
+
+        // Animate bunker lights (flicker effect)
+        bunkerLightsRef.current.forEach(({ light, baseIntensity, phase }) => {
+          light.intensity = baseIntensity * (0.88 + Math.sin(elapsed * (1.3 + phase * 0.2) + phase) * 0.12);
+        });
+
+        // Animate bunker meshes
+        bunkerAnimMeshesRef.current.forEach(({ mesh, type }) => {
+          if (type === "monitor") {
+            // CRT screen flicker
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat.emissiveIntensity !== undefined) {
+              mat.emissiveIntensity = 0.7 + Math.sin(elapsed * 8.5) * 0.2;
+            }
+          } else if (type === "server_led") {
+            // Blink server LEDs randomly
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat.emissiveIntensity !== undefined && Math.random() < 0.03) {
+              mat.emissiveIntensity = mat.emissiveIntensity > 0.5 ? 0.1 : 1.5;
+            }
+          } else if (type === "vent") {
+            // Spinning centrifuge
+            mesh.rotation.y += dt * 3.5;
+          }
+        });
+      }
+
+      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, on airplane, in station, bunker, or sailing) ─
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current && !activeHarborShipRef.current && !_inBunker) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -6331,8 +6566,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
 
       foxListRef.current.forEach((fox) => {
-        // Skip all Fox AI when in space station — foxes are in the hidden earthGroup
-        if (_inStation) return;
+        // Skip all Fox AI when in space station or bunker — foxes are in the hidden earthGroup
+        if (_inStation || _inBunker) return;
         const fm = fox.mesh;
 
         // Death animation: scale down then hide
@@ -6901,6 +7136,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setNearItemPrompt(null);
       }
 
+      // ── Bunker entrance proximity ─────────────────────────────────────────────
+      if (!_inBunker && !_inStation && !onBoatRef.current && !onRocketRef.current && !onAirplaneRef.current) {
+        const nearest = checkBunkerProximity(playerPos.x, playerPos.z, BUNKER_CONFIGS);
+        nearBunkerRef.current = nearest;
+        setNearBunkerPrompt(nearest !== null && !possessedSheepRef.current);
+      } else if (_inBunker || _inStation) {
+        nearBunkerRef.current = null;
+        setNearBunkerPrompt(false);
+      }
+
       // ── Possession proximity — find nearest sheep, manage highlight ──────────
       if (!possessedSheepRef.current) {
         let nearestDist = POSSESS_RADIUS;
@@ -6939,8 +7184,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // ── Sheep AI & Animation ────────────────────────────────────────────────
       let closeSheepCount = 0;
       sheepListRef.current.forEach((sheep) => {
-        // Skip all Sheep AI when in space station — sheep are in the hidden earthGroup
-        if (_inStation) return;
+        // Skip all Sheep AI when in space station or bunker — sheep are in the hidden earthGroup
+        if (_inStation || _inBunker) return;
         // Possessed sheep is controlled in the dedicated possession block — skip its AI
         if (sheep === possessedSheepRef.current) return;
 
@@ -7400,6 +7645,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ctx.closePath();
           ctx.fill();
           ctx.restore();
+
+          // Bunker entrances on minimap
+          if (!_inBunker) {
+            BUNKER_CONFIGS.forEach((bc) => {
+              const bmx = cx + bc.worldX * scale;
+              const bmz = cy + bc.worldZ * scale;
+              if (bmx >= 0 && bmx <= W && bmz >= 0 && bmz <= W) {
+                ctx.fillStyle = "#88cc88";
+                ctx.fillRect(bmx - 3, bmz - 3, 6, 6);
+                ctx.strokeStyle = "#00ff44";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(bmx - 3, bmz - 3, 6, 6);
+              }
+            });
+          }
 
           // Compass labels
           ctx.fillStyle = "rgba(255,255,255,0.55)";
@@ -8332,6 +8592,87 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🚀 [E] Airlock – vrátit se na Zemi
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Bunker entrance prompt ═══════════════ */}
+      {nearBunkerPrompt && !inBunker && !isPossessed && !onBoat && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(10,25,12,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(60,200,80,0.50)",
+              boxShadow: "0 0 24px rgba(30,180,50,0.45)",
+            }}
+          >
+            🏗️ [E] Vstoupit do bunkru
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ TOP — Active bunker banner ═══════════════ */}
+      {inBunker && gameState.isLocked && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,18,8,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(50,180,70,0.45)",
+              boxShadow: "0 0 22px rgba(20,150,40,0.40)",
+            }}
+          >
+            🏗️ Bunker {currentBunkerName} &nbsp;·&nbsp;{" "}
+            <span style={{ color: "#86efac" }}>WASD – pohyb &nbsp;·&nbsp; E (u žebříku) – výstup</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Bunker exit prompt ═══════════════ */}
+      {inBunker && bunkerExitPrompt && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(10,25,12,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(80,220,100,0.60)",
+              boxShadow: "0 0 28px rgba(40,200,60,0.55)",
+            }}
+          >
+            🔺 [E] Vylézt z bunkru
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Bunker welcome message ═══════════════ */}
+      {bunkerWelcome && inBunker && gameState.isLocked && (
+        <div className="fixed top-1/3 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-2xl text-white font-bold text-base"
+            style={{
+              padding: "18px 40px",
+              background: "rgba(5,18,8,0.95)",
+              backdropFilter: "blur(14px)",
+              border: "1px solid rgba(60,200,80,0.50)",
+              boxShadow: "0 0 40px rgba(30,180,50,0.50)",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "2rem", marginBottom: 6 }}>🏗️</div>
+            Bunker {currentBunkerName}
+            <div style={{ color: "#86efac", fontSize: "0.9rem", marginTop: 8 }}>
+              Podzemní laboratoř z lodních kontejnerů
+            </div>
+            <div style={{ color: "#4ade80", fontSize: "0.75rem", marginTop: 4 }}>
+              Prozkoumejte bunker pomocí WASD
+            </div>
           </div>
         </div>
       )}
