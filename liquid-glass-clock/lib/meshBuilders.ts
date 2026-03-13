@@ -150,6 +150,31 @@ export function buildSheepMesh(): SheepMeshParts {
   return { group, legPivots, headGroup, bodyGroup, tailGroup };
 }
 
+/**
+ * Simplified sheep mesh for distant LOD rendering.
+ * Uses only two primitives (body box + head sphere) to minimise GPU cost.
+ * The group origin and scale match buildSheepMesh so it can be swapped
+ * in-place without repositioning.
+ */
+export function buildSheepMeshSimple(): THREE.Group {
+  const group = new THREE.Group();
+  const woolMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+  const faceMat = new THREE.MeshLambertMaterial({ color: 0xc8a882 });
+
+  // Body — single box approximating the wool mass
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.52, 0.62), woolMat);
+  body.position.set(0, 0.72, 0);
+  group.add(body);
+
+  // Head — simple sphere
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 4), faceMat);
+  head.position.set(0.55, 0.88, 0);
+  group.add(head);
+
+  group.scale.setScalar(0.82);
+  return group;
+}
+
 // ─── Fox ──────────────────────────────────────────────────────────────────────
 export function buildFoxMesh(): THREE.Group {
   const group = new THREE.Group();
@@ -218,6 +243,29 @@ export function buildFoxMesh(): THREE.Group {
   group.add(tailTip);
 
   group.castShadow = true;
+  group.scale.setScalar(0.9);
+  return group;
+}
+
+/**
+ * Simplified fox mesh for distant LOD rendering.
+ * Body + head only — no legs, ears, or tail detail.
+ * Origin and scale match buildFoxMesh.
+ */
+export function buildFoxMeshSimple(): THREE.Group {
+  const group = new THREE.Group();
+  const foxMat = new THREE.MeshLambertMaterial({ color: 0xd4622a });
+
+  // Body — elongated box
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.38), foxMat);
+  body.position.set(0, 0.55, 0);
+  group.add(body);
+
+  // Head — small box
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.28), foxMat);
+  head.position.set(0.55, 0.72, 0);
+  group.add(head);
+
   group.scale.setScalar(0.9);
   return group;
 }

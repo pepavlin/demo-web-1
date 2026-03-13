@@ -44,6 +44,14 @@ export const CHUNK_SIZE = 16;
 /** World-space extent of one chunk (32 world units). */
 export const CHUNK_WORLD = CHUNK_SIZE * VOXEL_SIZE;
 
+/**
+ * Distance (world units) from the camera beyond which terrain chunks switch to
+ * the lower-resolution LOD 1 mesh.  Below this threshold the full-quality
+ * LOD 0 mesh is shown; above it the coarser LOD 1 mesh (2× voxel size, 4×
+ * fewer triangles) is used instead.
+ */
+export const TERRAIN_LOD_DISTANCE = 128;
+
 /** Minimum Y (world units) for the voxel volume — below the deepest ocean floor. */
 export const VOXEL_Y_MIN = -32;
 
@@ -591,9 +599,12 @@ function interpolateVertex(
  * • Biome colour uses bilinear interpolation from surfCache instead of a
  *   second getTerrainHeight call per vertex.
  *
- * @param originX  World X of the chunk's minimum corner
- * @param originY  World Y of the chunk's minimum corner
- * @param originZ  World Z of the chunk's minimum corner
+ * @param originX   World X of the chunk's minimum corner
+ * @param originY   World Y of the chunk's minimum corner
+ * @param originZ   World Z of the chunk's minimum corner
+ * @param lodScale  LOD resolution divisor: 1 = full quality (VOXEL_SIZE×CHUNK_SIZE),
+ *                  2 = half resolution (2×VOXEL_SIZE, CHUNK_SIZE/2 voxels per side).
+ *                  The physical chunk world-space size is always CHUNK_WORLD.
  * @returns  BufferGeometry with position, normal, and color attributes, or
  *           null if the chunk is entirely empty or entirely solid.
  */
@@ -601,9 +612,10 @@ export function generateChunkGeometry(
   originX: number,
   originY: number,
   originZ: number,
+  lodScale = 1,
 ): THREE.BufferGeometry | null {
-  const VS = VOXEL_SIZE;
-  const CS = CHUNK_SIZE;
+  const VS = VOXEL_SIZE * lodScale;
+  const CS = Math.max(1, Math.round(CHUNK_SIZE / lodScale));
   const dim = CS + 1;
 
   // ── Pre-compute 2D surface-height cache ────────────────────────────────────
@@ -744,19 +756,32 @@ export interface VoxelTerrainResult {
    */
   refreshChunksAt: (worldX: number, worldZ: number, radius: number, material: THREE.Material) => void;
   /**
-   * Cached flat list of all active chunk meshes.
+   * Cached flat list of all active LOD-0 (full-quality) chunk meshes.
    * Use this instead of calling getVoxelChunkMeshes() every frame to avoid
    * rebuilding the array on every raycast query.
    */
   chunkMeshes: THREE.Mesh[];
+  /**
+   * Switch each chunk between its full-quality (LOD 0) and reduced-quality
+   * (LOD 1) mesh based on the camera's current XZ position.
+   * Call once per frame (or every few frames) from the game loop.
+   */
+  updateTerrainLOD: (camX: number, camZ: number) => void;
 }
 
 interface ChunkRecord {
   key: string;
+  /** LOD 0 — full-quality mesh (VOXEL_SIZE=2, CHUNK_SIZE=16). */
   mesh: THREE.Mesh | null;
+  /** LOD 1 — reduced-quality mesh (VOXEL_SIZE=4, CHUNK_SIZE=8, ~4× fewer triangles). */
+  meshLod: THREE.Mesh | null;
   originX: number;
   originY: number;
   originZ: number;
+  /** World-space X of this chunk's centre (for LOD distance check). */
+  centerX: number;
+  /** World-space Z of this chunk's centre (for LOD distance check). */
+  centerZ: number;
 }
 
 /** Compute world-space origin X for a chunk column index. */
@@ -827,8 +852,11 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
     const oy = chunkOriginY(cy);
     const oz = chunkOriginZ(cz);
     const key = `${cx},${cy},${cz}`;
-    const geo = generateChunkGeometry(ox, oy, oz);
+    const cx0 = ox + CHUNK_WORLD / 2;
+    const cz0 = oz + CHUNK_WORLD / 2;
 
+    // LOD 0 — full quality (starts visible)
+    const geo = generateChunkGeometry(ox, oy, oz, 1);
     let mesh: THREE.Mesh | null = null;
     if (geo) {
       mesh = new THREE.Mesh(geo, material);
@@ -838,7 +866,18 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
       chunkMeshes.push(mesh);
     }
 
-    chunkMap.set(key, { key, mesh, originX: ox, originY: oy, originZ: oz });
+    // LOD 1 — reduced quality (starts hidden)
+    const geoLod = generateChunkGeometry(ox, oy, oz, 2);
+    let meshLod: THREE.Mesh | null = null;
+    if (geoLod) {
+      meshLod = new THREE.Mesh(geoLod, material);
+      meshLod.receiveShadow = true;
+      meshLod.name = `voxelChunkLod_${key}`;
+      meshLod.visible = false;
+      group.add(meshLod);
+    }
+
+    chunkMap.set(key, { key, mesh, meshLod, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
   }
 
   function refreshChunksAt(
@@ -855,6 +894,7 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
       const dz = worldZ - closestZ;
       if (dx * dx + dz * dz > (radius + CHUNK_WORLD) * (radius + CHUNK_WORLD)) continue;
 
+      // Dispose and remove LOD 0
       if (record.mesh) {
         group.remove(record.mesh);
         record.mesh.geometry.dispose();
@@ -864,7 +904,14 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
         record.mesh = null;
       }
 
-      const newGeo = generateChunkGeometry(originX, originY, originZ);
+      // Dispose and remove LOD 1
+      if (record.meshLod) {
+        group.remove(record.meshLod);
+        record.meshLod.geometry.dispose();
+        record.meshLod = null;
+      }
+
+      const newGeo = generateChunkGeometry(originX, originY, originZ, 1);
       if (newGeo) {
         const newMesh = new THREE.Mesh(newGeo, mat);
         newMesh.receiveShadow = true;
@@ -873,10 +920,32 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
         chunkMeshes.push(newMesh);
         record.mesh = newMesh;
       }
+
+      const newGeoLod = generateChunkGeometry(originX, originY, originZ, 2);
+      if (newGeoLod) {
+        const newMeshLod = new THREE.Mesh(newGeoLod, mat);
+        newMeshLod.receiveShadow = true;
+        newMeshLod.name = `voxelChunkLod_${key}`;
+        newMeshLod.visible = false;
+        group.add(newMeshLod);
+        record.meshLod = newMeshLod;
+      }
     }
   }
 
-  return { group, refreshChunksAt, chunkMeshes };
+  function updateTerrainLOD(camX: number, camZ: number): void {
+    const threshSq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    for (const record of chunkMap.values()) {
+      const dx = record.centerX - camX;
+      const dz = record.centerZ - camZ;
+      const distSq = dx * dx + dz * dz;
+      const useLod = distSq > threshSq;
+      if (record.mesh)    record.mesh.visible    = !useLod;
+      if (record.meshLod) record.meshLod.visible  = useLod;
+    }
+  }
+
+  return { group, refreshChunksAt, chunkMeshes, updateTerrainLOD };
 }
 
 /**
@@ -917,8 +986,11 @@ export async function generateVoxelTerrainAsync(
       const oy  = chunkOriginY(cy);
       const oz  = chunkOriginZ(cz);
       const key = `${cx},${cy},${cz}`;
-      const geo = generateChunkGeometry(ox, oy, oz);
+      const cx0 = ox + CHUNK_WORLD / 2;
+      const cz0 = oz + CHUNK_WORLD / 2;
 
+      // LOD 0 — full quality (starts visible)
+      const geo = generateChunkGeometry(ox, oy, oz, 1);
       let mesh: THREE.Mesh | null = null;
       if (geo) {
         mesh = new THREE.Mesh(geo, material);
@@ -928,7 +1000,18 @@ export async function generateVoxelTerrainAsync(
         chunkMeshes.push(mesh);
       }
 
-      chunkMap.set(key, { key, mesh, originX: ox, originY: oy, originZ: oz });
+      // LOD 1 — reduced quality (starts hidden, shown at distance)
+      const geoLod = generateChunkGeometry(ox, oy, oz, 2);
+      let meshLod: THREE.Mesh | null = null;
+      if (geoLod) {
+        meshLod = new THREE.Mesh(geoLod, material);
+        meshLod.receiveShadow = true;
+        meshLod.name = `voxelChunkLod_${key}`;
+        meshLod.visible = false;
+        group.add(meshLod);
+      }
+
+      chunkMap.set(key, { key, mesh, meshLod, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
     }
 
     onProgress?.(end, total);
@@ -950,6 +1033,7 @@ export async function generateVoxelTerrainAsync(
       const dz = worldZ - closestZ;
       if (dx * dx + dz * dz > (radius + CHUNK_WORLD) * (radius + CHUNK_WORLD)) continue;
 
+      // Dispose and remove LOD 0
       if (record.mesh) {
         group.remove(record.mesh);
         record.mesh.geometry.dispose();
@@ -958,7 +1042,14 @@ export async function generateVoxelTerrainAsync(
         record.mesh = null;
       }
 
-      const newGeo = generateChunkGeometry(originX, originY, originZ);
+      // Dispose and remove LOD 1
+      if (record.meshLod) {
+        group.remove(record.meshLod);
+        record.meshLod.geometry.dispose();
+        record.meshLod = null;
+      }
+
+      const newGeo = generateChunkGeometry(originX, originY, originZ, 1);
       if (newGeo) {
         const newMesh = new THREE.Mesh(newGeo, mat);
         newMesh.receiveShadow = true;
@@ -967,10 +1058,32 @@ export async function generateVoxelTerrainAsync(
         chunkMeshes.push(newMesh);
         record.mesh = newMesh;
       }
+
+      const newGeoLod = generateChunkGeometry(originX, originY, originZ, 2);
+      if (newGeoLod) {
+        const newMeshLod = new THREE.Mesh(newGeoLod, mat);
+        newMeshLod.receiveShadow = true;
+        newMeshLod.name = `voxelChunkLod_${key}`;
+        newMeshLod.visible = false;
+        group.add(newMeshLod);
+        record.meshLod = newMeshLod;
+      }
     }
   }
 
-  return { group, refreshChunksAt, chunkMeshes };
+  function updateTerrainLOD(camX: number, camZ: number): void {
+    const threshSq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    for (const record of chunkMap.values()) {
+      const dx = record.centerX - camX;
+      const dz = record.centerZ - camZ;
+      const distSq = dx * dx + dz * dz;
+      const useLod = distSq > threshSq;
+      if (record.mesh)    record.mesh.visible    = !useLod;
+      if (record.meshLod) record.meshLod.visible  = useLod;
+    }
+  }
+
+  return { group, refreshChunksAt, chunkMeshes, updateTerrainLOD };
 }
 
 /**

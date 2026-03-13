@@ -23,7 +23,9 @@ jest.mock("three", () => {
 
 import {
   buildSheepMesh,
+  buildSheepMeshSimple,
   buildFoxMesh,
+  buildFoxMeshSimple,
   buildTreeMesh,
   buildBushMesh,
   buildRockMesh,
@@ -127,6 +129,65 @@ describe("buildFoxMesh", () => {
   it("has castShadow enabled", () => {
     const mesh = buildFoxMesh();
     expect(mesh.castShadow).toBe(true);
+  });
+});
+
+// ─── LOD simplified mesh builders ─────────────────────────────────────────────
+
+describe("buildSheepMeshSimple", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildSheepMeshSimple();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has at least two children (body + head)", () => {
+    const group = buildSheepMeshSimple();
+    expect(group.children.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("has fewer total mesh children than the full buildSheepMesh", () => {
+    const simple = buildSheepMeshSimple();
+    const full = buildSheepMesh();
+    // Count all descendant Mesh objects
+    let simpleCount = 0;
+    let fullCount = 0;
+    simple.traverse((c) => { if ((c as THREE.Mesh).isMesh) simpleCount++; });
+    full.group.traverse((c) => { if ((c as THREE.Mesh).isMesh) fullCount++; });
+    expect(simpleCount).toBeLessThan(fullCount);
+  });
+
+  it("uses the same scale as buildSheepMesh", () => {
+    const simple = buildSheepMeshSimple();
+    const full = buildSheepMesh();
+    expect(simple.scale.x).toBeCloseTo(full.group.scale.x, 5);
+  });
+});
+
+describe("buildFoxMeshSimple", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildFoxMeshSimple();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has at least two children (body + head)", () => {
+    const group = buildFoxMeshSimple();
+    expect(group.children.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("has fewer total mesh children than the full buildFoxMesh", () => {
+    const simple = buildFoxMeshSimple();
+    const full = buildFoxMesh();
+    let simpleCount = 0;
+    let fullCount = 0;
+    simple.traverse((c) => { if ((c as THREE.Mesh).isMesh) simpleCount++; });
+    full.traverse((c) => { if ((c as THREE.Mesh).isMesh) fullCount++; });
+    expect(simpleCount).toBeLessThan(fullCount);
+  });
+
+  it("uses the same scale as buildFoxMesh", () => {
+    const simple = buildFoxMeshSimple();
+    const full = buildFoxMesh();
+    expect(simple.scale.x).toBeCloseTo(full.scale.x, 5);
   });
 });
 

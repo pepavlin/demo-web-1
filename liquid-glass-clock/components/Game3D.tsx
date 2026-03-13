@@ -30,7 +30,9 @@ import {
 } from "@/lib/worldItemsPersistence";
 import {
   buildSheepMesh,
+  buildSheepMeshSimple,
   buildFoxMesh,
+  buildFoxMeshSimple,
   buildTreeMesh,
   buildBushMesh,
   buildRockMesh,
@@ -3095,6 +3097,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       group.rotation.y = -initialAngle;
       scene.add(group);
 
+      // LOD mesh — simplified, positioned identically, starts hidden
+      const lodMesh = buildSheepMeshSimple();
+      lodMesh.position.copy(group.position);
+      lodMesh.rotation.y = group.rotation.y;
+      lodMesh.visible = false;
+      scene.add(lodMesh);
+
       // Spread out phase offsets so sheep don't all graze/move in lockstep
       const phaseOffset = Math.random() * Math.PI * 2;
 
@@ -3103,6 +3112,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       return {
         mesh: group,
+        lodMesh,
         velocity: new THREE.Vector2(0, 0),
         targetAngle: initialAngle,
         currentAngle: initialAngle,
@@ -3141,8 +3151,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       mesh.position.set(p.x, p.y, p.z);
       mesh.rotation.y = Math.random() * Math.PI * 2;
       scene.add(mesh);
+
+      // LOD mesh — simplified, starts hidden
+      const lodMesh = buildFoxMeshSimple();
+      lodMesh.position.copy(mesh.position);
+      lodMesh.rotation.y = mesh.rotation.y;
+      lodMesh.visible = false;
+      scene.add(lodMesh);
+
       return {
         mesh,
+        lodMesh,
         wanderTimer: Math.random() * 4,
         wanderAngle: Math.random() * Math.PI * 2,
         hp: FOX_MAX_HP,
@@ -6733,6 +6752,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // LOD radius for entities — on mobile we hide entities beyond this distance
       const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
+      // Distance below which the full-quality mesh is shown; beyond it the simplified LOD mesh is used.
+      const LOD_ENTITY_DETAIL_SQ = 65 * 65;
 
       foxListRef.current.forEach((fox) => {
         // Skip all Fox AI when in space station or bunker — foxes are in the hidden earthGroup
@@ -6782,6 +6803,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             fox.isAlive = false;
             fox.isDying = false;
           }
+          // Also keep lod mesh hidden during death/after death
+          if (fox.lodMesh) fox.lodMesh.visible = false;
           return; // skip normal AI while dying
         }
 
@@ -6791,13 +6814,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         const distToPlayer = fm.position.distanceTo(playerPos);
+        const fdx = fm.position.x - playerPos.x;
+        const fdz = fm.position.z - playerPos.z;
+        const fdistSq = fdx * fdx + fdz * fdz;
 
         // Visibility LOD for mobile
         if (IS_MOBILE) {
-          const fdx = fm.position.x - playerPos.x;
-          const fdz = fm.position.z - playerPos.z;
-          fm.visible = fdx * fdx + fdz * fdz < LOD_ENTITY_VIS_SQ;
-          if (!fm.visible) return;
+          const inRange = fdistSq < LOD_ENTITY_VIS_SQ;
+          fm.visible = inRange;
+          if (fox.lodMesh) fox.lodMesh.visible = false; // mobile: no LOD mesh swap, just culling
+          if (!inRange) return;
+        } else {
+          // Desktop: swap between full mesh and simplified LOD mesh based on distance
+          const useDetail = fdistSq < LOD_ENTITY_DETAIL_SQ;
+          fm.visible = useDetail;
+          if (fox.lodMesh) {
+            fox.lodMesh.visible = !useDetail;
+            fox.lodMesh.position.copy(fm.position);
+            fox.lodMesh.rotation.y = fm.rotation.y;
+          }
         }
 
         // Track nearest alive fox for HP display
@@ -7541,20 +7576,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (sheep === possessedSheepRef.current) return;
 
         const s = sheep.mesh;
+        const sdx = s.position.x - playerPos.x;
+        const sdz = s.position.z - playerPos.z;
+        const sdistSq = sdx * sdx + sdz * sdz;
 
         // Visibility LOD for mobile — skip AI for hidden distant sheep
         if (IS_MOBILE) {
-          const sdx = s.position.x - playerPos.x;
-          const sdz = s.position.z - playerPos.z;
-          const visibleNow = sdx * sdx + sdz * sdz < LOD_ENTITY_VIS_SQ;
+          const visibleNow = sdistSq < LOD_ENTITY_VIS_SQ;
           s.visible = visibleNow;
+          if (sheep.lodMesh) sheep.lodMesh.visible = false; // mobile: no LOD mesh swap
           if (!visibleNow) return; // skip AI updates for hidden sheep
         } else {
-          // Desktop LOD: skip AI for sheep beyond 200 units — they remain visible
-          // but frozen until the player approaches (imperceptible at that distance).
-          const sdx = s.position.x - playerPos.x;
-          const sdz = s.position.z - playerPos.z;
-          if (sdx * sdx + sdz * sdz > 200 * 200) return;
+          // Desktop: swap between full mesh and simplified LOD mesh based on distance.
+          // Skip AI entirely for very distant sheep (>200 units).
+          if (sdistSq > 200 * 200) {
+            s.visible = false;
+            if (sheep.lodMesh) {
+              sheep.lodMesh.visible = true;
+              sheep.lodMesh.position.copy(s.position);
+              sheep.lodMesh.rotation.y = s.rotation.y;
+            }
+            return;
+          }
+          const useDetail = sdistSq < LOD_ENTITY_DETAIL_SQ;
+          s.visible = useDetail;
+          if (sheep.lodMesh) {
+            sheep.lodMesh.visible = !useDetail;
+            sheep.lodMesh.position.copy(s.position);
+            sheep.lodMesh.rotation.y = s.rotation.y;
+          }
         }
 
         // ── Death animation ─────────────────────────────────────────────────
@@ -7616,6 +7666,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           } else {
             // Animation complete — remove from scene
             scene.remove(s);
+            if (sheep.lodMesh) {
+              scene.remove(sheep.lodMesh);
+              sheep.lodMesh.visible = false;
+            }
             sheep.isAlive = false;
             sheep.isDying = false;
             // Un-possess if the player was riding this sheep
@@ -7623,6 +7677,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               possessedSheepRef.current = null;
             }
           }
+          // While dying, always keep lod mesh hidden — the full mesh plays the death animation
+          if (sheep.lodMesh) sheep.lodMesh.visible = false;
           return; // skip normal AI while dying
         }
 
@@ -8097,6 +8153,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setPlayerLabels([]);
       }
 
+      // ── Terrain LOD: switch chunk quality based on camera distance ──────────
+      // Update every 30 frames (~0.5 s at 60 fps) — the LOD transition is
+      // imperceptible at that cadence and avoids per-chunk iteration every frame.
+      if (voxelTerrainRef.current && cameraRef.current && frameCount % 30 === 0) {
+        const cam = cameraRef.current;
+        voxelTerrainRef.current.updateTerrainLOD(cam.position.x, cam.position.z);
+      }
+
       renderer.render(scene, cameraRef.current!);
     };
     // Store a reference so onLockChange can restart the loop after a pause
@@ -8163,6 +8227,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       woodLogMeshesRef.current.forEach((log) => scene.remove(log.mesh));
       woodLogMeshesRef.current = [];
       treeDataRef.current = [];
+      // Clean up entity LOD meshes
+      sheepListRef.current.forEach((sheep) => { if (sheep.lodMesh) scene.remove(sheep.lodMesh); });
+      foxListRef.current.forEach((fox) => { if (fox.lodMesh) scene.remove(fox.lodMesh); });
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
