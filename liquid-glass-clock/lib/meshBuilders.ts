@@ -1317,6 +1317,216 @@ export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group;
   return { group, beamPivot, lighthouseLight };
 }
 
+// ─── Sniper Tower ─────────────────────────────────────────────────────────────
+/**
+ * A tall stone observation tower with a spiral staircase on the exterior and a
+ * sniper nest platform at the top.
+ *
+ * Origin sits at the base (ground level).
+ * Tower height: SNIPER_TOWER_HEIGHT (16 units above ground).
+ * Staircase wraps around the exterior (radius 3.0 – 5.2 from tower centre).
+ *
+ * Returns the root group and the world-space Y of the top platform floor
+ * (relative to the group origin, so add terrain height to get world Y).
+ */
+export interface SniperTowerResult {
+  group: THREE.Group;
+  /** Y of the top platform surface relative to group origin (group Y = terrain height). */
+  topPlatformY: number;
+  /** Cylinder collider radius for the solid tower body (excludes staircase). */
+  towerBodyRadius: number;
+  /** Outer radius of the staircase ramp for physics. */
+  stairOuterRadius: number;
+  /** Inner radius of the staircase ramp (== tower body radius). */
+  stairInnerRadius: number;
+}
+
+export const SNIPER_TOWER_HEIGHT = 16; // usable height from base to top platform
+
+export function buildSniperTowerMesh(): SniperTowerResult {
+  const group = new THREE.Group();
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888070 });
+  const darkStoneMat = new THREE.MeshLambertMaterial({ color: 0x5a5448 });
+  const woodMat = new THREE.MeshLambertMaterial({ color: 0x7a5030 });
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x444444 });
+  const battlementMat = new THREE.MeshLambertMaterial({ color: 0x706858 });
+
+  const TOWER_RADIUS = 2.8;
+  const TOWER_HEIGHT = SNIPER_TOWER_HEIGHT;
+  const STAIR_INNER = TOWER_RADIUS;
+  const STAIR_OUTER = 5.0;
+  const STAIR_WIDTH = STAIR_OUTER - STAIR_INNER;
+
+  // ── Tower body (stone cylinder) ────────────────────────────────────────────
+  const towerBodyGeo = new THREE.CylinderGeometry(TOWER_RADIUS, TOWER_RADIUS + 0.3, TOWER_HEIGHT, 16);
+  const towerBody = new THREE.Mesh(towerBodyGeo, stoneMat);
+  towerBody.position.y = TOWER_HEIGHT / 2;
+  towerBody.castShadow = true;
+  towerBody.receiveShadow = true;
+  group.add(towerBody);
+
+  // ── Horizontal mortar lines (decorative bands) ─────────────────────────────
+  for (let i = 2; i < TOWER_HEIGHT; i += 2) {
+    const bandGeo = new THREE.TorusGeometry(TOWER_RADIUS + 0.05, 0.08, 4, 24);
+    const band = new THREE.Mesh(bandGeo, darkStoneMat);
+    band.position.y = i;
+    band.rotation.x = Math.PI / 2;
+    group.add(band);
+  }
+
+  // ── Spiral staircase (32 steps wrapping once around the exterior) ──────────
+  const STEP_COUNT = 32;
+  const stepGeo = new THREE.BoxGeometry(STAIR_WIDTH, 0.22, 1.4);
+  for (let i = 0; i < STEP_COUNT; i++) {
+    const angle = (i / STEP_COUNT) * Math.PI * 2 - Math.PI / 2; // start from south
+    const stepFraction = i / STEP_COUNT;
+    const stepY = stepFraction * TOWER_HEIGHT;
+    const midR = STAIR_INNER + STAIR_WIDTH / 2;
+    const step = new THREE.Mesh(stepGeo, darkStoneMat);
+    step.position.set(
+      Math.cos(angle) * midR,
+      stepY,
+      Math.sin(angle) * midR
+    );
+    step.rotation.y = -angle;
+    step.castShadow = true;
+    group.add(step);
+  }
+
+  // ── Staircase railing (thin posts + handrail ring) ─────────────────────────
+  const postGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.1, 5);
+  const RAILING_POSTS = 20;
+  for (let i = 0; i < RAILING_POSTS; i++) {
+    const angle = (i / RAILING_POSTS) * Math.PI * 2 - Math.PI / 2;
+    const frac = i / RAILING_POSTS;
+    const postY = frac * TOWER_HEIGHT + 0.55;
+    const post = new THREE.Mesh(postGeo, metalMat);
+    post.position.set(
+      Math.cos(angle) * STAIR_OUTER,
+      postY,
+      Math.sin(angle) * STAIR_OUTER
+    );
+    group.add(post);
+  }
+
+  // Outer handrail tube (torus approximation using a torus that wraps once)
+  // Use a series of short cylinders to approximate the spiral rail
+  const railSegGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.9, 5);
+  for (let i = 0; i < RAILING_POSTS; i++) {
+    const a0 = (i / RAILING_POSTS) * Math.PI * 2 - Math.PI / 2;
+    const a1 = ((i + 1) / RAILING_POSTS) * Math.PI * 2 - Math.PI / 2;
+    const f0 = i / RAILING_POSTS;
+    const f1 = (i + 1) / RAILING_POSTS;
+    const aMid = (a0 + a1) / 2;
+    const fMid = (f0 + f1) / 2;
+    const x0 = Math.cos(a0) * STAIR_OUTER;
+    const z0 = Math.sin(a0) * STAIR_OUTER;
+    const y0 = f0 * TOWER_HEIGHT + 0.9;
+    const x1 = Math.cos(a1) * STAIR_OUTER;
+    const z1 = Math.sin(a1) * STAIR_OUTER;
+    const y1 = f1 * TOWER_HEIGHT + 0.9;
+    const midX = (x0 + x1) / 2;
+    const midY = (y0 + y1) / 2;
+    const midZ = (z0 + z1) / 2;
+    const seg = new THREE.Mesh(railSegGeo, metalMat);
+    seg.position.set(midX, midY, midZ);
+    // Orient from p0 to p1
+    const dir = new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize();
+    seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    group.add(seg);
+  }
+
+  // ── Top platform ──────────────────────────────────────────────────────────
+  const TOP_Y = TOWER_HEIGHT;
+  const platformGeo = new THREE.CylinderGeometry(TOWER_RADIUS + 1.0, TOWER_RADIUS + 0.2, 0.45, 16);
+  const platform = new THREE.Mesh(platformGeo, stoneMat);
+  platform.position.y = TOP_Y + 0.225;
+  platform.castShadow = true;
+  platform.receiveShadow = true;
+  group.add(platform);
+
+  // ── Battlements (merlons around top) ──────────────────────────────────────
+  const MERLON_COUNT = 12;
+  const merlonGeo = new THREE.BoxGeometry(0.7, 1.2, 0.6);
+  for (let i = 0; i < MERLON_COUNT; i++) {
+    const angle = (i / MERLON_COUNT) * Math.PI * 2;
+    const merlon = new THREE.Mesh(merlonGeo, battlementMat);
+    const mr = TOWER_RADIUS + 0.7;
+    merlon.position.set(
+      Math.cos(angle) * mr,
+      TOP_Y + 0.45 + 0.6,
+      Math.sin(angle) * mr
+    );
+    merlon.rotation.y = angle;
+    merlon.castShadow = true;
+    group.add(merlon);
+  }
+
+  // ── Sniper platform floor (wooden planks) ──────────────────────────────────
+  const floorGeo = new THREE.CylinderGeometry(TOWER_RADIUS - 0.1, TOWER_RADIUS - 0.1, 0.15, 16);
+  const floor = new THREE.Mesh(floorGeo, woodMat);
+  floor.position.y = TOP_Y + 0.52;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // ── Sniper rifle on stand at top ──────────────────────────────────────────
+  // Display sniper rifle on a wooden stand pointing outward
+  const standPostGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.7, 6);
+  const standPost = new THREE.Mesh(standPostGeo, woodMat);
+  standPost.position.set(0, TOP_Y + 0.52 + 0.35, -1.2);
+  group.add(standPost);
+
+  const standBaseGeo = new THREE.BoxGeometry(0.5, 0.08, 0.3);
+  const standBase = new THREE.Mesh(standBaseGeo, woodMat);
+  standBase.position.set(0, TOP_Y + 0.52 + 0.08, -1.2);
+  group.add(standBase);
+
+  // Rifle display (use a simplified version from buildSniperMesh idea)
+  const rifleBarrelGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.4, 8);
+  const rifleBarrel = new THREE.Mesh(rifleBarrelGeo, new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+  rifleBarrel.rotation.x = Math.PI / 2;
+  rifleBarrel.position.set(0, TOP_Y + 0.52 + 0.72, -1.2);
+  group.add(rifleBarrel);
+
+  const rifleBodyGeo = new THREE.BoxGeometry(0.14, 0.12, 0.55);
+  const rifleBody = new THREE.Mesh(rifleBodyGeo, new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  rifleBody.position.set(0, TOP_Y + 0.52 + 0.72, -0.8);
+  group.add(rifleBody);
+
+  const rifleScopeGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.42, 10);
+  const rifleScope = new THREE.Mesh(rifleScopeGeo, new THREE.MeshLambertMaterial({ color: 0x333333 }));
+  rifleScope.rotation.x = Math.PI / 2;
+  rifleScope.position.set(0, TOP_Y + 0.52 + 0.845, -0.82);
+  group.add(rifleScope);
+
+  // Scope lens glow
+  const scopeLensGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.008, 10);
+  const scopeLens = new THREE.Mesh(scopeLensGeo, new THREE.MeshLambertMaterial({
+    color: 0x88ccff,
+    emissive: 0x4488cc,
+    emissiveIntensity: 0.5,
+  }));
+  scopeLens.rotation.x = Math.PI / 2;
+  scopeLens.position.set(0, TOP_Y + 0.52 + 0.845, -1.055);
+  group.add(scopeLens);
+
+  // Subtle ambient glow at top (hint for the player)
+  const glowLight = new THREE.PointLight(0x9966ff, 1.2, 8);
+  glowLight.position.set(0, TOP_Y + 1.5, 0);
+  group.add(glowLight);
+
+  const topPlatformY = TOP_Y + 0.52;
+
+  return {
+    group,
+    topPlatformY,
+    towerBodyRadius: TOWER_RADIUS,
+    stairOuterRadius: STAIR_OUTER,
+    stairInnerRadius: STAIR_INNER,
+  };
+}
+
 // ─── Boat ──────────────────────────────────────────────────────────────────────
 /**
  * A small wooden rowboat that floats on the water surface.
