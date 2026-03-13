@@ -7114,7 +7114,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const pz = cy + playerBodyPosRef.current.z * scale;
           ctx.save();
           ctx.translate(px, pz);
-          ctx.rotate(yawRef.current + Math.PI);
+          ctx.rotate(-yawRef.current);
           ctx.fillStyle = "#00ff88";
           ctx.beginPath();
           ctx.moveTo(0, -5);
