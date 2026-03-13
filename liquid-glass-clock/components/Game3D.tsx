@@ -71,9 +71,8 @@ import {
   buildAirplane3DMesh,
   buildAirstripMesh,
   buildAirstripSignMesh,
-  buildCity,
+  buildMountainWithWaterfallAndCave,
   type CityResult,
-  type CityTerrainOptions,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
@@ -204,10 +203,10 @@ const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when po
 const LIGHTHOUSE_X = -95;       // world X coordinate — accessible northwest coastal rise
 const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable boundary (±123.5)
 
-// ─── City Constants ────────────────────────────────────────────────────────────
-/** World-space centre of the big city (southwest quadrant of the map) */
-const CITY_X = -60;
-const CITY_Z = -80;
+// ─── Mountain Constants ────────────────────────────────────────────────────────
+/** World-space centre of the mountain with waterfall and cave (southwest quadrant) */
+const MOUNTAIN_X = -60;
+const MOUNTAIN_Z = -80;
 
 // ─── Boat Constants ───────────────────────────────────────────────────────────
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
@@ -3160,43 +3159,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Cylinder collider for the lighthouse base (base radius 2.2)
     treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS });
 
-    // ── Big City (southwest quadrant) ─────────────────────────────────────────
+    // ── Mountain with waterfall and cave (southwest quadrant) ─────────────────
     {
-      let citySeed = 42;
-      const cityRng = () => {
-        citySeed = (citySeed * 1664525 + 1013904223) & 0xffffffff;
-        return (citySeed >>> 0) / 0xffffffff;
-      };
-      const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
-      const cityTerrainOptions: CityTerrainOptions = {
-        terrainSampler: getTerrainHeightSampled,
-        worldX: CITY_X,
-        worldZ: CITY_Z,
-      };
-      const cityResult: CityResult = buildCity(cityRng, cityTerrainOptions);
-      cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
-      scene.add(cityResult.group);
+      const mountainGroundY = getTerrainHeightSampled(MOUNTAIN_X, MOUNTAIN_Z);
+      const mountainResult: CityResult = buildMountainWithWaterfallAndCave();
+      mountainResult.group.position.set(MOUNTAIN_X, mountainGroundY, MOUNTAIN_Z);
+      scene.add(mountainResult.group);
 
-      // Register box colliders in world space
-      {
-        const cosR = Math.cos(0);
-        const sinR = Math.sin(0);
-        for (const bc of cityResult.boxColliders) {
-          boxCollidersRef.current.push({
-            cx: CITY_X + bc.lx * cosR - bc.lz * sinR,
-            cz: CITY_Z + bc.lx * sinR + bc.lz * cosR,
-            halfW: bc.halfW,
-            halfD: bc.halfD,
-            rotY: bc.rotY,
-          });
-        }
-        for (const cc of cityResult.cylColliders) {
-          treeCollisionRef.current.push({
-            x: CITY_X + cc.lx * cosR - cc.lz * sinR,
-            z: CITY_Z + cc.lx * sinR + cc.lz * cosR,
-            radius: cc.radius + PLAYER_RADIUS,
-          });
-        }
+      // Register colliders in world space
+      for (const bc of mountainResult.boxColliders) {
+        boxCollidersRef.current.push({
+          cx: MOUNTAIN_X + bc.lx,
+          cz: MOUNTAIN_Z + bc.lz,
+          halfW: bc.halfW,
+          halfD: bc.halfD,
+          rotY: bc.rotY,
+        });
+      }
+      for (const cc of mountainResult.cylColliders) {
+        treeCollisionRef.current.push({
+          x: MOUNTAIN_X + cc.lx,
+          z: MOUNTAIN_Z + cc.lz,
+          radius: cc.radius + PLAYER_RADIUS,
+        });
       }
     }
 
@@ -6998,18 +6983,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           }
 
-          // City marker
+          // Mountain marker
           {
-            const cmx = cx + CITY_X * scale;
-            const cmz = cy + CITY_Z * scale;
-            if (cmx >= 0 && cmx <= W && cmz >= 0 && cmz <= W) {
-              ctx.fillStyle = "#a0c8ff";
+            const mmx = cx + MOUNTAIN_X * scale;
+            const mmz = cy + MOUNTAIN_Z * scale;
+            if (mmx >= 0 && mmx <= W && mmz >= 0 && mmz <= W) {
+              ctx.fillStyle = "#8abcff";
               ctx.beginPath();
-              ctx.arc(cmx, cmz, 5, 0, Math.PI * 2);
+              ctx.arc(mmx, mmz, 5, 0, Math.PI * 2);
               ctx.fill();
               ctx.fillStyle = "#ffffff";
               ctx.font = "bold 8px monospace";
-              ctx.fillText("🏙", cmx - 5, cmz + 3);
+              ctx.fillText("⛰", mmx - 5, mmz + 3);
             }
           }
 
