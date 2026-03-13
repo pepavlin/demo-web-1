@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import UpdateNotification from "@/components/UpdateNotification";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import ChangelogWidget from "@/components/ChangelogWidget";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -24,6 +25,7 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased h-full`}>
         <UpdateNotification />
         {children}
+        <ChangelogWidget />
         <FeedbackWidget />
       </body>
     </html>
