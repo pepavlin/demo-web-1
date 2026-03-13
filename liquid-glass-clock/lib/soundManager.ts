@@ -895,36 +895,6 @@ class SoundManager {
     noise.stop(t + 0.14);
   }
 
-  /** Gentle brush sound for terrain sculpting. */
-  playTerrainSculpt(): void {
-    if (!this.ctx || !this.sfxGain) return;
-    const ctx = this.ctx;
-    const t = ctx.currentTime;
-
-    const bufLen = Math.floor(ctx.sampleRate * 0.08);
-    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) {
-      const env = Math.sin((i / bufLen) * Math.PI);
-      data[i] = (Math.random() * 2 - 1) * env * 0.4;
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf;
-
-    const filt = ctx.createBiquadFilter();
-    filt.type = "lowpass";
-    filt.frequency.value = 400;
-
-    const gain = ctx.createGain();
-    gain.gain.value = 0.18;
-
-    noise.connect(filt);
-    filt.connect(gain);
-    gain.connect(this.sfxGain);
-    noise.start(t);
-    noise.stop(t + 0.1);
-  }
-
   /**
    * Water ambient sound – gentle flowing/gurgling noise.
    * Should only be called when the player is within hearing range of water.

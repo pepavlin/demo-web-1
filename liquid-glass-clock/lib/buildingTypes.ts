@@ -13,7 +13,7 @@ export type BlockMaterial =
   | "metal"
   | "crystal";
 
-export type BuildMode = "explore" | "build" | "sculpt";
+export type BuildMode = "explore" | "build";
 
 export interface PlacedBlockData {
   /** Grid-snapped world X */
@@ -71,12 +71,6 @@ export const BLOCK_SIZE = 1;
 
 /** Max raycast distance for block placement / removal. */
 export const BUILD_RANGE = 8;
-
-/** Radius of the terrain sculpt brush in world units. */
-export const SCULPT_RADIUS = 5;
-
-/** Height change per scroll click in sculpt mode. */
-export const SCULPT_STRENGTH = 0.35;
 
 /** Maximum number of placed blocks (performance limit). */
 export const MAX_BLOCKS = 500;
