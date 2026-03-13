@@ -725,3 +725,14 @@ body {
   background-size: 128px 128px;
   z-index: 50;
 }
+
+/* Sniper reload ring — ready flash */
+@keyframes sniper-ready-flash {
+  0%   { opacity: 0.9; r: 28; stroke-width: 3; }
+  60%  { opacity: 0.5; r: 34; stroke-width: 1.5; }
+  100% { opacity: 0;   r: 38; stroke-width: 0.5; }
+}
+
+.sniper-ready-flash circle {
+  animation: sniper-ready-flash 0.45s ease-out forwards;
+}
