@@ -693,11 +693,112 @@ body {
 }
 
 .airplane-svg {
-  width: 120px;
-  height: 48px;
+  width: 140px;
+  height: 54px;
   filter: drop-shadow(0 0 8px rgba(180, 140, 255, 0.55))
           drop-shadow(0 0 20px rgba(140, 100, 255, 0.30));
 }
+
+/* ── Flame flicker animations ─────────────────────────────────────────── */
+
+/* Outer flame layer — slow, wide breathing */
+@keyframes flame-outer-flicker {
+  0%   { opacity: 0.50; transform: scaleX(1.00) scaleY(1.00); }
+  12%  { opacity: 0.60; transform: scaleX(1.04) scaleY(1.06); }
+  25%  { opacity: 0.45; transform: scaleX(0.96) scaleY(0.93); }
+  38%  { opacity: 0.62; transform: scaleX(1.07) scaleY(1.10); }
+  52%  { opacity: 0.48; transform: scaleX(0.98) scaleY(0.96); }
+  66%  { opacity: 0.58; transform: scaleX(1.05) scaleY(1.08); }
+  80%  { opacity: 0.43; transform: scaleX(0.95) scaleY(0.91); }
+  100% { opacity: 0.50; transform: scaleX(1.00) scaleY(1.00); }
+}
+
+/* Mid flame layer — medium frequency */
+@keyframes flame-mid-flicker {
+  0%   { opacity: 0.72; transform: scaleX(1.00) translateY(0px); }
+  8%   { opacity: 0.85; transform: scaleX(1.03) translateY(-0.3px); }
+  18%  { opacity: 0.68; transform: scaleX(0.97) translateY(0.2px); }
+  30%  { opacity: 0.90; transform: scaleX(1.05) translateY(-0.4px); }
+  42%  { opacity: 0.70; transform: scaleX(0.96) translateY(0.3px); }
+  55%  { opacity: 0.88; transform: scaleX(1.04) translateY(-0.2px); }
+  68%  { opacity: 0.65; transform: scaleX(0.98) translateY(0.4px); }
+  82%  { opacity: 0.84; transform: scaleX(1.02) translateY(-0.1px); }
+  100% { opacity: 0.72; transform: scaleX(1.00) translateY(0px); }
+}
+
+/* Core flame — fast, high intensity flicker */
+@keyframes flame-core-flicker {
+  0%   { opacity: 0.92; transform: scaleX(1.00) scaleY(1.00); }
+  7%   { opacity: 1.00; transform: scaleX(1.02) scaleY(1.04); }
+  15%  { opacity: 0.88; transform: scaleX(0.99) scaleY(0.97); }
+  22%  { opacity: 1.00; transform: scaleX(1.03) scaleY(1.05); }
+  30%  { opacity: 0.90; transform: scaleX(0.98) scaleY(0.96); }
+  38%  { opacity: 1.00; transform: scaleX(1.02) scaleY(1.03); }
+  46%  { opacity: 0.87; transform: scaleX(1.00) scaleY(0.98); }
+  55%  { opacity: 1.00; transform: scaleX(1.03) scaleY(1.06); }
+  64%  { opacity: 0.91; transform: scaleX(0.99) scaleY(0.97); }
+  73%  { opacity: 1.00; transform: scaleX(1.01) scaleY(1.04); }
+  83%  { opacity: 0.88; transform: scaleX(0.98) scaleY(0.95); }
+  92%  { opacity: 1.00; transform: scaleX(1.02) scaleY(1.03); }
+  100% { opacity: 0.92; transform: scaleX(1.00) scaleY(1.00); }
+}
+
+/* Bloom pulse — subtle pulsing glow */
+@keyframes flame-bloom-pulse {
+  0%, 100% { opacity: 0.30; }
+  40%       { opacity: 0.45; }
+  70%       { opacity: 0.22; }
+}
+
+.flame-outer-layer {
+  transform-origin: 52px 34px;
+  animation: flame-outer-flicker 0.55s ease-in-out infinite;
+}
+
+.flame-mid-layer {
+  transform-origin: 52px 34px;
+  animation: flame-mid-flicker 0.28s ease-in-out infinite;
+}
+
+.flame-core-layer {
+  transform-origin: 52px 34px;
+  animation: flame-core-flicker 0.18s ease-in-out infinite;
+}
+
+/* Individual tongue jitter — staggered delays create mesh complexity */
+.flame-tongue-1  { animation: flame-outer-flicker 0.52s 0.00s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-2  { animation: flame-outer-flicker 0.48s 0.07s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-3  { animation: flame-outer-flicker 0.60s 0.13s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-4  { animation: flame-mid-flicker   0.30s 0.04s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-5  { animation: flame-outer-flicker 0.65s 0.18s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-6  { animation: flame-mid-flicker   0.27s 0.02s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-7  { animation: flame-mid-flicker   0.32s 0.09s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-8  { animation: flame-mid-flicker   0.25s 0.15s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-9  { animation: flame-mid-flicker   0.29s 0.06s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-10 { animation: flame-mid-flicker   0.33s 0.12s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-tongue-11 { animation: flame-outer-flicker 0.58s 0.20s ease-in-out infinite; transform-origin: 52px 34px; }
+
+.flame-core-1 { animation: flame-core-flicker 0.17s 0.00s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-core-2 { animation: flame-core-flicker 0.19s 0.05s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-core-3 { animation: flame-core-flicker 0.16s 0.08s ease-in-out infinite; transform-origin: 52px 34px; }
+.flame-core-4 { animation: flame-core-flicker 0.20s 0.03s ease-in-out infinite; transform-origin: 52px 34px; }
+
+/* Engine 2 tongues — slightly different timings for visual variety */
+.flame-tongue-e2-1 { animation: flame-outer-flicker 0.50s 0.11s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-tongue-e2-2 { animation: flame-outer-flicker 0.57s 0.03s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-tongue-e2-3 { animation: flame-mid-flicker   0.31s 0.16s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-tongue-e2-4 { animation: flame-mid-flicker   0.26s 0.08s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-tongue-e2-5 { animation: flame-mid-flicker   0.28s 0.14s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-tongue-e2-6 { animation: flame-mid-flicker   0.34s 0.05s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-core-e2-1   { animation: flame-core-flicker  0.18s 0.07s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-core-e2-2   { animation: flame-core-flicker  0.17s 0.11s ease-in-out infinite; transform-origin: 66px 34px; }
+.flame-core-e2-3   { animation: flame-core-flicker  0.19s 0.02s ease-in-out infinite; transform-origin: 66px 34px; }
+
+/* Bloom glow layers */
+.flame-bloom-1    { animation: flame-bloom-pulse 0.40s 0.00s ease-in-out infinite; }
+.flame-bloom-2    { animation: flame-bloom-pulse 0.35s 0.12s ease-in-out infinite; }
+.flame-bloom-e2-1 { animation: flame-bloom-pulse 0.42s 0.08s ease-in-out infinite; }
+.flame-bloom-e2-2 { animation: flame-bloom-pulse 0.38s 0.05s ease-in-out infinite; }
 
 .airplane-contrail {
   height: 2px;
