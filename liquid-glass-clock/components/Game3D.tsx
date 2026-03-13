@@ -83,6 +83,8 @@ import {
   buildSniperMesh,
   buildMachineGunMesh,
   buildWoodLogMesh,
+  buildAirdropCrateMesh,
+  buildParachuteMesh,
   buildBiolumFlowerMesh,
   buildBiolumMushroomMesh,
   buildBiolumFernMesh,
@@ -102,7 +104,18 @@ import {
   getWalkableSurfaceY,
   testOBBXZ,
 } from "@/lib/collisionSystem";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData, AirdropData } from "@/lib/gameTypes";
+import {
+  pickRandomLoot,
+  findAirdropLandingPosition,
+  formatLootMessage,
+  lootEmoji,
+  AIRDROP_INTERVAL,
+  AIRDROP_SPAWN_HEIGHT,
+  AIRDROP_FALL_SPEED,
+  AIRDROP_OPEN_RADIUS,
+  AIRDROP_DESPAWN_TIME,
+} from "@/lib/airdropSystem";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -665,6 +678,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const treasureChestRef = useRef<TreasureChestData | null>(null);
   const spidersDefeatedRef = useRef(0);
 
+  // ─── Airdrop Refs ─────────────────────────────────────────────────────────────
+  /** Countdown accumulator — triggers a new airdrop every AIRDROP_INTERVAL seconds. */
+  const airdropTimerRef = useRef(0);
+  /** Active airdrop crate (only one at a time). */
+  const airdropRef = useRef<AirdropData | null>(null);
+
   // ─── Blood Particle Refs ──────────────────────────────────────────────────────
   const bloodParticlesRef = useRef<BloodParticle[]>([]);
 
@@ -802,6 +821,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   });
   const [nearItemPrompt, setNearItemPrompt] = useState<WorldItemType | null>(null);
   const [heldItemType, setHeldItemType] = useState<WorldItemType | null>(null);
+  const [nearAirdropPrompt, setNearAirdropPrompt] = useState(false);
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
@@ -861,6 +881,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
   const [nearSpiderHp, setNearSpiderHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
   const [chestOpenedMsg, setChestOpenedMsg] = useState(false);
+  const [airdropIncoming, setAirdropIncoming] = useState(false);
+  const [airdropLandedMsg, setAirdropLandedMsg] = useState(false);
+  const [airdropOpenedMsg, setAirdropOpenedMsg] = useState<string | null>(null);
+  /** Seconds elapsed toward next airdrop — updated in game loop at ~2 Hz for HUD. */
+  const [airdropCountdown, setAirdropCountdown] = useState(0);
+  /** Current airdrop phase for HUD rendering (null = none active). */
+  const [airdropPhase, setAirdropPhase] = useState<'falling' | 'landed' | null>(null);
+  /** Seconds remaining on despawn timer for landed crate. */
+  const [airdropDespawnTimer, setAirdropDespawnTimer] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const implementBufferRef = useRef<string>("");
 
@@ -6953,6 +6982,154 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
+      // ── Airdrop System ──────────────────────────────────────────────────────
+      airdropTimerRef.current += dt;
+
+      // Spawn a new airdrop every AIRDROP_INTERVAL seconds (if none active)
+      if (airdropTimerRef.current >= AIRDROP_INTERVAL && !airdropRef.current) {
+        airdropTimerRef.current = 0;
+
+        const airdropPos = findAirdropLandingPosition(
+          playerPos.x,
+          playerPos.z,
+          getTerrainHeightSampled,
+          WATER_LEVEL,
+          1.0,
+        );
+
+        if (airdropPos) {
+          const crateMesh  = buildAirdropCrateMesh();
+          const parachute  = buildParachuteMesh(3.0);
+
+          // Parachute sits on top of the crate (crate is 1.2 units tall)
+          parachute.position.set(0, 1.2, 0);
+          crateMesh.add(parachute);
+
+          // Start high above the landing position
+          crateMesh.position.set(airdropPos.x, AIRDROP_SPAWN_HEIGHT, airdropPos.z);
+          scene.add(crateMesh);
+
+          // Flashing beacon ring projected onto the terrain below
+          const beaconGeo = new THREE.RingGeometry(2.5, 3.0, 32);
+          const beaconMat = new THREE.MeshBasicMaterial({
+            color: 0xff4400,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.6,
+          });
+          const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+          beaconMesh.rotation.x = -Math.PI / 2;
+          beaconMesh.position.set(airdropPos.x, airdropPos.terrainY + 0.05, airdropPos.z);
+          scene.add(beaconMesh);
+
+          const loot = pickRandomLoot();
+
+          airdropRef.current = {
+            mesh: crateMesh,
+            parachuteMesh: parachute,
+            beaconMesh,
+            state: 'falling',
+            x: airdropPos.x,
+            z: airdropPos.z,
+            targetY: airdropPos.terrainY,
+            despawnTimer: 0,
+            beaconAge: 0,
+            loot,
+          };
+
+          setAirdropIncoming(true);
+          setTimeout(() => setAirdropIncoming(false), 5000);
+        }
+      }
+
+      // Update active airdrop
+      const ad = airdropRef.current;
+      if (ad) {
+        if (ad.state === 'falling') {
+          const currentY = ad.mesh.position.y;
+          const newY = currentY - AIRDROP_FALL_SPEED * dt;
+
+          if (newY <= ad.targetY) {
+            // Crate has landed
+            ad.mesh.position.y = ad.targetY;
+            ad.state = 'landed';
+
+            // Parachute settles — tilt it sideways
+            ad.parachuteMesh.rotation.z = Math.PI / 2;
+            ad.parachuteMesh.position.set(1.5, 0.3, 0);
+
+            setAirdropLandedMsg(true);
+            setTimeout(() => setAirdropLandedMsg(false), 4000);
+            soundManager.playCoinCollect?.();
+          } else {
+            ad.mesh.position.y = newY;
+            // Gentle pendulum sway of the parachute during descent
+            ad.beaconAge += dt;
+            ad.parachuteMesh.rotation.z = Math.sin(ad.beaconAge * 0.9) * 0.07;
+            ad.parachuteMesh.rotation.x = Math.sin(ad.beaconAge * 0.6 + 1.2) * 0.05;
+          }
+
+          // Beacon pulse during fall
+          const beaconMatFalling = ad.beaconMesh.material as THREE.MeshBasicMaterial;
+          beaconMatFalling.opacity = 0.3 + 0.5 * Math.abs(Math.sin((ad.beaconAge) * 2.5));
+
+        } else if (ad.state === 'landed') {
+          ad.despawnTimer += dt;
+          ad.beaconAge += dt;
+
+          // Beacon continues to pulse (slower)
+          const beaconMatLanded = ad.beaconMesh.material as THREE.MeshBasicMaterial;
+          beaconMatLanded.opacity = 0.2 + 0.4 * Math.abs(Math.sin(ad.beaconAge * 1.5));
+
+          // Check proximity for auto-open
+          const distToCrate = Math.sqrt(
+            (playerPos.x - ad.x) ** 2 + (playerPos.z - ad.z) ** 2,
+          );
+
+          // Show proximity prompt when within 2× open radius
+          setNearAirdropPrompt(distToCrate < AIRDROP_OPEN_RADIUS * 2);
+
+          if (distToCrate < AIRDROP_OPEN_RADIUS) {
+            // Open the crate
+            ad.state = 'opened';
+            scene.remove(ad.mesh);
+            scene.remove(ad.beaconMesh);
+            setNearAirdropPrompt(false);
+
+            // Apply loot effect to player
+            const { loot } = ad;
+            if (loot.type === 'coins') {
+              coinsCollectedRef.current += loot.amount;
+            } else if (loot.type === 'wood') {
+              woodCollectedRef.current += loot.amount;
+            } else if (loot.type === 'health') {
+              playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
+            } else if (loot.type === 'weapon' && loot.weaponType) {
+              swapWeaponMesh(loot.weaponType);
+            }
+
+            const lootMsg = `${lootEmoji(loot)} ${formatLootMessage(loot)}`;
+            setAirdropOpenedMsg(lootMsg);
+            setTimeout(() => setAirdropOpenedMsg(null), 4500);
+            soundManager.playCoinCollect?.();
+
+            airdropRef.current = null;
+
+          } else if (ad.despawnTimer >= AIRDROP_DESPAWN_TIME) {
+            // Auto-despawn after timeout
+            scene.remove(ad.mesh);
+            scene.remove(ad.beaconMesh);
+            setNearAirdropPrompt(false);
+            airdropRef.current = null;
+          }
+        } else {
+          // Not landed — no proximity prompt
+          setNearAirdropPrompt(false);
+        }
+      } else {
+        setNearAirdropPrompt(false);
+      }
+
       // Update spiders defeated in HUD
       if (spidersDefeatedRef.current > 0) {
         // We rely on the HUD state update below
@@ -7809,6 +7986,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           woodCollected: woodCollectedRef.current,
           cooldownProgress: Math.max(0, Math.min(1, playerAttackCooldownRef.current / WEAPON_CONFIGS[selectedWeaponRef.current].cooldown)),
         }));
+        setAirdropCountdown(airdropTimerRef.current);
+        const adCurrent = airdropRef.current;
+        setAirdropPhase(adCurrent ? (adCurrent.state === 'falling' ? 'falling' : adCurrent.state === 'landed' ? 'landed' : null) : null);
+        setAirdropDespawnTimer(adCurrent?.despawnTimer ?? 0);
       }
 
       const bleatingNear = sheepListRef.current.find(
@@ -8253,6 +8434,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🪵 Dřevo</span>
                   <span className="text-xs font-bold tabular-nums" style={{ color: "#a3763a" }}>
                     {gameState.woodCollected}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Airdrop countdown / status */}
+            {airdropPhase === null && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>📦 Zásoby</span>
+                  <span className="text-xs font-bold tabular-nums" style={{ color: "#fdba74" }}>
+                    {Math.max(0, Math.ceil(AIRDROP_INTERVAL - airdropCountdown))}s
+                  </span>
+                </div>
+              </>
+            )}
+            {airdropPhase === 'falling' && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs animate-pulse" style={{ color: "#fb923c" }}>📦 Bedna padá!</span>
+                </div>
+              </>
+            )}
+            {airdropPhase === 'landed' && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs animate-pulse" style={{ color: "#4ade80" }}>📦 Přistála!</span>
+                  <span className="text-xs tabular-nums" style={{ color: "rgba(255,255,255,0.50)" }}>
+                    {Math.max(0, Math.ceil(AIRDROP_DESPAWN_TIME - airdropDespawnTimer))}s
                   </span>
                 </div>
               </>
@@ -8950,6 +9163,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
+      {/* ═══════════════ BOTTOM — Airdrop crate proximity prompt ═══════════════ */}
+      {nearAirdropPrompt && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(100,50,5,0.88)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,140,40,0.50)",
+              boxShadow: "0 0 22px rgba(255,100,20,0.40)",
+            }}
+          >
+            📦 Přijdi blíž a otevři zásobovací bednu
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER — Possession prompt ═══════════════ */}
       {nearSheepPrompt && !isPossessed && !onBoat && gameState.isLocked && (
         <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -8982,6 +9213,69 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🐑 Hraješ za ovci &nbsp;·&nbsp; <span style={{ color: "#86efac" }}>[E] Opustit tělo</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ TOP-CENTER — Airdrop incoming announcement ═══════════════ */}
+      {airdropIncoming && gameState.isLocked && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
+          <div
+            className="rounded-xl text-white font-bold text-center animate-bounce"
+            style={{
+              padding: "14px 28px",
+              background: "rgba(180,50,0,0.88)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,120,40,0.70)",
+              boxShadow: "0 0 30px rgba(255,100,20,0.50)",
+              fontSize: 17,
+            }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 6 }}>📦</div>
+            <div style={{ color: "#ffddbb" }}>Zásobovací bedna!</div>
+            <div style={{ color: "#fca5a5", fontSize: 13, marginTop: 6 }}>Padá z nebe nedaleko tebe</div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ TOP-CENTER — Airdrop landed announcement ═══════════════ */}
+      {airdropLandedMsg && gameState.isLocked && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
+          <div
+            className="rounded-xl text-white font-bold text-center"
+            style={{
+              padding: "14px 28px",
+              background: "rgba(30,70,20,0.88)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(80,200,80,0.60)",
+              boxShadow: "0 0 30px rgba(60,180,60,0.40)",
+              fontSize: 17,
+            }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 6 }}>📦</div>
+            <div style={{ color: "#bbf7d0" }}>Bedna přistála!</div>
+            <div style={{ color: "#86efac", fontSize: 13, marginTop: 6 }}>Přijď si pro zásoby</div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Airdrop opened message ═══════════════ */}
+      {airdropOpenedMsg && gameState.isLocked && (
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
+          <div
+            className="rounded-2xl text-white font-bold text-center"
+            style={{
+              padding: "22px 36px",
+              background: "rgba(8,30,8,0.93)",
+              backdropFilter: "blur(16px)",
+              border: "1px solid rgba(80,200,80,0.60)",
+              boxShadow: "0 0 40px rgba(60,200,60,0.45)",
+              fontSize: 18,
+            }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
+            <div style={{ color: "#bbf7d0" }}>Bedna otevřena!</div>
+            <div style={{ color: "#86efac", fontSize: 15, marginTop: 10 }}>{airdropOpenedMsg}</div>
           </div>
         </div>
       )}
