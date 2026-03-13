@@ -23,8 +23,14 @@ The game features four distinct weapons selectable before entering the world (or
 
 - **Combat style:** Silent ranged. Fires arrow projectiles at moderate speed.
 - **Range:** 80 units (long).
-- **3D model:** `buildBowMesh()` — curved limbs in three segments, dark wood grip, bowstring, loaded arrow with fletching.
+- **3D model:** `buildBowMesh()` — curved limbs in three segments, dark wood grip, bowstring, loaded arrow with fletching. Limb segments `bowUpperSeg2/3` and `bowLowerSeg2/3` store `userData.baseRotZ` / `userData.basePosZ` for the dynamic flex animation.
 - **Sound:** `_playBowShot()` — low-frequency bowstring twang (130 Hz + harmonic at 260 Hz) + high-pass noise whoosh (1.8 kHz) representing the arrow in flight.
+- **Bow draw animation (3D, first-person):**
+  - `bowstring` group moves in +Z (toward archer) proportional to `drawProgress`
+  - `bowUpperSeg2/3` and `bowLowerSeg2/3` flex in +Z and rotate around Z to simulate limb bending
+  - Mid-segments flex at half the amplitude of tip segments
+  - On release/cooldown the animation smoothly relaxes back to rest pose
+- **Bow SVG (weapon select UI):** Arrow points LEFT (toward enemy) with arrowhead at x≈30, bow limbs on the right at x≈90 curving rightward — consistent with sword/sniper orientation in weapon cards.
 
 ## Crossbow (Kuše)
 

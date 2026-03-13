@@ -5956,6 +5956,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             bowstringGroup.position.x = drawProgress * -0.008;
           }
 
+          // ── Dynamic limb flex: bow limbs bend as string is drawn ──────────
+          // The outer limb segments rotate and shift in Z to simulate the bow
+          // storing energy. Mid segments flex at half the amplitude of tips.
+          const uSeg2 = wep.getObjectByName("bowUpperSeg2") as THREE.Mesh | undefined;
+          const uSeg3 = wep.getObjectByName("bowUpperSeg3") as THREE.Mesh | undefined;
+          const lSeg2 = wep.getObjectByName("bowLowerSeg2") as THREE.Mesh | undefined;
+          const lSeg3 = wep.getObjectByName("bowLowerSeg3") as THREE.Mesh | undefined;
+          if (uSeg2 && uSeg3 && lSeg2 && lSeg3) {
+            // Mid segments: slight flex
+            uSeg2.position.z = uSeg2.userData.basePosZ + drawProgress * 0.008;
+            uSeg2.rotation.z = uSeg2.userData.baseRotZ - drawProgress * 0.05;
+            lSeg2.position.z = lSeg2.userData.basePosZ + drawProgress * 0.008;
+            lSeg2.rotation.z = lSeg2.userData.baseRotZ + drawProgress * 0.05;
+            // Tip segments: full flex — limb tips visibly curl toward the archer
+            uSeg3.position.z = uSeg3.userData.basePosZ + drawProgress * 0.016;
+            uSeg3.rotation.z = uSeg3.userData.baseRotZ - drawProgress * 0.12;
+            lSeg3.position.z = lSeg3.userData.basePosZ + drawProgress * 0.016;
+            lSeg3.rotation.z = lSeg3.userData.baseRotZ + drawProgress * 0.12;
+          }
+
           // Tilt bow and pull weapon back slightly when fully drawn (aiming posture)
           wep.rotation.z = drawProgress * -0.10;
           if (isBowChargingRef.current) {
