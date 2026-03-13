@@ -1487,13 +1487,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── 6. Damage entities in blast radius ─────────────────────────────────
     foxListRef.current.forEach((fox) => {
-      if (!fox.isAlive) return;
+      if (!fox.isAlive || fox.isDying) return;
       if (fox.mesh.position.distanceTo(pos) < BOMB_BLAST_RADIUS) {
         fox.hp = Math.max(0, fox.hp - BOMB_BLAST_DAMAGE);
         fox.hitFlashTimer = 0.3;
         flashFoxMesh(fox.mesh);
         if (fox.hp <= 0) {
-          fox.isAlive = false;
+          fox.isDying = true;
+          fox.deathTimer = 0;
           foxesDefeatedRef.current++;
           soundManager.playFoxDeath();
         }
@@ -1749,7 +1750,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       let closestDist = weaponCfg.range;
 
       foxListRef.current.forEach((fox) => {
-        if (!fox.isAlive) return;
+        if (!fox.isAlive || fox.isDying) return;
         const d = fox.mesh.position.distanceTo(playerPos);
         if (d < closestDist) {
           closestDist = d;
@@ -1768,7 +1769,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setTimeout(() => setAttackEffect(null), 700);
 
         if (fox.hp <= 0) {
-          fox.isAlive = false;
+          fox.isDying = true;
+          fox.deathTimer = 0;
           foxesDefeatedRef.current++;
           soundManager.playFoxDeath();
         }
@@ -3246,6 +3248,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         isAlive: true,
         attackCooldown: Math.random() * 2,
         hitFlashTimer: 0,
+        isDying: false,
+        deathTimer: 0,
+        deathRotationY: 0,
         cachedNearestSheep: null,
         sheepSearchTimer: Math.random() * 0.25, // stagger initial searches
       };
@@ -6566,7 +6571,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Check fox collisions
         let bulletHit = false;
         for (const fox of foxListRef.current) {
-          if (!fox.isAlive) continue;
+          if (!fox.isAlive || fox.isDying) continue;
           const dist = bullet.mesh.position.distanceTo(fox.mesh.position);
           if (dist < BULLET_HIT_RADIUS) {
             // Use the weapon that fired this bullet (not the currently selected weapon)
@@ -6583,7 +6588,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             setAttackEffect(`-${dmg}`);
             setTimeout(() => setAttackEffect(null), 700);
             if (fox.hp <= 0) {
-              fox.isAlive = false;
+              fox.isDying = true;
+              fox.deathTimer = 0;
               foxesDefeatedRef.current++;
               soundManager.playFoxDeath();
             }
@@ -6928,13 +6934,50 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (_inStation || _inBunker) return;
         const fm = fox.mesh;
 
-        // Death animation: scale down then hide
-        if (!fox.isAlive) {
-          if (fm.visible) {
-            fm.scale.setScalar(Math.max(0, fm.scale.x - dt * 4));
-            if (fm.scale.x <= 0.01) fm.visible = false;
+        // Skip already-dead foxes
+        if (!fox.isAlive) return;
+
+        // ── Death animation ─────────────────────────────────────────────────
+        if (fox.isDying) {
+          fox.deathTimer += dt;
+          const t = fox.deathTimer;
+
+          if (t < 0.35) {
+            // Phase 1: violent body-shock shaking
+            const shakeAmp = (0.35 - t) / 0.35; // 1 → 0
+            const shake = Math.sin(t * 65) * shakeAmp;
+            fm.position.x += shake * 0.08;
+            fm.position.z += shake * 0.08;
+            fm.rotation.z = shake * 0.45;
+          } else if (t < 1.4) {
+            // Phase 2: exponential spin + tip over
+            const fallT = (t - 0.35) / 1.05; // 0 → 1
+            const spinSpeed = Math.pow(1 - fallT, 1.8) * 14; // rad/s
+            fox.deathRotationY += spinSpeed * dt;
+            fm.rotation.y = fox.deathRotationY;
+            fm.rotation.z = fallT * (Math.PI / 2) * 1.05; // overshoot slightly
+            const bounce = Math.max(0, Math.sin(fallT * Math.PI * 2.5) * (1 - fallT) * 0.3);
+            fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z) + bounce;
+          } else if (t < 2.4) {
+            // Phase 3: fade out while lying on ground
+            const fadeT = (t - 1.4) / 1.0; // 0 → 1
+            const opacity = 1 - fadeT;
+            fm.traverse((child) => {
+              const m = child as THREE.Mesh;
+              if (m.isMesh && m.material) {
+                const mat = m.material as THREE.MeshLambertMaterial;
+                mat.transparent = true;
+                mat.opacity = opacity;
+              }
+            });
+            fm.rotation.z = Math.PI / 2; // stay lying flat
+          } else {
+            // Animation complete — remove from scene
+            scene.remove(fm);
+            fox.isAlive = false;
+            fox.isDying = false;
           }
-          return;
+          return; // skip normal AI while dying
         }
 
         // Hit flash timer

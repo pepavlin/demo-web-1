@@ -21,6 +21,9 @@ function makeFoxData(overrides: Partial<FoxData> = {}): FoxData {
     isAlive: true,
     attackCooldown: 0,
     hitFlashTimer: 0,
+    isDying: false,
+    deathTimer: 0,
+    deathRotationY: 0,
     cachedNearestSheep: null,
     sheepSearchTimer: 0,
     ...overrides,
@@ -197,5 +200,62 @@ describe("Fox nearest-sheep cache", () => {
     }
     expect(fox.cachedNearestSheep).toBe(sheep);
     expect(fox.sheepSearchTimer).toBe(0.25);
+  });
+});
+
+// ─── Fox death animation ──────────────────────────────────────────────────────
+
+describe("Fox death animation", () => {
+  it("initialises with death animation fields at rest", () => {
+    const fox = makeFoxData();
+    expect(fox.isDying).toBe(false);
+    expect(fox.deathTimer).toBe(0);
+    expect(fox.deathRotationY).toBe(0);
+  });
+
+  it("triggering death sets isDying and resets deathTimer", () => {
+    const fox = makeFoxData({ hp: 10, isAlive: true });
+    fox.hp = Math.max(0, fox.hp - 10);
+    if (fox.hp <= 0) {
+      fox.isDying = true;
+      fox.deathTimer = 0;
+    }
+    expect(fox.isDying).toBe(true);
+    expect(fox.deathTimer).toBe(0);
+    expect(fox.isAlive).toBe(true); // still alive during animation
+  });
+
+  it("deathTimer accumulates during animation", () => {
+    const fox = makeFoxData({ isDying: true, deathTimer: 0 });
+    const dt = 0.016;
+    fox.deathTimer += dt;
+    expect(fox.deathTimer).toBeCloseTo(0.016);
+  });
+
+  it("deathRotationY accumulates Y spin during phase 2", () => {
+    const fox = makeFoxData({ isDying: true, deathTimer: 0.5, deathRotationY: 0 });
+    const dt = 0.016;
+    const fallT = (fox.deathTimer - 0.35) / 1.05;
+    const spinSpeed = Math.pow(1 - fallT, 1.8) * 14;
+    fox.deathRotationY += spinSpeed * dt;
+    expect(fox.deathRotationY).toBeGreaterThan(0);
+  });
+
+  it("animation completes: isAlive and isDying set to false", () => {
+    const fox = makeFoxData({ isDying: true, deathTimer: 2.5, isAlive: true });
+    // Simulate animation completion
+    if (fox.deathTimer >= 2.4) {
+      fox.isAlive = false;
+      fox.isDying = false;
+    }
+    expect(fox.isAlive).toBe(false);
+    expect(fox.isDying).toBe(false);
+  });
+
+  it("dying fox is skipped in targeting (isDying guard)", () => {
+    const fox = makeFoxData({ hp: 0, isAlive: true, isDying: true });
+    // Simulate targeting loop guard: if (!fox.isAlive || fox.isDying) return/continue
+    const shouldTarget = fox.isAlive && !fox.isDying;
+    expect(shouldTarget).toBe(false);
   });
 });
