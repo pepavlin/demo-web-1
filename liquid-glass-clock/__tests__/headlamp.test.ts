@@ -82,15 +82,18 @@ function buildRemotePlayerMesh(color: number): THREE.Group {
   return group;
 }
 
+// ── Constants mirroring Game3D.tsx headlamp intensity values ─────────────────
+const HEADLAMP_STATION_INTENSITY = 8.0;  // strong cone beam inside space station
+const HEADLAMP_NIGHT_MAX_INTENSITY = 4.0; // max intensity at full night outside
+
 // ── Helper: headlamp activation logic (mirrors Game3D.tsx) ───────────────────
 function computeHeadlampTargetIntensity(
   nightFactor: number,
   inStation: boolean,
-  maxIntensity = 2.8,
 ): number {
   const headlampOn = nightFactor > 0.3 || inStation;
   if (!headlampOn) return 0;
-  return inStation ? maxIntensity : nightFactor * maxIntensity;
+  return inStation ? HEADLAMP_STATION_INTENSITY : nightFactor * HEADLAMP_NIGHT_MAX_INTENSITY;
 }
 
 // ── Helper: smooth lerp step (mirrors the per-frame lerp in Game3D.tsx) ──────
@@ -191,13 +194,13 @@ describe("Headlamp activation logic – night detection", () => {
   it("is fully ON at midnight (dayFraction = 0.0, nightFactor = 1.0)", () => {
     const nightFactor = computeNightFactor(0.0);
     expect(nightFactor).toBe(1.0);
-    expect(computeHeadlampTargetIntensity(nightFactor, false)).toBeCloseTo(2.8, 5);
+    expect(computeHeadlampTargetIntensity(nightFactor, false)).toBeCloseTo(HEADLAMP_NIGHT_MAX_INTENSITY, 5);
   });
 
   it("is fully ON at full night wrap (dayFraction = 0.95, nightFactor = 1.0)", () => {
     const nightFactor = computeNightFactor(0.95);
     expect(nightFactor).toBe(1.0);
-    expect(computeHeadlampTargetIntensity(nightFactor, false)).toBeCloseTo(2.8, 5);
+    expect(computeHeadlampTargetIntensity(nightFactor, false)).toBeCloseTo(HEADLAMP_NIGHT_MAX_INTENSITY, 5);
   });
 
   it("is OFF during sunrise (dayFraction = 0.28, nightFactor ≈ 0)", () => {
@@ -219,53 +222,53 @@ describe("Headlamp activation logic – space station", () => {
   it("inside the station, intensity reaches maximum (not proportional to night)", () => {
     const nightFactor = computeNightFactor(0.5); // full daytime
     const intensity = computeHeadlampTargetIntensity(nightFactor, true);
-    expect(intensity).toBeCloseTo(2.8, 5);
+    expect(intensity).toBeCloseTo(HEADLAMP_STATION_INTENSITY, 5);
   });
 
   it("inside the station at night, intensity is still the full station intensity", () => {
     const nightFactor = 1.0;
     const intensity = computeHeadlampTargetIntensity(nightFactor, true);
-    // inStation flag takes precedence → full intensity
-    expect(intensity).toBeCloseTo(2.8, 5);
+    // inStation flag takes precedence → full station intensity
+    expect(intensity).toBeCloseTo(HEADLAMP_STATION_INTENSITY, 5);
   });
 
   it("outside the station at night, intensity is proportional to nightFactor", () => {
     const nightFactor = 0.6;
     const intensity = computeHeadlampTargetIntensity(nightFactor, false);
-    expect(intensity).toBeCloseTo(nightFactor * 2.8, 5);
+    expect(intensity).toBeCloseTo(nightFactor * HEADLAMP_NIGHT_MAX_INTENSITY, 5);
   });
 });
 
 describe("Headlamp smooth fade – lerp formula", () => {
   it("lerps toward target over time (dt = 0.016, one frame)", () => {
     const current = 0;
-    const target = 2.8;
+    const target = HEADLAMP_STATION_INTENSITY;
     const next = lerpStep(current, target, 0.016);
-    // Should move toward 2.8 but not reach it in one frame
+    // Should move toward target but not reach it in one frame
     expect(next).toBeGreaterThan(0);
-    expect(next).toBeLessThan(2.8);
+    expect(next).toBeLessThan(HEADLAMP_STATION_INTENSITY);
   });
 
   it("reaches >97% of target within ~1 second (60 frames at dt=0.016)", () => {
     let current = 0;
-    const target = 2.8;
+    const target = HEADLAMP_STATION_INTENSITY;
     for (let i = 0; i < 60; i++) {
       current = lerpStep(current, target, 0.016);
     }
-    // Asymptotic lerp: after 1 s at speed=4, ~98% of the way to target (within 0.1 of 2.8)
+    // Asymptotic lerp: after 1 s at speed=4, ~98% of the way to target
     expect(current).toBeGreaterThan(target * 0.97);
     expect(current).toBeLessThanOrEqual(target);
   });
 
   it("when already at target, stays at target", () => {
-    const current = 2.8;
-    const target = 2.8;
+    const current = HEADLAMP_STATION_INTENSITY;
+    const target = HEADLAMP_STATION_INTENSITY;
     const next = lerpStep(current, target, 0.016);
-    expect(next).toBeCloseTo(2.8, 5);
+    expect(next).toBeCloseTo(HEADLAMP_STATION_INTENSITY, 5);
   });
 
   it("fades out to <3% of initial value within ~1 second", () => {
-    let current = 2.8;
+    let current = HEADLAMP_STATION_INTENSITY;
     const initial = current;
     const target = 0;
     for (let i = 0; i < 60; i++) {
@@ -279,25 +282,25 @@ describe("Headlamp smooth fade – lerp formula", () => {
   it("dt clamped to 1 prevents overshoot", () => {
     // Large dt (e.g., after tab focus restore) should not overshoot
     const current = 0;
-    const target = 2.8;
+    const target = HEADLAMP_STATION_INTENSITY;
     const next = lerpStep(current, target, 999); // extreme dt
     expect(next).toBeCloseTo(target, 5); // clamps to exactly target
   });
 });
 
 describe("Headlamp SpotLight parameters", () => {
-  it("creates a SpotLight with correct cone angle (~22 degrees = PI/9 rad)", () => {
-    // Verify PI/9 is approximately 20 degrees (our headlamp half-angle)
-    const halfAngle = Math.PI / 9;
+  it("creates a SpotLight with correct cone angle (~22.5 degrees = PI/8 rad)", () => {
+    // Verify PI/8 is approximately 22.5 degrees (headlamp half-angle)
+    const halfAngle = Math.PI / 8;
     const degrees = (halfAngle * 180) / Math.PI;
-    expect(degrees).toBeCloseTo(20, 0);
+    expect(degrees).toBeCloseTo(22.5, 0);
   });
 
-  it("SpotLight range of 20 units is adequate for navigation", () => {
-    // 20 units = roughly 10 meters, sufficient to see ahead in dark corridors
-    const range = 20;
-    expect(range).toBeGreaterThanOrEqual(15);
-    expect(range).toBeLessThanOrEqual(40);
+  it("SpotLight range of 60 units provides strong reach in station corridors", () => {
+    // 60 units – sufficient for long corridors and open station bays
+    const range = 60;
+    expect(range).toBeGreaterThanOrEqual(40);
+    expect(range).toBeLessThanOrEqual(100);
   });
 
   it("warm white headlamp color is in the expected hex range", () => {
