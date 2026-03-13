@@ -272,6 +272,8 @@ export function buildFoxMeshSimple(): THREE.Group {
 
 // ─── Tree ─────────────────────────────────────────────────────────────────────
 
+export type TreeType = "pine" | "oak" | "birch" | "dead";
+
 export interface TreeMeshResult {
   group: THREE.Group;
   /** Sub-group containing only the foliage — animate this for wind sway. */
@@ -280,6 +282,10 @@ export interface TreeMeshResult {
   trunkRadius: number;
   /** True for large trees that block player movement. */
   hasCollision: boolean;
+  /** Tree variety — used to pick the correct distant sprite texture. */
+  treeType: TreeType;
+  /** Approximate total visual height in world units — used to scale the sprite. */
+  treeHeight: number;
 }
 
 export function buildTreeMesh(rng: () => number): TreeMeshResult {
@@ -330,7 +336,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       coneY += h * 0.58; // overlap tiers
     }
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge, treeType: "pine", treeHeight: coneY };
 
   } else if (treeType === "oak") {
     // ── Oak / Deciduous ─────────────────────────────────────────────────────
@@ -387,7 +393,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     foliageGroup.add(topBlob);
 
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge, treeType: "oak", treeHeight: crownCY + crownR };
 
   } else if (treeType === "birch") {
     // ── Birch ───────────────────────────────────────────────────────────────
@@ -441,7 +447,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       foliageGroup.add(blob);
     }
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLarge, treeType: "birch", treeHeight: crownCY + crownR };
 
   } else {
     // ── Dead / Bare tree ────────────────────────────────────────────────────
@@ -477,7 +483,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     }
     // Dead trees: no foliage — foliageGroup stays empty
     group.add(foliageGroup);
-    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLargeDead };
+    return { group, foliageGroup, trunkRadius: trunkR, hasCollision: isLargeDead, treeType: "dead", treeHeight: trunkH };
   }
 }
 

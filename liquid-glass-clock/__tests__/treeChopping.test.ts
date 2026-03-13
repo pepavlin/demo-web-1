@@ -41,6 +41,12 @@ function makeTreeData(overrides: Partial<TreeData> = {}): TreeData {
     trunkRadius: 0.2,
     hasCollision: true,
     trunkMeshes: [trunkMesh],
+    isBurning: false,
+    burnTimer: 0,
+    burnDamageTimer: 0,
+    burnEffect: null,
+    sprite: null,
+    treeType: "oak" as const,
     ...overrides,
   };
 }
@@ -340,13 +346,16 @@ describe("buildTreeMesh — choppable properties", () => {
     };
   })();
 
-  test("returns group, foliageGroup, trunkRadius, hasCollision", () => {
+  test("returns group, foliageGroup, trunkRadius, hasCollision, treeType, treeHeight", () => {
     const result = buildTreeMesh(rng);
     expect(result.group).toBeInstanceOf(THREE.Group);
     expect(result.foliageGroup).toBeInstanceOf(THREE.Group);
     expect(typeof result.trunkRadius).toBe("number");
     expect(result.trunkRadius).toBeGreaterThan(0);
     expect(typeof result.hasCollision).toBe("boolean");
+    expect(["pine", "oak", "birch", "dead"]).toContain(result.treeType);
+    expect(typeof result.treeHeight).toBe("number");
+    expect(result.treeHeight).toBeGreaterThan(0);
   });
 
   test("foliageGroup is added to the main group", () => {

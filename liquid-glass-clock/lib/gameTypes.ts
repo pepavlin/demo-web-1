@@ -420,6 +420,12 @@ export interface TreeData {
   burnDamageTimer: number;
   /** Attached fire visual group (child of mesh) — null when not burning. */
   burnEffect: THREE.Group | null;
+
+  // ── Sprite LOD ────────────────────────────────────────────────────────────
+  /** Billboard sprite shown in place of the 3D mesh when the tree is far away. */
+  sprite: THREE.Sprite | null;
+  /** Tree variety — used to select the correct distant sprite texture. */
+  treeType: "pine" | "oak" | "birch" | "dead";
 }
 
 // ─── World Item (pickable / placeable objects) ─────────────────────────────
