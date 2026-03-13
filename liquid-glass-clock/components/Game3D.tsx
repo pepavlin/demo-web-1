@@ -429,6 +429,22 @@ function buildRemotePlayerMesh(color: number): THREE.Group {
   armR.rotation.z = -0.3;
   group.add(armR);
 
+  // Headlamp – glowing disc on the forehead, faces forward (+Z in local space)
+  const headlampMat = new THREE.MeshLambertMaterial({
+    color: 0xffeeaa,
+    emissive: new THREE.Color(0xffeeaa),
+    emissiveIntensity: 0,
+  });
+  const headlampMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.055, 0.055, 0.03, 10),
+    headlampMat,
+  );
+  headlampMesh.name = "headlamp";
+  // Position: slightly above head center (y=0.58), pushed forward to forehead (z=+0.21)
+  headlampMesh.position.set(0, 0.6, 0.21);
+  headlampMesh.rotation.x = Math.PI / 2; // rotate so flat face points forward
+  group.add(headlampMesh);
+
   return group;
 }
 
@@ -463,6 +479,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const sunRef = useRef<THREE.DirectionalLight | null>(null);
   const moonRef = useRef<THREE.DirectionalLight | null>(null);
   const ambientRef = useRef<THREE.AmbientLight | null>(null);
+  /** SpotLight attached to camera – the player's headlamp beam */
+  const headlampLightRef = useRef<THREE.SpotLight | null>(null);
+  /** Emissive disc mesh on local player body (3rd-person visible glowing dot) */
+  const headlampBodyMeshRef = useRef<THREE.Mesh | null>(null);
   const starsRef = useRef<THREE.Points | null>(null);
   const galaxyRef = useRef<THREE.Points | null>(null);
   const skyMeshRef = useRef<THREE.Mesh | null>(null);
@@ -1646,6 +1666,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(playerBody);
     playerBodyRef.current = playerBody;
     playerBodyPosRef.current.copy(camera.position);
+    // Grab the headlamp emissive mesh from the local player body for later animation
+    const localHeadlampMesh = playerBody.getObjectByName("headlamp") as THREE.Mesh | undefined;
+    if (localHeadlampMesh) headlampBodyMeshRef.current = localHeadlampMesh;
 
     // ── First-person weapon (attached to camera) ─────────────────────────────
     const wType = selectedWeaponRef.current;
@@ -1681,6 +1704,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     muzzleFlash.position.set(WEAPON_POS.x, WEAPON_POS.y + 0.01, WEAPON_POS.z - 0.25);
     camera.add(muzzleFlash);
     muzzleFlashRef.current = muzzleFlash;
+
+    // ── Headlamp spotlight (parented to camera, points forward) ─────────────
+    // Cone angle: 20° half-angle, penumbra 0.35 for soft edges, range 20 units.
+    // The spotlight target must also be a child of camera so it moves with it.
+    const headlampLight = new THREE.SpotLight(0xffe8a0, 0, 20, Math.PI / 9, 0.35, 1.5);
+    headlampLight.position.set(0, 0, 0); // at camera origin
+    camera.add(headlampLight);
+    const headlampTarget = new THREE.Object3D();
+    headlampTarget.position.set(0, -0.12, -10); // slightly downward so beam hits the ground ahead
+    camera.add(headlampTarget);
+    headlampLight.target = headlampTarget;
+    headlampLightRef.current = headlampLight;
 
     // ── Bow trajectory arc preview line ─────────────────────────────────────
     // Uses Line2 (from three/examples/jsm/lines) which supports pixel-width lines,
@@ -4433,6 +4468,41 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Brighten lighthouse light at night, dim at day (smooth transition)
       if (lighthouseLightRef.current) {
         lighthouseLightRef.current.intensity = 1.5 + nightFactor * 4.5;
+      }
+
+      // ── Headlamp: active at night or inside the space station ──────────────
+      // The headlamp smoothly fades in/out via lerp so there is no jarring jump.
+      {
+        const headlampOn = nightFactor > 0.3 || _inStation;
+        // Max intensity: 2.8 at full night, proportional during dusk/dawn
+        const targetIntensity = headlampOn
+          ? (_inStation ? 2.8 : nightFactor * 2.8)
+          : 0;
+        if (headlampLightRef.current) {
+          headlampLightRef.current.intensity +=
+            (targetIntensity - headlampLightRef.current.intensity) * Math.min(1, dt * 4);
+        }
+        // Local player body headlamp emissive (visible in 3rd-person mode)
+        if (headlampBodyMeshRef.current) {
+          const hlMat = headlampBodyMeshRef.current.material as THREE.MeshLambertMaterial;
+          const targetEmissive = headlampOn
+            ? (_inStation ? 3.5 : nightFactor * 3.5)
+            : 0;
+          hlMat.emissiveIntensity +=
+            (targetEmissive - hlMat.emissiveIntensity) * Math.min(1, dt * 4);
+        }
+        // Remote players' headlamp emissive (instant – no ref tracking per remote player needed)
+        if (remotePlayersRef.current.size > 0) {
+          const remoteEmissive = headlampOn
+            ? (_inStation ? 3.5 : nightFactor * 3.5)
+            : 0;
+          remotePlayersRef.current.forEach((data) => {
+            const hlMesh = data.mesh.getObjectByName("headlamp") as THREE.Mesh | undefined;
+            if (hlMesh) {
+              (hlMesh.material as THREE.MeshLambertMaterial).emissiveIntensity = remoteEmissive;
+            }
+          });
+        }
       }
 
       // ── Sniper tower pickup proximity + scope FOV ─────────────────────────
