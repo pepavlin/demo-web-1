@@ -1617,6 +1617,81 @@ export function buildFlamethrowerMesh(): THREE.Group {
   pilot.position.set(0.01, 0.012, -0.54);
   group.add(pilot);
 
+  // ── Nozzle flame stream (shown while firing, hidden at rest) ──────────────
+  // Positioned at the nozzle tip; all cones point in -Z (forward/into scene).
+  // rotation.x = -Math.PI/2 maps the cone's +Y apex to the -Z world axis.
+  const nozzleFlameStream = new THREE.Group();
+  nozzleFlameStream.name = "nozzleFlameStream";
+  nozzleFlameStream.visible = false;
+  nozzleFlameStream.position.set(0.01, 0.012, -0.54); // nozzle tip in weapon local space
+
+  const addFlameMat = (hex: number, opacity: number) =>
+    new THREE.MeshBasicMaterial({
+      color: hex,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+  // Outer red-orange glow halo (widest, most transparent, longest)
+  const outerFlameGeo = new THREE.ConeGeometry(0.22, 2.0, 12);
+  const outerFlame = new THREE.Mesh(outerFlameGeo, addFlameMat(0xff2200, 0.28));
+  outerFlame.rotation.x = -Math.PI / 2;
+  outerFlame.position.z = -1.0;
+  nozzleFlameStream.add(outerFlame);
+
+  // Mid orange body
+  const midFlameGeo = new THREE.ConeGeometry(0.14, 1.6, 10);
+  const midFlame = new THREE.Mesh(midFlameGeo, addFlameMat(0xff5500, 0.55));
+  midFlame.rotation.x = -Math.PI / 2;
+  midFlame.position.z = -0.8;
+  nozzleFlameStream.add(midFlame);
+
+  // Inner yellow-orange core
+  const coreFlameGeo = new THREE.ConeGeometry(0.08, 1.2, 9);
+  const coreFlame = new THREE.Mesh(coreFlameGeo, addFlameMat(0xffaa00, 0.75));
+  coreFlame.rotation.x = -Math.PI / 2;
+  coreFlame.position.z = -0.6;
+  nozzleFlameStream.add(coreFlame);
+
+  // White-hot inner spine (brightest, tightest, shortest)
+  const spineGeo = new THREE.ConeGeometry(0.035, 0.8, 7);
+  const spine = new THREE.Mesh(spineGeo, addFlameMat(0xffff88, 0.9));
+  spine.rotation.x = -Math.PI / 2;
+  spine.position.z = -0.4;
+  nozzleFlameStream.add(spine);
+
+  // Offset tongue A — slight upward drift
+  const tongueAGeo = new THREE.ConeGeometry(0.06, 1.1, 7);
+  const tongueA = new THREE.Mesh(tongueAGeo, addFlameMat(0xff7700, 0.45));
+  tongueA.rotation.x = -Math.PI / 2 + 0.18;
+  tongueA.position.set(0.0, 0.04, -0.55);
+  nozzleFlameStream.add(tongueA);
+
+  // Offset tongue B — downward drift
+  const tongueBGeo = new THREE.ConeGeometry(0.06, 1.0, 7);
+  const tongueB = new THREE.Mesh(tongueBGeo, addFlameMat(0xff6600, 0.4));
+  tongueB.rotation.x = -Math.PI / 2 - 0.15;
+  tongueB.position.set(0.0, -0.03, -0.5);
+  nozzleFlameStream.add(tongueB);
+
+  // Offset tongue C — side drift
+  const tongueCGeo = new THREE.ConeGeometry(0.05, 0.9, 7);
+  const tongueC = new THREE.Mesh(tongueCGeo, addFlameMat(0xff8800, 0.35));
+  tongueC.rotation.set(-Math.PI / 2, 0, 0.22);
+  tongueC.position.set(0.06, 0.0, -0.45);
+  nozzleFlameStream.add(tongueC);
+
+  // Point light at the nozzle for ambient fire illumination (zero intensity at rest)
+  const nozzleLight = new THREE.PointLight(0xff5500, 0, 10);
+  nozzleLight.name = "nozzleLight";
+  nozzleLight.position.set(0, 0, -0.7);
+  nozzleFlameStream.add(nozzleLight);
+
+  group.add(nozzleFlameStream);
+
   // ── Pistol grip / trigger assembly ────────────────────────────────────────
   const gripGeo = new THREE.BoxGeometry(0.038, 0.08, 0.04);
   const grip = new THREE.Mesh(gripGeo, gripMat);
@@ -1672,33 +1747,45 @@ export function buildFlameParticleMesh(): THREE.Group {
       side: THREE.DoubleSide,
     });
 
-  // ── Outer red glow (widest halo) ────────────────────────────────────────────
-  const outerGeo = new THREE.SphereGeometry(0.18, 8, 6);
-  const outer = new THREE.Mesh(outerGeo, additiveMat(0xff2200, 0.35));
+  // ── Outer red halo (large, airy) ────────────────────────────────────────────
+  const outerGeo = new THREE.SphereGeometry(0.42, 9, 7);
+  const outer = new THREE.Mesh(outerGeo, additiveMat(0xff2200, 0.28));
   group.add(outer);
 
   // ── Orange body ─────────────────────────────────────────────────────────────
-  const midGeo = new THREE.SphereGeometry(0.12, 8, 6);
-  const mid = new THREE.Mesh(midGeo, additiveMat(0xff6600, 0.65));
+  const midGeo = new THREE.SphereGeometry(0.28, 9, 7);
+  const mid = new THREE.Mesh(midGeo, additiveMat(0xff6600, 0.55));
   group.add(mid);
 
   // ── Yellow core ─────────────────────────────────────────────────────────────
-  const coreGeo = new THREE.SphereGeometry(0.07, 7, 5);
-  const core = new THREE.Mesh(coreGeo, additiveMat(0xffee00, 0.9));
+  const coreGeo = new THREE.SphereGeometry(0.16, 8, 6);
+  const core = new THREE.Mesh(coreGeo, additiveMat(0xffcc00, 0.82));
   group.add(core);
 
-  // ── White-hot nozzle point ──────────────────────────────────────────────────
-  const hotGeo = new THREE.SphereGeometry(0.035, 6, 4);
+  // ── White-hot center ────────────────────────────────────────────────────────
+  const hotGeo = new THREE.SphereGeometry(0.08, 7, 5);
   const hot = new THREE.Mesh(hotGeo, additiveMat(0xffffff, 1.0));
   group.add(hot);
 
-  // ── Flame tongue — thin cone pointing in +Y (= travel direction at birth) ──
-  // ConeGeometry: tip at +Y, base at -Y (centered), height = 0.28
-  // We offset it so the base sits at group origin: position.y = +0.14
-  const tongueGeo = new THREE.ConeGeometry(0.04, 0.28, 7);
-  const tongue = new THREE.Mesh(tongueGeo, additiveMat(0xffcc00, 0.8));
-  tongue.position.y = 0.14;
+  // ── Forward tongue — elongated cone along +Y (= travel direction) ───────────
+  const tongueGeo = new THREE.ConeGeometry(0.10, 0.65, 8);
+  const tongue = new THREE.Mesh(tongueGeo, additiveMat(0xffaa00, 0.75));
+  tongue.position.y = 0.325;
   group.add(tongue);
+
+  // ── Side tongue A ────────────────────────────────────────────────────────────
+  const sideAGeo = new THREE.ConeGeometry(0.07, 0.50, 7);
+  const sideA = new THREE.Mesh(sideAGeo, additiveMat(0xff8800, 0.55));
+  sideA.position.set(0.08, 0.22, 0.04);
+  sideA.rotation.z = 0.28;
+  group.add(sideA);
+
+  // ── Side tongue B ────────────────────────────────────────────────────────────
+  const sideBGeo = new THREE.ConeGeometry(0.07, 0.50, 7);
+  const sideB = new THREE.Mesh(sideBGeo, additiveMat(0xff7700, 0.50));
+  sideB.position.set(-0.08, 0.22, -0.04);
+  sideB.rotation.z = -0.28;
+  group.add(sideB);
 
   return group;
 }
