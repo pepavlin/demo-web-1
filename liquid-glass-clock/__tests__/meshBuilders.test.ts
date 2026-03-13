@@ -49,6 +49,9 @@ import {
   buildTreasureChestMesh,
   buildCity,
   buildMountainWithWaterfallAndCave,
+  buildSniperTowerMesh,
+  buildSniperMesh,
+  SNIPER_TOWER_HEIGHT,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
@@ -1561,6 +1564,63 @@ describe("buildMountainWithWaterfallAndCave", () => {
       worldX: -60,
       worldZ: -80,
     };
-    expect(() => buildMountainWithWaterfallAndCave(terrain)).not.toThrow();
+    expect(() => buildMountainWithWaterfallAndCave(terrain)).not.toThrow();  });
+});
+
+describe("buildSniperTowerMesh", () => {
+  it("returns a group with topPlatformY, towerBodyRadius, stairOuterRadius, stairInnerRadius", () => {
+    const result = buildSniperTowerMesh();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(typeof result.topPlatformY).toBe("number");
+    expect(typeof result.towerBodyRadius).toBe("number");
+    expect(typeof result.stairOuterRadius).toBe("number");
+    expect(typeof result.stairInnerRadius).toBe("number");
+  });
+
+  it("topPlatformY equals SNIPER_TOWER_HEIGHT + platform offset", () => {
+    const result = buildSniperTowerMesh();
+    // The platform center is at SNIPER_TOWER_HEIGHT + 0.225, floor at SNIPER_TOWER_HEIGHT + 0.52
+    expect(result.topPlatformY).toBeCloseTo(SNIPER_TOWER_HEIGHT + 0.52, 1);
+  });
+
+  it("stairOuterRadius > stairInnerRadius (stair ring has positive width)", () => {
+    const result = buildSniperTowerMesh();
+    expect(result.stairOuterRadius).toBeGreaterThan(result.stairInnerRadius);
+  });
+
+  it("towerBodyRadius equals stairInnerRadius (stairs start at tower wall)", () => {
+    const result = buildSniperTowerMesh();
+    expect(result.towerBodyRadius).toBeCloseTo(result.stairInnerRadius, 5);
+  });
+
+  it("group has many children (tower body + steps + railings + platform + battlements)", () => {
+    const result = buildSniperTowerMesh();
+    expect(result.group.children.length).toBeGreaterThan(40);
+  });
+
+  it("group contains at least one PointLight (ambient glow at top)", () => {
+    const result = buildSniperTowerMesh();
+    let hasLight = false;
+    result.group.traverse((child) => {
+      if (child instanceof THREE.PointLight) hasLight = true;
+    });
+    expect(hasLight).toBe(true);
+  });
+
+  it("SNIPER_TOWER_HEIGHT is 16 units", () => {
+    expect(SNIPER_TOWER_HEIGHT).toBe(16);
   });
 });
+
+describe("buildSniperMesh", () => {
+  it("returns a THREE.Group", () => {
+    const mesh = buildSniperMesh();
+    expect(mesh).toBeInstanceOf(THREE.Group);
+  });
+
+  it("has children (barrel, receiver, scope, stock, bipod, etc.)", () => {
+    const mesh = buildSniperMesh();
+    expect(mesh.children.length).toBeGreaterThan(8);
+  });
+});
+

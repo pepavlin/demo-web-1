@@ -72,10 +72,14 @@ import {
   buildAirstripMesh,
   buildAirstripSignMesh,
   buildMountainWithWaterfallAndCave,
+  buildSniperTowerMesh,
+  buildSniperMesh,
+  SNIPER_TOWER_HEIGHT,
   type CityResult,
   type SpaceStationInteriorResult,
   type SheepMeshParts,
   type RuinsResult,
+  type SniperTowerResult,
 } from "@/lib/meshBuilders";
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData } from "@/lib/gameTypes";
 import {
@@ -204,6 +208,16 @@ const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable bounda
 /** World-space centre of the mountain with waterfall and cave (southwest quadrant) */
 const MOUNTAIN_X = -60;
 const MOUNTAIN_Z = -80;
+
+// ─── Sniper Tower Constants ────────────────────────────────────────────────────
+const SNIPER_TOWER_X = 88;      // northeast elevated area, away from other landmarks
+const SNIPER_TOWER_Z = -82;     // high terrain near map edge
+/** Radius within which the sniper-pickup prompt appears (at tower top). */
+const SNIPER_PICKUP_RADIUS = 6;
+/** Right-click scope FOV (degrees). */
+const SNIPER_SCOPE_FOV = 12;
+/** Default camera FOV. */
+const DEFAULT_FOV = 75;
 
 // ─── Boat Constants ───────────────────────────────────────────────────────────
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
@@ -441,6 +455,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const windmillBladesRef = useRef<THREE.Group | null>(null);
   const lighthouseBeamRef = useRef<THREE.Group | null>(null);
   const lighthouseLightRef = useRef<THREE.PointLight | null>(null);
+  // ─── Sniper tower ─────────────────────────────────────────────────────────
+  const sniperTowerDataRef = useRef<SniperTowerResult | null>(null);
+  const sniperTowerTerrainYRef = useRef(0);
+  const isScopedRef = useRef(false);
+  const nearSniperPickupRef = useRef(false);
   const sunRef = useRef<THREE.DirectionalLight | null>(null);
   const moonRef = useRef<THREE.DirectionalLight | null>(null);
   const ambientRef = useRef<THREE.AmbientLight | null>(null);
@@ -654,6 +673,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [rocketArrived, setRocketArrived] = useState(false);
   const [nearAirplanePrompt, setNearAirplanePrompt] = useState(false);
   const [onAirplane, setOnAirplane] = useState(false);
+  const [nearSniperPickup, setNearSniperPickup] = useState(false);
+  const [isScoped, setIsScoped] = useState(false);
   const [inSpaceStation, setInSpaceStation] = useState(false);
   const [nearAirlockExit, setNearAirlockExit] = useState(false);
   const [stationWelcome, setStationWelcome] = useState(false);
@@ -858,6 +879,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const newMesh =
       type === "bow" ? buildBowMesh()
       : type === "crossbow" ? buildCrossbowMesh()
+      : type === "sniper" ? buildSniperMesh()
       : buildSwordMesh(); // sword
     if (type === "sword") {
       newMesh.position.set(0.25, -0.28, -0.48);
@@ -867,6 +889,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     } else if (type === "bow") {
       newMesh.position.set(0.16, -0.16, -0.40);
       newMesh.rotation.y = -0.12;
+    } else if (type === "sniper") {
+      newMesh.position.set(0.14, -0.18, -0.50);
+      newMesh.rotation.y = -0.06;
+      newMesh.scale.setScalar(1.4);
     } else {
       // crossbow
       newMesh.position.set(0.18, -0.22, -0.52);
@@ -1626,6 +1652,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const weaponGroup =
       wType === "bow" ? buildBowMesh()
       : wType === "crossbow" ? buildCrossbowMesh()
+      : wType === "sniper" ? buildSniperMesh()
       : buildSwordMesh(); // sword
     // Position each weapon in camera-local space
     if (wType === "sword") {
@@ -1636,6 +1663,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     } else if (wType === "bow") {
       weaponGroup.position.set(0.16, -0.16, -0.40);
       weaponGroup.rotation.y = -0.12;
+    } else if (wType === "sniper") {
+      weaponGroup.position.set(0.14, -0.18, -0.50);
+      weaponGroup.rotation.y = -0.06;
+      weaponGroup.scale.setScalar(1.4);
     } else {
       // crossbow
       weaponGroup.position.set(0.18, -0.22, -0.52);
@@ -3155,6 +3186,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Cylinder collider for the lighthouse base (base radius 2.2)
     treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS });
 
+    // ── Sniper Tower (northeast elevated area) ────────────────────────────────
+    {
+      const towerTerrainY = getTerrainHeightSampled(SNIPER_TOWER_X, SNIPER_TOWER_Z);
+      const towerResult = buildSniperTowerMesh();
+      towerResult.group.position.set(SNIPER_TOWER_X, towerTerrainY, SNIPER_TOWER_Z);
+      scene.add(towerResult.group);
+      sniperTowerDataRef.current = towerResult;
+      sniperTowerTerrainYRef.current = towerTerrainY;
+      // Solid cylinder collider for the tower body (no entry to tower interior)
+      treeCollisionRef.current.push({
+        x: SNIPER_TOWER_X,
+        z: SNIPER_TOWER_Z,
+        radius: towerResult.towerBodyRadius + PLAYER_RADIUS,
+      });
+    }
+
     // ── Mountain with waterfall and cave (southwest quadrant) ─────────────────
     {
       const mountainGroundY = getTerrainHeightSampled(MOUNTAIN_X, MOUNTAIN_Z);
@@ -3478,8 +3525,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
         // sculpt mode: scroll wheel sculpts, left click does nothing extra
-      } else if (e.button === 2 && buildModeRef.current !== "explore") {
-        removeBlock();
+      } else if (e.button === 2) {
+        if (buildModeRef.current !== "explore") {
+          removeBlock();
+        } else if (selectedWeaponRef.current === "sniper" && buildModeRef.current === "explore") {
+          // Right-click = scope toggle for sniper
+          isScopedRef.current = true;
+          setIsScoped(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        }
       }
     };
     document.addEventListener("mousedown", onMouseDown);
@@ -3500,6 +3554,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
         isMouseHeldRef.current = false;
         isBowChargingRef.current = false;
+      } else if (e.button === 2) {
+        // Right-click release: exit scope
+        if (isScopedRef.current) {
+          isScopedRef.current = false;
+          setIsScoped(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        }
       }
     };
     document.addEventListener("mouseup", onMouseUp);
@@ -3719,6 +3780,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           onBoatRef.current = true;
           setOnBoat(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        } else if (nearSniperPickupRef.current && !possessedSheepRef.current) {
+          // ── Pick up sniper rifle at tower top ────────────────────────────
+          selectedWeaponRef.current = "sniper";
+          setSelectedWeapon("sniper");
+          swapWeaponMesh("sniper");
         } else if (heldItemRef.current) {
           // ── Drop held item at player's feet ──────────────────────────────
           dropHeldItem();
@@ -3824,15 +3890,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Digit keys 1–3 — select weapon in explore mode
+      // Digit keys 1–4 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
       if (e.type === "keydown" && buildModeRef.current === "explore") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow"];
-        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3") {
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper"];
+        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
-          setSelectedWeapon(newWeapon);
-          selectedWeaponRef.current = newWeapon;
-          swapWeaponMesh(newWeapon);
+          if (newWeapon) {
+            // Exit scope when switching away from sniper
+            if (isScopedRef.current && newWeapon !== "sniper") {
+              isScopedRef.current = false;
+              setIsScoped(false);
+            }
+            setSelectedWeapon(newWeapon);
+            selectedWeaponRef.current = newWeapon;
+            swapWeaponMesh(newWeapon);
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          }
         }
       }
 
@@ -3934,13 +4008,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
       } else if (buildModeRef.current === "explore") {
         // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper"];
         const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
-        const next = (cur + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
+        const curIdx = cur < 0 ? 0 : cur;
+        const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
         const newWeapon = WEAPON_ORDER[next];
+        if (isScopedRef.current && newWeapon !== "sniper") {
+          isScopedRef.current = false;
+          setIsScoped(false);
+        }
         setSelectedWeapon(newWeapon);
         selectedWeaponRef.current = newWeapon;
         swapWeaponMesh(newWeapon);
+        if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
       }
     };
     // passive: false would suppress default scrolling, but we keep passive:true
@@ -4355,6 +4435,33 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         lighthouseLightRef.current.intensity = 1.5 + nightFactor * 4.5;
       }
 
+      // ── Sniper tower pickup proximity + scope FOV ─────────────────────────
+      {
+        const cam = cameraRef.current;
+        const towerData = sniperTowerDataRef.current;
+        if (cam && towerData && !onBoatRef.current && !onRocketRef.current && !onAirplaneRef.current && !possessedSheepRef.current) {
+          const tdx = cam.position.x - SNIPER_TOWER_X;
+          const tdz = cam.position.z - SNIPER_TOWER_Z;
+          const towerTopY = sniperTowerTerrainYRef.current + towerData.topPlatformY;
+          const isAtTop = cam.position.y >= towerTopY + PLAYER_HEIGHT - 1.0;
+          const horizDist = Math.sqrt(tdx * tdx + tdz * tdz);
+          const nearPickup = isAtTop && horizDist < SNIPER_PICKUP_RADIUS && selectedWeaponRef.current !== "sniper";
+          if (nearPickup !== nearSniperPickupRef.current) {
+            nearSniperPickupRef.current = nearPickup;
+            setNearSniperPickup(nearPickup);
+          }
+        }
+
+        // Scope: zoom FOV when right-mouse held with sniper
+        if (cam && isScopedRef.current && selectedWeaponRef.current === "sniper") {
+          cam.fov += (SNIPER_SCOPE_FOV - cam.fov) * Math.min(1, dt * 10);
+          cam.updateProjectionMatrix();
+        } else if (cam && cam.fov !== DEFAULT_FOV && !isScopedRef.current) {
+          cam.fov += (DEFAULT_FOV - cam.fov) * Math.min(1, dt * 12);
+          cam.updateProjectionMatrix();
+        }
+      }
+
       // ── MotherShip animation ──────────────────────────────────────────────
       if (motherShipRef.current) {
         // Ultra-slow rotation — full revolution in ~5 real minutes
@@ -4674,6 +4781,37 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               if (blockGroundY > groundY) groundY = blockGroundY;
             }
           }
+
+          // ── Sniper tower spiral staircase ──────────────────────────────────
+          // When player stands in the stair ring, compute height from angle.
+          {
+            const towerData = sniperTowerDataRef.current;
+            if (towerData) {
+              const tdx = cam.position.x - SNIPER_TOWER_X;
+              const tdz = cam.position.z - SNIPER_TOWER_Z;
+              const tdist = Math.sqrt(tdx * tdx + tdz * tdz);
+              if (tdist >= towerData.stairInnerRadius - 0.3 && tdist <= towerData.stairOuterRadius + 0.5) {
+                // angle = 0 at south (z positive), increases counterclockwise
+                let angle = Math.atan2(tdz, tdx); // -PI to PI
+                if (angle < 0) angle += Math.PI * 2; // 0 to 2PI
+                // Stair entry from south: angle = PI/2 → fraction = 0 (ground)
+                //   counterclockwise → fraction increases → height increases
+                const ENTRY_RAD = Math.PI / 2;
+                const stairFraction = ((angle - ENTRY_RAD + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+                const towerBase = sniperTowerTerrainYRef.current;
+                const stairGroundY = towerBase + stairFraction * SNIPER_TOWER_HEIGHT + PLAYER_HEIGHT;
+                if (stairGroundY > groundY) groundY = stairGroundY;
+              }
+
+              // Top platform floor: if player is directly above tower top, keep on platform
+              const distFromTower = Math.sqrt(tdx * tdx + tdz * tdz);
+              if (distFromTower <= towerData.towerBodyRadius + 1.2) {
+                const platformFloor = sniperTowerTerrainYRef.current + towerData.topPlatformY + PLAYER_HEIGHT;
+                if (platformFloor > groundY) groundY = platformFloor;
+              }
+            }
+          }
+
           if (cam.position.y <= groundY) {
             cam.position.y = groundY;
             player.velY = 0;
@@ -5530,8 +5668,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         playerAttackCooldownRef.current = Math.max(0, playerAttackCooldownRef.current - dt);
       }
 
-      // ── Auto-fire while left mouse button is held (explore mode, non-bow) ──
-      if (isMouseHeldRef.current && buildModeRef.current === "explore" && selectedWeaponRef.current !== "bow") {
+      // ── Auto-fire while left mouse button is held (explore mode, non-bow/sniper) ──
+      // Sniper is single-shot only (handled on mousedown); bow is charge-based
+      if (isMouseHeldRef.current && buildModeRef.current === "explore"
+          && selectedWeaponRef.current !== "bow"
+          && selectedWeaponRef.current !== "sniper") {
         doAttack();
       }
 
@@ -5618,9 +5759,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const swaySpeed = isMoving ? 7 : 3;
 
         const wType = selectedWeaponRef.current;
-        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : 0.25; // sword: 0.25
-        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : -0.28; // sword: -0.28
-        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : -0.48; // sword: -0.48
+        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : wType === "sniper" ? 0.14 : 0.25;
+        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : wType === "sniper" ? -0.18 : -0.28;
+        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : wType === "sniper" ? -0.50 : -0.48;
 
         if (wType === "sword") {
           // ── Sword swing animation ─────────────────────────────────────────
@@ -5642,6 +5783,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           wep.rotation.x = -Math.PI / 2 + swingAngle * 1.5; // tip up → swing forward
           wep.rotation.y = -0.3 + swingAngle * 0.25;         // slight outward sweep
           wep.rotation.z = 0.3  - swingAngle * 0.55;         // slash from right to left
+        } else if (wType === "sniper") {
+          // Sniper: very stable hold with minimal sway; hide when scoped
+          const sniperSway = isScopedRef.current ? 0 : swayAmt * 0.4;
+          wep.position.set(
+            baseX + Math.sin(elapsed * swaySpeed * 0.5) * sniperSway * 0.5,
+            baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * sniperSway,
+            baseZ + recoil * 0.18
+          );
+          wep.rotation.x = recoil * 0.22 + Math.sin(elapsed * swaySpeed) * sniperSway * 0.3;
         } else {
           wep.position.set(
             baseX + Math.sin(elapsed * swaySpeed * 0.5) * swayAmt * 0.6,
@@ -6898,6 +7048,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           });
 
+          // Sniper tower marker
+          {
+            const stMx = cx + SNIPER_TOWER_X * scale;
+            const stMz = cy + SNIPER_TOWER_Z * scale;
+            if (stMx >= 0 && stMx <= W && stMz >= 0 && stMz <= W) {
+              ctx.fillStyle = "#a78bfa";
+              ctx.beginPath();
+              ctx.arc(stMx, stMz, 4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 8px monospace";
+              ctx.fillText("🔭", stMx - 5, stMz + 3);
+            }
+          }
+
           // Lighthouse marker
           const lhMx = cx + LIGHTHOUSE_X * scale;
           const lhMz = cy + LIGHTHOUSE_Z * scale;
@@ -7474,10 +7639,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           </div>
 
           {/* Weapon slots HUD — all 3 weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow"] as WeaponType[]).map((w, idx) => {
+          {(["sword", "bow", "crossbow", "sniper"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : "🎯";
             return (
               <div
                 key={w}
@@ -8126,6 +8291,125 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 transition: "none",
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ SNIPER SCOPE OVERLAY ═══════════════ */}
+      {gameState.isLocked && isScoped && selectedWeapon === "sniper" && (
+        <div
+          className="fixed inset-0 pointer-events-none select-none"
+          style={{ zIndex: 80 }}
+        >
+          {/* Dark vignette edges */}
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            background: "radial-gradient(circle at 50% 50%, transparent 26%, rgba(0,0,0,0.97) 46%)",
+            zIndex: 81,
+          }} />
+          {/* Scope circle border */}
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "min(52vw, 52vh)",
+            height: "min(52vw, 52vh)",
+            borderRadius: "50%",
+            border: "2px solid rgba(150,150,150,0.7)",
+            boxShadow: "0 0 0 2px rgba(0,0,0,0.8)",
+            zIndex: 82,
+          }} />
+          {/* Crosshair horizontal */}
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "min(46vw, 46vh)",
+            height: 1,
+            background: "rgba(255,255,255,0.55)",
+            zIndex: 83,
+          }} />
+          {/* Crosshair vertical */}
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 1,
+            height: "min(46vw, 46vh)",
+            background: "rgba(255,255,255,0.55)",
+            zIndex: 83,
+          }} />
+          {/* Center dot */}
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: "rgba(255,80,80,0.9)",
+            zIndex: 84,
+          }} />
+          {/* Mil-dot reticle marks (horizontal) */}
+          {[-120, -60, 60, 120].map((offset) => (
+            <div key={`h${offset}`} style={{
+              position: "absolute",
+              top: "50%",
+              left: `calc(50% + ${offset}px)`,
+              transform: "translate(-50%, -50%)",
+              width: 1,
+              height: offset === -120 || offset === 120 ? 10 : 7,
+              background: "rgba(255,255,255,0.5)",
+              zIndex: 83,
+            }} />
+          ))}
+          {/* Mil-dot reticle marks (vertical) */}
+          {[-120, -60, 60, 120].map((offset) => (
+            <div key={`v${offset}`} style={{
+              position: "absolute",
+              top: `calc(50% + ${offset}px)`,
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: offset === -120 || offset === 120 ? 10 : 7,
+              height: 1,
+              background: "rgba(255,255,255,0.5)",
+              zIndex: 83,
+            }} />
+          ))}
+          {/* Scope glass tint */}
+          <div style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "min(52vw, 52vh)",
+            height: "min(52vw, 52vh)",
+            borderRadius: "50%",
+            background: "rgba(0, 30, 10, 0.12)",
+            zIndex: 80,
+          }} />
+        </div>
+      )}
+
+      {/* ═══════════════ SNIPER TOWER PICKUP PROMPT ═══════════════ */}
+      {nearSniperPickup && !isScoped && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(40,10,70,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(167,139,250,0.55)",
+              boxShadow: "0 0 24px rgba(130,80,255,0.5)",
+            }}
+          >
+            🔭 [E] Sebrat odstřelovačku
           </div>
         </div>
       )}

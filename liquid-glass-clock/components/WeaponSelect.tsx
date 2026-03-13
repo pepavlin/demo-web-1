@@ -226,6 +226,72 @@ function CrossbowSVG({ selected }: { selected: boolean }) {
   );
 }
 
+function SniperSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 140 80"
+      width="140"
+      height="80"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #a78bfa)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "sniper-idle 5s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes sniper-idle {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          30% { transform: translateY(-3px) rotate(0.5deg); }
+          60% { transform: translateY(-1px) rotate(-0.3deg); }
+        }
+        @keyframes scope-pulse {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 1.0; }
+        }
+        @keyframes sniper-recoil {
+          0%, 80%, 100% { transform: translateX(0); }
+          83% { transform: translateX(4px); }
+          88% { transform: translateX(-2px); }
+          93% { transform: translateX(1px); }
+        }
+      `}</style>
+      <g style={{ animation: "sniper-recoil 4s ease-in-out infinite" }}>
+        {/* Stock */}
+        <rect x="95" y="36" width="38" height="11" rx="3" fill="#6b3d1a" />
+        <rect x="95" y="37" width="38" height="3" rx="1" fill="#8b5a2a" opacity="0.4" />
+        {/* Cheekrest */}
+        <rect x="100" y="30" width="24" height="7" rx="3" fill="#7a4a20" />
+        {/* Receiver */}
+        <rect x="55" y="35" width="44" height="12" rx="2" fill="#1a1a1a" />
+        {/* Long barrel */}
+        <rect x="8" y="38" width="50" height="5" rx="2" fill="#1a1a1a" />
+        {/* Muzzle */}
+        <rect x="4" y="37" width="8" height="7" rx="2" fill="#333" />
+        {/* Grip */}
+        <polygon points="76,47 86,47 82,63 70,63" fill="#111" />
+        {/* Trigger guard */}
+        <path d="M74 47 Q70 56 80 53" stroke="#555" strokeWidth="2" fill="none" strokeLinecap="round" />
+        {/* Bipod */}
+        <line x1="22" y1="43" x2="16" y2="60" stroke="#444" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="26" y1="43" x2="32" y2="60" stroke="#444" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Scope body */}
+        <rect x="45" y="23" width="38" height="10" rx="5" fill="#333" />
+        {/* Scope objective (front lens - larger) */}
+        <ellipse cx="45" cy="28" rx="7" ry="7" fill="#222" />
+        <ellipse cx="45" cy="28" rx="5" ry="5" fill="#1a2a3a" style={{ animation: "scope-pulse 2s ease-in-out infinite" }} />
+        <ellipse cx="45" cy="28" rx="3" ry="3" fill="#4488cc" opacity="0.7" style={{ animation: "scope-pulse 2s ease-in-out infinite" }} />
+        {/* Scope eyepiece (rear) */}
+        <ellipse cx="83" cy="28" rx="5" ry="5" fill="#222" />
+        {/* Elevation knob */}
+        <rect x="58" y="19" width="6" height="5" rx="2" fill="#444" />
+        {/* Windage knob */}
+        <rect x="73" y="19" width="6" height="5" rx="2" fill="#444" />
+        {/* Scope highlight */}
+        <rect x="48" y="24" width="30" height="2" rx="1" fill="white" opacity="0.08" />
+      </g>
+    </svg>
+  );
+}
+
 // ─── Weapon card ──────────────────────────────────────────────────────────────
 interface WeaponCardProps {
   type: WeaponType;
@@ -271,6 +337,16 @@ const WEAPON_META: Record<
     ],
     description: "Kuše se šipkou. Ničivá síla na dálku — pomalé nabití, ale devastující průbojný bolt.",
     key: "3",
+  },
+  sniper: {
+    icon: null,
+    stats: [
+      { label: "Poškození", value: 100, max: 100 },
+      { label: "Dostřel", value: 100, max: 100 },
+      { label: "Rychlost střelby", value: 15, max: 100 },
+    ],
+    description: "Precizní odstřelovačka s optickým zaměřovačem. Pravé tlačítko = přiblížení jako dalekohled. Také na věži na hoře.",
+    key: "4",
   },
 };
 
@@ -361,6 +437,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         {type === "sword" && <SwordSVG selected={selected} />}
         {type === "bow" && <BowSVG selected={selected} />}
         {type === "crossbow" && <CrossbowSVG selected={selected} />}
+        {type === "sniper" && <SniperSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -440,12 +517,13 @@ interface WeaponSelectProps {
 export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
   const [selected, setSelected] = useState<WeaponType>("sword");
 
-  // Keyboard shortcuts 1/2/3 to pick weapon, Enter to confirm
+  // Keyboard shortcuts 1/2/3/4 to pick weapon, Enter to confirm
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "1") setSelected("sword");
       if (e.key === "2") setSelected("bow");
       if (e.key === "3") setSelected("crossbow");
+      if (e.key === "4") setSelected("sniper");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -496,12 +574,12 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 14,
             marginBottom: 24,
           }}
         >
-          {(["sword", "bow", "crossbow"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow", "sniper"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>
@@ -543,7 +621,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             color: "rgba(255,255,255,0.2)",
           }}
         >
-          Klávesy [1] [2] [3] pro výběr · [Enter] pro potvrzení
+          Klávesy [1] [2] [3] [4] pro výběr · [Enter] pro potvrzení
         </p>
       </div>
     </div>

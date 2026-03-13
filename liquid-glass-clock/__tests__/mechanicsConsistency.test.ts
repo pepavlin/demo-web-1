@@ -358,3 +358,91 @@ describe("Cross-mechanic consistency", () => {
     expect(COIN_HEAL_AMOUNT).toBeGreaterThanOrEqual(FOX_ATTACK_DAMAGE);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6. Sniper weapon config consistency
+// ═════════════════════════════════════════════════════════════════════════════
+
+import { WEAPON_CONFIGS } from "@/lib/gameTypes";
+
+describe("Sniper weapon config", () => {
+  it("sniper exists in WEAPON_CONFIGS", () => {
+    expect(WEAPON_CONFIGS["sniper"]).toBeDefined();
+  });
+
+  it("sniper has higher damage than crossbow", () => {
+    expect(WEAPON_CONFIGS["sniper"].damage).toBeGreaterThan(WEAPON_CONFIGS["crossbow"].damage);
+  });
+
+  it("sniper has greater range than crossbow", () => {
+    expect(WEAPON_CONFIGS["sniper"].range).toBeGreaterThan(WEAPON_CONFIGS["crossbow"].range);
+  });
+
+  it("sniper has longer cooldown than sword (single-shot penalty)", () => {
+    expect(WEAPON_CONFIGS["sniper"].cooldown).toBeGreaterThan(WEAPON_CONFIGS["sword"].cooldown);
+  });
+
+  it("sniper has the fastest bullet speed", () => {
+    const maxOther = Math.max(
+      WEAPON_CONFIGS["bow"].bulletSpeed,
+      WEAPON_CONFIGS["crossbow"].bulletSpeed,
+    );
+    expect(WEAPON_CONFIGS["sniper"].bulletSpeed).toBeGreaterThan(maxOther);
+  });
+
+  it("sniper label is 'Odstřelovačka' (Czech)", () => {
+    expect(WEAPON_CONFIGS["sniper"].label).toBe("Odstřelovačka");
+  });
+
+  it("sniper color is purple (#a78bfa)", () => {
+    expect(WEAPON_CONFIGS["sniper"].color).toBe("#a78bfa");
+  });
+});
+
+// ─── Sniper staircase height formula ──────────────────────────────────────────
+describe("Sniper tower staircase height formula", () => {
+  const SNIPER_TOWER_HEIGHT = 16;
+
+  /**
+   * Mirrors the stair height computation from Game3D.tsx.
+   * angle: player's angle from tower center (atan2 result, 0..2PI)
+   * Returns the stair floor height (relative to tower base, without PLAYER_HEIGHT).
+   */
+  function stairHeightAt(angle: number): number {
+    if (angle < 0) angle += Math.PI * 2;
+    const ENTRY_RAD = Math.PI / 2;
+    const stairFraction = ((angle - ENTRY_RAD + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    return stairFraction * SNIPER_TOWER_HEIGHT;
+  }
+
+  it("stair height at entry (south, angle PI/2) is 0 (ground level)", () => {
+    expect(stairHeightAt(Math.PI / 2)).toBeCloseTo(0, 5);
+  });
+
+  it("stair height at west (angle PI) is 25% of tower height", () => {
+    expect(stairHeightAt(Math.PI)).toBeCloseTo(SNIPER_TOWER_HEIGHT * 0.25, 2);
+  });
+
+  it("stair height at north (angle 3PI/2) is 50% of tower height", () => {
+    expect(stairHeightAt(3 * Math.PI / 2)).toBeCloseTo(SNIPER_TOWER_HEIGHT * 0.5, 2);
+  });
+
+  it("stair height at east (angle 0 / 2PI) is 75% of tower height", () => {
+    expect(stairHeightAt(0)).toBeCloseTo(SNIPER_TOWER_HEIGHT * 0.75, 2);
+  });
+
+  it("stair height just before completing full revolution (angle ~PI/2 - epsilon) approaches max", () => {
+    // Almost completed the full spiral — angle just under entry from the other side
+    const almostTop = stairHeightAt(Math.PI / 2 - 0.01);
+    // progressAngle = (-0.01 + 2PI) % 2PI = 2PI - 0.01 → fraction ≈ 1 - 0.01/(2PI)
+    expect(almostTop).toBeCloseTo(SNIPER_TOWER_HEIGHT * (1 - 0.01 / (Math.PI * 2)), 1);
+  });
+
+  it("stair height is monotonically increasing counterclockwise from entry", () => {
+    const angles = [Math.PI / 2, Math.PI, 3 * Math.PI / 2, 0, Math.PI / 2 - 0.001];
+    const heights = angles.map(stairHeightAt);
+    for (let i = 1; i < heights.length; i++) {
+      expect(heights[i]).toBeGreaterThan(heights[i - 1]);
+    }
+  });
+});

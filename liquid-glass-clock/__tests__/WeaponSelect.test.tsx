@@ -16,18 +16,20 @@ describe("WeaponSelect component", () => {
     expect(screen.getByTestId("weapon-select-overlay")).toBeInTheDocument();
   });
 
-  it("shows all three weapon cards", () => {
+  it("shows all four weapon cards including sniper", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByTestId("weapon-card-sword")).toBeInTheDocument();
     expect(screen.getByTestId("weapon-card-bow")).toBeInTheDocument();
     expect(screen.getByTestId("weapon-card-crossbow")).toBeInTheDocument();
+    expect(screen.getByTestId("weapon-card-sniper")).toBeInTheDocument();
   });
 
-  it("shows weapon names in Czech", () => {
+  it("shows weapon names in Czech including sniper", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByText("Meč")).toBeInTheDocument();
     expect(screen.getByText("Luk")).toBeInTheDocument();
     expect(screen.getByText("Kuše")).toBeInTheDocument();
+    expect(screen.getByText("Odstřelovačka")).toBeInTheDocument();
   });
 
   it("renders a confirm button", () => {
@@ -117,11 +119,29 @@ describe("WeaponSelect component", () => {
     expect(onConfirm).toHaveBeenCalledWith("crossbow");
   });
 
-  it("shows keyboard shortcut hints [1] [2] [3]", () => {
+  it("shows keyboard shortcut hints [1] [2] [3] [4]", () => {
     render(<WeaponSelect onConfirm={jest.fn()} />);
     expect(screen.getByText("[1]")).toBeInTheDocument();
     expect(screen.getByText("[2]")).toBeInTheDocument();
     expect(screen.getByText("[3]")).toBeInTheDocument();
+    expect(screen.getByText("[4]")).toBeInTheDocument();
+  });
+
+  it("keyboard shortcut '4' selects sniper", () => {
+    render(<WeaponSelect onConfirm={jest.fn()} />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "4" });
+    });
+    const btn = screen.getByTestId("weapon-confirm-btn");
+    expect(btn.textContent).toMatch(/Odstřelovačka/);
+  });
+
+  it("selecting sniper and confirming calls onConfirm with 'sniper'", () => {
+    const onConfirm = jest.fn();
+    render(<WeaponSelect onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByTestId("weapon-card-sniper"));
+    fireEvent.click(screen.getByTestId("weapon-confirm-btn"));
+    expect(onConfirm).toHaveBeenCalledWith("sniper");
   });
 
   it("shows the header title 'Vyber zbraň'", () => {

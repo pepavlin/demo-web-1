@@ -1,14 +1,15 @@
 # Weapon System
 
-The game features three distinct weapons selectable before entering the world. Each has a unique combat style, 3D model, and procedurally synthesised audio.
+The game features four distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
 
 ## Weapons
 
-| Key | Weapon | Czech | Type | Damage | Cooldown | Bullet Speed |
-|-----|--------|-------|------|--------|----------|--------------|
-| [1] | Sword | Meč | Melee only | 55 | 0.45s | — |
-| [2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s |
-| [3] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s |
+| Key | Weapon | Czech | Type | Damage | Cooldown | Bullet Speed | Range |
+|-----|--------|-------|------|--------|----------|--------------|-------|
+| [1] | Sword | Meč | Melee only | 55 | 0.45s | — | 2.2 u |
+| [2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s | 80 u |
+| [3] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s | 100 u |
+| [4] | Sniper | Odstřelovačka | Ranged + scope | 160 | 2.8s | 220 u/s | 400 u |
 
 ## Sword (Meč)
 
@@ -32,12 +33,21 @@ The game features three distinct weapons selectable before entering the world. E
 - **3D model:** `buildCrossbowMesh()` — wooden stock with butt, metal rail/tiller, horizontal limbs, stirrup, drawn string, trigger guard, loaded bolt with tip.
 - **Sound:** `_playCrossbowShot()` — square wave mechanical trigger click (580 Hz) + deep sine thunk (210→70 Hz) + high-pass noise bolt release (3 kHz).
 
+## Sniper Rifle (Odstřelovačka)
+
+- **Combat style:** Precision long-range. Single-shot only (no auto-fire). Fastest bullet speed.
+- **Range:** 400 units (extreme long).
+- **Scope mechanic:** Hold **right mouse button** to zoom in (FOV 75° → 12°) with a full sniper scope overlay (vignette, crosshair, mil-dot reticle). Release to exit scope.
+- **3D model:** `buildSniperMesh()` — long barrel with suppressor, wooden stock, cheekrest, optical scope with glowing objective lens, bipod legs, trigger guard, pistol grip.
+- **Special:** Single-shot (no auto-fire); weapon model hidden while scoped; movement sway near-zero while aiming.
+- **Tower pickup:** At the top of the Sniper Tower (see `sniper-tower.md`), pressing **[E]** equips the sniper regardless of initially selected weapon.
+
 ## Architecture
 
 ### Type System (`lib/gameTypes.ts`)
 
 ```typescript
-export type WeaponType = "sword" | "bow" | "crossbow";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -54,7 +64,7 @@ export interface WeaponConfig {
 
 - Animated SVG previews for each weapon (idle animation, attack animation)
 - Czech descriptions and stat bars per weapon
-- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [Enter] confirm
+- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [Enter] confirm
 
 ### 3D Models (`lib/meshBuilders.ts`)
 
@@ -63,18 +73,21 @@ export interface WeaponConfig {
 | `buildSwordMesh()` | Sword |
 | `buildBowMesh()` | Bow |
 | `buildCrossbowMesh()` | Crossbow |
+| `buildSniperMesh()` | Sniper Rifle |
 
 ### Sound (`lib/soundManager.ts`)
 
-`playAttack(weaponType: string)` dispatches to one of three private synthesis methods based on the weapon type. All sounds are procedurally generated via the Web Audio API.
+`playAttack(weaponType: string)` dispatches to one of the private synthesis methods based on the weapon type. All sounds are procedurally generated via the Web Audio API.
 
 ### Game Loop (`components/Game3D.tsx`)
 
 - **`swapWeaponMesh(type)`** — replaces the camera-parented weapon group when switching.
 - **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits. **Blocked** when possessing a sheep, on a boat, on the rocket, or inside the space station.
-- **Weapon sway** — per-weapon base position constants for idle sway animation.
-- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯) with active weapon highlighted.
-- **Scroll wheel / [1][2][3]** — cycle or select weapons during gameplay.
+- **Weapon sway** — per-weapon base position constants for idle sway animation. Sniper has minimal sway; zero sway while scoped.
+- **Scope logic** — right-click mousedown sets `isScopedRef`, hides weapon mesh, smoothly interpolates camera FOV to `SNIPER_SCOPE_FOV` (12°). Release restores `DEFAULT_FOV` (75°).
+- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭) with active weapon highlighted.
+- **Scroll wheel / [1][2][3][4]** — cycle or select weapons during gameplay.
+- **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow).
 
 ### State guards
 
