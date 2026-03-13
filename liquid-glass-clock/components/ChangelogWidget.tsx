@@ -118,27 +118,45 @@ export default function ChangelogWidget() {
           >
             {CHANGELOG.map((entry, idx) => (
               <div
-                key={entry.date}
+                key={entry.version}
                 data-testid="changelog-entry"
                 style={{ marginBottom: idx < CHANGELOG.length - 1 ? "1.25rem" : 0 }}
               >
-                {/* Date + title */}
+                {/* Version + title */}
                 <div
                   className="flex items-baseline gap-2"
-                  style={{ marginBottom: "0.45rem" }}
+                  style={{ marginBottom: "0.45rem", flexWrap: "wrap" }}
                 >
                   <span
                     style={{
                       fontSize: "0.65rem",
-                      fontWeight: 600,
+                      fontWeight: 700,
                       letterSpacing: "0.06em",
-                      color: "rgba(80,200,120,0.8)",
+                      color: idx === 0 ? "rgba(120,220,160,1)" : "rgba(80,200,120,0.8)",
                       textTransform: "uppercase",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {entry.date}
+                    {entry.version}
                   </span>
+                  {idx === 0 && (
+                    <span
+                      style={{
+                        fontSize: "0.58rem",
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "rgba(120,220,160,1)",
+                        background: "rgba(80,200,120,0.15)",
+                        border: "1px solid rgba(80,200,120,0.35)",
+                        borderRadius: "4px",
+                        padding: "1px 5px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      nejnovější
+                    </span>
+                  )}
                   <span
                     style={{
                       fontSize: "0.8rem",

@@ -1,13 +1,13 @@
 export interface ChangelogEntry {
-  date: string;
+  version: string;
   title: string;
   items: string[];
 }
 
-/** Changelog entries — newest first. Update this file with every change to the game. */
+/** Changelog entries — newest version first. Update this file with every change to the game. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    date: "2026-03-13",
+    version: "v2.0",
     title: "Zásoby z nebe & nové zbraně",
     items: [
       "Zásobovací krabice padá z nebe každých 5 minut (airdrop systém)",
@@ -23,7 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    date: "2026-03-09",
+    version: "v1.5",
     title: "Bomby a přizpůsobení terénu",
     items: [
       "9 bomb rozmístěno na mapě, zobrazeny na minimapě",
@@ -31,7 +31,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    date: "2026-03-08",
+    version: "v1.4",
     title: "Mombasa globus & výbušné novinky",
     items: [
       "Interaktivní 3D globus Mombasy na /mombasa",
@@ -41,14 +41,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    date: "2026-03-07",
+    version: "v1.3",
     title: "Výkon — oddělení scén",
     items: [
       "Země a vesmírná stanice jsou nyní dvě nezávislé scény (lepší výkon)",
     ],
   },
   {
-    date: "2026-03-05",
+    version: "v1.2",
     title: "Letadlo, jeskyně & přístav",
     items: [
       "Létatelné letadlo k nalezení ve světě",
@@ -59,7 +59,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    date: "2026-03-04",
+    version: "v1.1",
     title: "Terén a tráva",
     items: [
       "Procedurální textury terénu s triplanárním mapováním",
@@ -67,7 +67,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    date: "2026-03-03",
+    version: "v1.0",
     title: "Optimalizace výkonu",
     items: [
       "Herní smyčka optimalizována z ~20fps na cílových 60fps",
