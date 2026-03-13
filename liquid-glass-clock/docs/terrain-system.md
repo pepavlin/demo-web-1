@@ -24,6 +24,42 @@ The terrain is a procedurally generated 267×267-unit heightmap rendered with a 
 | `WORLD_SIZE` | 267 | Side length of the terrain in world units |
 | `TERRAIN_SEGMENTS` | 120 | Vertex resolution per axis of the PlaneGeometry |
 | `WATER_LEVEL` | -0.5 | Y threshold below which terrain is considered water |
+| `WAVE_MAX_AMPLITUDE` | 0.86 | Sum of all Gerstner wave amplitudes in the water shader (0.26+0.20+0.28+0.065+0.050). The visual water surface can peak at `WATER_LEVEL + WAVE_MAX_AMPLITUDE ≈ 0.36`. |
+| `LAND_SPAWN_MARGIN` | 1.0 | Minimum terrain-height clearance required for a dry-land object. Any placement below `WATER_LEVEL + LAND_SPAWN_MARGIN = 0.5` may have waves visually washing over it. **All spawners must respect this threshold.** |
+
+---
+
+## Water-Safety Placement Rule
+
+**Rule:** Any land-based object (tree, bush, sheep, fence post, building, …) must only be
+placed where `terrainHeight >= WATER_LEVEL + LAND_SPAWN_MARGIN` (≥ 0.5).
+
+This is stricter than merely checking `terrainHeight > WATER_LEVEL` because Gerstner waves
+can peak up to 0.86 units *above* the base water plane, visually submerging objects that sit
+in the shore/beach transition zone (heights between −0.5 and 0.36).
+
+### Enforced by
+
+| Mechanism | Where |
+|-----------|-------|
+| `generateSpawnPoints()` | rejects positions with `y < WATER_LEVEL + LAND_SPAWN_MARGIN` |
+| `findPositionsInSectors()` | default `minHeight = WATER_LEVEL + LAND_SPAWN_MARGIN` |
+| Fence/pen posts | each post skipped if its terrain y < safe threshold |
+| `assertSafeLand(label, x, z)` | dev-only warning for fixed-position structures |
+| Wildflowers | inline check `wy >= 0.5` (equals the threshold) |
+
+### Fixed-structure placement
+
+Structures with hardcoded world coordinates are guarded by `assertSafeLand()`, which logs a
+console warning in development if the position falls below the safe threshold.
+
+Ruins and Lighthouse are dynamically placed with `findPositionsInSectors(2, 75, 115, …)` to
+ensure they always land on dry elevated terrain, even if the terrain generation changes.
+
+**Root cause fixed (2026-03):** The former Ruins position (180, −120) was outside the world
+boundary (`halfWorld = 133.5`) and sat deep underwater (h ≈ −6.4). The Lighthouse position
+(−95, 85) was also underwater with the current simplex-noise seed. Both are now resolved by
+dynamic placement.
 
 ---
 
