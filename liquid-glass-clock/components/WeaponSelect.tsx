@@ -9,8 +9,8 @@ import { WEAPON_CONFIGS } from "@/lib/gameTypes";
 function SwordSVG({ selected }: { selected: boolean }) {
   return (
     <svg
-      viewBox="0 0 120 80"
-      width="120"
+      viewBox="0 0 50 80"
+      width="50"
       height="80"
       style={{
         filter: selected ? "drop-shadow(0 0 10px #fbbf24)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
@@ -33,40 +33,42 @@ function SwordSVG({ selected }: { selected: boolean }) {
           50% { opacity: 0.7; }
         }
         @keyframes sword-swing {
-          0%, 70%, 100% { transform: rotate(0deg); transform-origin: 100px 40px; }
-          80% { transform: rotate(-12deg); transform-origin: 100px 40px; }
-          88% { transform: rotate(8deg); transform-origin: 100px 40px; }
+          0%, 70%, 100% { transform: rotate(0deg); transform-origin: 25px 70px; }
+          80% { transform: rotate(-12deg); transform-origin: 25px 70px; }
+          88% { transform: rotate(8deg); transform-origin: 25px 70px; }
         }
       `}</style>
+      {/* Blade group — swings around the grip/pommel area */}
       <g style={{ animation: "sword-swing 3s ease-in-out infinite" }}>
-        {/* Blade */}
-        <polygon points="10,40 22,36 90,40 22,44" fill="#c8dff0" />
-        <polygon points="10,40 22,36 90,40" fill="#e0f0ff" opacity="0.7" />
-        {/* Blade edge */}
-        <line x1="10" y1="40" x2="90" y2="40" stroke="#ffffff" strokeWidth="0.8" opacity="0.6" />
-        {/* Blade center fuller */}
-        <line x1="22" y1="39.5" x2="88" y2="39.5" stroke="#88aacc" strokeWidth="0.6" opacity="0.5" />
+        {/* Blade — tapers from wide at guard (y=46) to point at tip (y=5) */}
+        <polygon points="25,5 19,46 31,46" fill="#c8dff0" />
+        {/* Blade highlight (left facet) */}
+        <polygon points="25,5 19,46 25,46" fill="#e0f0ff" opacity="0.7" />
+        {/* Blade center edge line */}
+        <line x1="25" y1="5" x2="25" y2="46" stroke="#ffffff" strokeWidth="0.8" opacity="0.6" />
+        {/* Blade fuller (center groove) */}
+        <line x1="25" y1="10" x2="25" y2="44" stroke="#88aacc" strokeWidth="0.6" opacity="0.5" />
         {/* Blade shimmer highlight */}
-        <rect x="22" y="36.5" width="60" height="3" rx="1" fill="white" style={{ animation: "blade-shimmer 2.5s ease-in-out infinite" }} />
+        <rect x="22" y="12" width="6" height="30" rx="1" fill="white" style={{ animation: "blade-shimmer 2.5s ease-in-out infinite" }} />
         {/* Blade glow */}
-        <ellipse cx="50" cy="40" rx="38" ry="3" fill="#88ccff" style={{ animation: "sword-glow 2.5s ease-in-out infinite" }} />
+        <ellipse cx="25" cy="26" rx="3" ry="20" fill="#88ccff" style={{ animation: "sword-glow 2.5s ease-in-out infinite" }} />
       </g>
       {/* Cross-guard */}
-      <rect x="84" y="29" width="6" height="22" rx="2" fill="#c8960c" />
-      <ellipse cx="87" cy="29" rx="3" ry="4" fill="#e8b020" />
-      <ellipse cx="87" cy="51" rx="3" ry="4" fill="#e8b020" />
+      <rect x="11" y="46" width="28" height="6" rx="2" fill="#c8960c" />
+      <ellipse cx="11" cy="49" rx="4" ry="3" fill="#e8b020" />
+      <ellipse cx="39" cy="49" rx="4" ry="3" fill="#e8b020" />
       {/* Grip */}
-      <rect x="88" y="35" width="12" height="10" rx="2" fill="#5c2a0a" />
-      {/* Grip wrapping */}
-      <line x1="88" y1="37" x2="100" y2="37" stroke="#3d1a06" strokeWidth="1.5" />
-      <line x1="88" y1="39.5" x2="100" y2="39.5" stroke="#3d1a06" strokeWidth="1.5" />
-      <line x1="88" y1="42" x2="100" y2="42" stroke="#3d1a06" strokeWidth="1.5" />
-      <line x1="88" y1="44.5" x2="100" y2="44.5" stroke="#3d1a06" strokeWidth="1.5" />
+      <rect x="23" y="52" width="4" height="18" rx="2" fill="#5c2a0a" />
+      {/* Grip wrapping bands */}
+      <line x1="23" y1="55" x2="27" y2="55" stroke="#3d1a06" strokeWidth="1.5" />
+      <line x1="23" y1="59" x2="27" y2="59" stroke="#3d1a06" strokeWidth="1.5" />
+      <line x1="23" y1="63" x2="27" y2="63" stroke="#3d1a06" strokeWidth="1.5" />
+      <line x1="23" y1="67" x2="27" y2="67" stroke="#3d1a06" strokeWidth="1.5" />
       {/* Pommel */}
-      <ellipse cx="106" cy="40" rx="6" ry="5" fill="#c8960c" />
-      <ellipse cx="106" cy="40" rx="4" ry="3" fill="#e8b020" />
+      <ellipse cx="25" cy="74" rx="6" ry="5" fill="#c8960c" />
+      <ellipse cx="25" cy="74" rx="4" ry="3" fill="#e8b020" />
       {/* Pommel gem */}
-      <ellipse cx="106" cy="40" rx="2" ry="1.5" fill="#fff8e0" opacity="0.8" />
+      <ellipse cx="25" cy="74" rx="2" ry="1.5" fill="#fff8e0" opacity="0.8" />
     </svg>
   );
 }

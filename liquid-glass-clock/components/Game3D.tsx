@@ -199,7 +199,7 @@ type WeaponTransformConfig = {
 
 /** First-person: weapon positioned in camera-local space (bottom-right of screen). */
 const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.25, -0.28, -0.48], rot: [-Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
+  sword:    { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
   bow:      { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
   crossbow: { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
   sniper:   { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
@@ -208,7 +208,7 @@ const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
 /** Third-person: weapon positioned relative to the "handR" anchor on the player body.
  *  The anchor is at the tip of armR so the weapon moves naturally with arm swing. */
 const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.0,  0.0,  0.08], rot: [-Math.PI / 2, 0.0, -0.2], scale: 0.8 },
+  sword:    { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
   bow:      { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
   crossbow: { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
   sniper:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
@@ -5907,8 +5907,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             baseY + Math.abs(Math.sin(elapsed * swaySpeed)) * swayAmt,
             baseZ - swingAngle * 0.06
           );
-          // Rotation: tip starts up (-π/2), swings forward to near-horizontal, then returns
-          wep.rotation.x = -Math.PI / 2 + swingAngle * 1.5; // tip up → swing forward
+          // Rotation: tip starts up (+π/2), swings forward to near-horizontal, then returns
+          wep.rotation.x = Math.PI / 2 - swingAngle * 1.5; // tip up → swing forward
           wep.rotation.y = -0.3 + swingAngle * 0.25;         // slight outward sweep
           wep.rotation.z = 0.3  - swingAngle * 0.55;         // slash from right to left
         } else if (wType === "sniper") {

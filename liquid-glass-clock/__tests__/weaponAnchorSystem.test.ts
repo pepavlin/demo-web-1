@@ -25,14 +25,14 @@ type WeaponTransformConfig = {
 };
 
 const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.25, -0.28, -0.48], rot: [-Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
+  sword:    { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
   bow:      { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
   crossbow: { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
   sniper:   { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
 };
 
 const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:    { pos: [0.0,  0.0,  0.08], rot: [-Math.PI / 2, 0.0, -0.2], scale: 0.8 },
+  sword:    { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
   bow:      { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
   crossbow: { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
   sniper:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
@@ -261,6 +261,37 @@ describe("Bullet spawn position selection (FP vs TP)", () => {
     const bodyPos = new THREE.Vector3(0, 0, 0); // feet at y=0
     const origin = getBulletSpawnOrigin("third", new THREE.Vector3(), bodyPos, PLAYER_HEIGHT);
     expect(origin.y).toBeGreaterThan(0); // above ground
+  });
+});
+
+describe("Sword orientation — tip points up", () => {
+  /**
+   * The sword mesh is built along the local Z axis:
+   *   - Blade tip at z = -0.24 (most negative Z)
+   *   - Pommel  at z = +0.162 (most positive Z)
+   *
+   * With rotation.x = +π/2, the local Z axis maps to world +Y (up):
+   *   y' = cos(+π/2)*y - sin(+π/2)*z = -z
+   *   so local z = -0.24  →  world y = +0.24  (tip is ABOVE the origin, i.e. up)
+   *
+   * With rotation.x = -π/2 (the old wrong value):
+   *   y' = -z → local z = -0.24 → world y = -0.24 (tip DOWN — incorrect)
+   */
+  it("FP sword rotation.x is +π/2 so blade tip points upward", () => {
+    const rx = WEAPON_FP_CONFIG.sword.rot[0];
+    expect(rx).toBeCloseTo(Math.PI / 2);
+    // The blade tip lives at local z = -0.24; after rotateX(+π/2), world y = +0.24 (up)
+    const tipLocalZ = -0.24;
+    const tipWorldY = -Math.sin(rx) * tipLocalZ; // simplified: y' ≈ -sin(rx)*z for pure X rotation
+    expect(tipWorldY).toBeGreaterThan(0); // tip is above grip → pointing up
+  });
+
+  it("TP sword rotation.x is +π/2 so blade tip points upward", () => {
+    const rx = WEAPON_TP_CONFIG.sword.rot[0];
+    expect(rx).toBeCloseTo(Math.PI / 2);
+    const tipLocalZ = -0.24;
+    const tipWorldY = -Math.sin(rx) * tipLocalZ;
+    expect(tipWorldY).toBeGreaterThan(0);
   });
 });
 
