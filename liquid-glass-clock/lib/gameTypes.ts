@@ -345,6 +345,12 @@ export interface WorldItem {
   mesh: THREE.Group;
   /** True while the player is holding this item (mesh is hidden from world). */
   isHeld: boolean;
+  /**
+   * Optional callback invoked when a projectile (bullet or arrow) hits this item.
+   * Return true to consume the projectile (remove it from the world).
+   * Return false to let the projectile continue (pass-through).
+   */
+  onBulletHit?: (bullet: BulletData) => boolean;
 }
 
 /** Serialisable snapshot of a placed world item (for localStorage persistence). */

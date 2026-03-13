@@ -31,7 +31,7 @@ import {
   modifyTerrainHeight,
   updateTerrainGeometry,
 } from "@/lib/terrainUtils";
-import type { BombProjectileData } from "@/lib/gameTypes";
+import type { BombProjectileData, WorldItem, BulletData } from "@/lib/gameTypes";
 import * as THREE from "three";
 
 // ─── buildBombMesh ─────────────────────────────────────────────────────────────
@@ -348,5 +348,90 @@ describe("minimap bomb rendering filter", () => {
     const mz2 = cy + (-133) * scale;
     expect(mx2).toBeGreaterThanOrEqual(0);
     expect(mx2).toBeLessThanOrEqual(W);
+  });
+});
+
+// ─── WorldItem onBulletHit callback system ───────────────────────────────────
+
+describe("WorldItem onBulletHit callback", () => {
+  it("WorldItem can have an onBulletHit callback that returns true (consume bullet)", () => {
+    // This is a compile-time shape test + runtime behaviour test
+    let hitCallbackInvoked = false;
+    const mockBullet = {} as BulletData;
+
+    const item: WorldItem = {
+      id: "test-bomb-1",
+      type: "bomb",
+      mesh: new THREE.Group(),
+      isHeld: false,
+      onBulletHit: (_bullet) => {
+        hitCallbackInvoked = true;
+        return true; // consume the bullet
+      },
+    };
+
+    const consumed = item.onBulletHit!(mockBullet);
+    expect(hitCallbackInvoked).toBe(true);
+    expect(consumed).toBe(true);
+  });
+
+  it("WorldItem onBulletHit can return false (bullet passes through)", () => {
+    const item: WorldItem = {
+      id: "test-pumpkin-1",
+      type: "pumpkin",
+      mesh: new THREE.Group(),
+      isHeld: false,
+      onBulletHit: (_bullet) => false,
+    };
+    const mockBullet = {} as BulletData;
+    expect(item.onBulletHit!(mockBullet)).toBe(false);
+  });
+
+  it("WorldItem without onBulletHit has no callback (default solid world items are ignored)", () => {
+    const item: WorldItem = {
+      id: "test-plain-1",
+      type: "pumpkin",
+      mesh: new THREE.Group(),
+      isHeld: false,
+    };
+    expect(item.onBulletHit).toBeUndefined();
+  });
+
+  it("held bomb is skipped (isHeld=true prevents hit detection)", () => {
+    let wasHit = false;
+    const item: WorldItem = {
+      id: "held-bomb",
+      type: "bomb",
+      mesh: new THREE.Group(),
+      isHeld: true,
+      onBulletHit: () => { wasHit = true; return true; },
+    };
+    // Simulate the game loop guard: skip if isHeld
+    if (!item.isHeld && item.onBulletHit) {
+      item.onBulletHit({} as BulletData);
+    }
+    expect(wasHit).toBe(false);
+  });
+
+  it("bomb onBulletHit removes the bomb from the item list (simulated)", () => {
+    const bombId = "bomb-target-1";
+    let items: WorldItem[] = [
+      {
+        id: bombId,
+        type: "bomb",
+        mesh: new THREE.Group(),
+        isHeld: false,
+        onBulletHit: (_bullet) => {
+          // Simulate the removal logic in Game3D
+          items = items.filter((wi) => wi.id !== bombId);
+          return true;
+        },
+      },
+    ];
+
+    expect(items).toHaveLength(1);
+    const mockBullet = {} as BulletData;
+    items[0].onBulletHit!(mockBullet);
+    expect(items).toHaveLength(0);
   });
 });

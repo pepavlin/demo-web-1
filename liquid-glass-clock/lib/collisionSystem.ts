@@ -34,6 +34,8 @@ export interface BoxCollider3D {
   halfD: number;
   rotY: number;
   walkable: boolean;
+  /** When true, projectiles pass through without being blocked. Default: false (solid). */
+  isTrigger?: boolean;
 }
 
 /**
@@ -52,6 +54,8 @@ export interface CylinderCollider3D {
   radius: number;
   height: number;
   walkable: boolean;
+  /** When true, projectiles pass through without being blocked. Default: false (solid). */
+  isTrigger?: boolean;
 }
 
 /**
@@ -65,6 +69,8 @@ export interface SphereCollider3D {
   y: number;
   z: number;
   radius: number;
+  /** When true, projectiles pass through without being blocked. Default: false (solid). */
+  isTrigger?: boolean;
 }
 
 // ─── OBB Helpers ─────────────────────────────────────────────────────────────
