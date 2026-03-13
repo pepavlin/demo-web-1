@@ -48,6 +48,7 @@ import {
   buildTorchMesh,
   buildTreasureChestMesh,
   buildCity,
+  buildMountainWithWaterfallAndCave,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
 import * as THREE from "three";
@@ -1494,5 +1495,72 @@ describe("buildCity", () => {
       // Meshes on the positive-x side should be higher due to sloped terrain.
       expect(maxPosX).toBeGreaterThan(maxNegX);
     });
+  });
+});
+
+describe("buildMountainWithWaterfallAndCave", () => {
+  it("returns { group, boxColliders, cylColliders }", () => {
+    const result = buildMountainWithWaterfallAndCave();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.boxColliders)).toBe(true);
+    expect(Array.isArray(result.cylColliders)).toBe(true);
+  });
+
+  it("group has many mesh children (mountain layers, cave, waterfall, boulders)", () => {
+    const { group } = buildMountainWithWaterfallAndCave();
+    let meshCount = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) meshCount++;
+    });
+    expect(meshCount).toBeGreaterThan(20);
+  });
+
+  it("cylColliders contains the main mountain collider at local origin", () => {
+    const { cylColliders } = buildMountainWithWaterfallAndCave();
+    expect(cylColliders.length).toBeGreaterThan(0);
+    const mainColl = cylColliders.find(
+      (cc) => Math.abs(cc.lx) < 0.1 && Math.abs(cc.lz) < 0.1 && cc.radius > 10,
+    );
+    expect(mainColl).toBeDefined();
+  });
+
+  it("cylColliders includes the pool collider (offset from origin)", () => {
+    const { cylColliders } = buildMountainWithWaterfallAndCave();
+    const poolColl = cylColliders.find(
+      (cc) => cc.lx > 5 && cc.lz > 10 && cc.radius > 3,
+    );
+    expect(poolColl).toBeDefined();
+  });
+
+  it("peak is taller than 50 units", () => {
+    const { group } = buildMountainWithWaterfallAndCave();
+    let maxY = 0;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh && child.position.y > maxY) {
+        maxY = child.position.y;
+      }
+    });
+    expect(maxY).toBeGreaterThan(50);
+  });
+
+  it("boxColliders is an empty array (mountain uses cylinder colliders only)", () => {
+    const { boxColliders } = buildMountainWithWaterfallAndCave();
+    expect(boxColliders).toHaveLength(0);
+  });
+
+  it("is deterministic — calling twice produces the same collider count", () => {
+    const r1 = buildMountainWithWaterfallAndCave();
+    const r2 = buildMountainWithWaterfallAndCave();
+    expect(r1.cylColliders.length).toBe(r2.cylColliders.length);
+    expect(r1.boxColliders.length).toBe(r2.boxColliders.length);
+  });
+
+  it("accepts an optional terrain argument without throwing", () => {
+    const terrain: CityTerrainOptions = {
+      terrainSampler: (_x, _z) => 3,
+      worldX: -60,
+      worldZ: -80,
+    };
+    expect(() => buildMountainWithWaterfallAndCave(terrain)).not.toThrow();
   });
 });
