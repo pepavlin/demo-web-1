@@ -6,6 +6,29 @@ export const TERRAIN_SEGMENTS = 120;
 /** Terrain height below this value is considered water */
 export const WATER_LEVEL = -0.5;
 
+/**
+ * Maximum vertical displacement of Gerstner waves above WATER_LEVEL.
+ * Computed as the sum of all wave amplitudes defined in the water shader:
+ *   0.26 + 0.20 + 0.28 + 0.065 + 0.050 = 0.855
+ * When all wave crests coincide at a point the water surface peaks at
+ * WATER_LEVEL + WAVE_MAX_AMPLITUDE ≈ 0.355 world units.
+ */
+export const WAVE_MAX_AMPLITUDE = 0.86;
+
+/**
+ * Minimum terrain-height clearance required for any land-based object to be
+ * placed safely above the highest possible wave crest.
+ *
+ * Objects whose terrain Y is below  WATER_LEVEL + LAND_SPAWN_MARGIN  may
+ * have waves visually washing over them. All spawners (generateSpawnPoints,
+ * findPositionsInSectors, fixed-position structures, fence posts …) MUST
+ * reject positions below this threshold.
+ *
+ * Value  1.0  gives a comfortable buffer: WATER_LEVEL + 1.0 = 0.5, safely
+ * above the theoretical wave peak of ≈ 0.36.
+ */
+export const LAND_SPAWN_MARGIN = 1.0;
+
 let noise2D: ReturnType<typeof createNoise2D>;
 
 /**
@@ -315,7 +338,7 @@ export function findPositionsInSectors(
   count: number,
   minDist: number,
   maxDist: number,
-  minHeight = WATER_LEVEL + 0.5,
+  minHeight = WATER_LEVEL + LAND_SPAWN_MARGIN,
   maxSlopeDelta = 5.0,
 ): StructurePosition[] {
   if (!heightGrid || count <= 0) return [];
@@ -415,8 +438,9 @@ export function generateSpawnPoints(
 
     const y = getTerrainHeight(x, z);
 
-    // Don't spawn in water (terrain must be above the visual water surface)
-    if (y < WATER_LEVEL) continue;
+    // Reject shore/water positions — terrain must clear the highest wave crest
+    // so objects are never submerged or visually washed over by waves.
+    if (y < WATER_LEVEL + LAND_SPAWN_MARGIN) continue;
 
     // Avoid too-steep slopes
     const slopeCheck = getTerrainHeight(x + 2, z) - y;
@@ -425,4 +449,34 @@ export function generateSpawnPoints(
     points.push({ x, z, y });
   }
   return points;
+}
+
+/**
+ * Development guard for fixed-position structures.
+ *
+ * Logs a console warning when a hardcoded world position falls below the safe
+ * land threshold (WATER_LEVEL + LAND_SPAWN_MARGIN). This should never fire
+ * with the default terrain seed, but will surface issues immediately if
+ * coordinates are changed or the terrain generation is modified.
+ *
+ * Silent in production (NODE_ENV !== 'development').
+ *
+ * @param label  Human-readable name of the structure (for the log message).
+ * @param x      World X coordinate.
+ * @param z      World Z coordinate.
+ * @returns      The actual terrain height at (x, z).
+ */
+export function assertSafeLand(label: string, x: number, z: number): number {
+  const h = getTerrainHeightSampled(x, z);
+  if (h < WATER_LEVEL + LAND_SPAWN_MARGIN) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        `[assertSafeLand] "${label}" at (${x.toFixed(1)}, ${z.toFixed(1)}) ` +
+        `is below safe land level: h=${h.toFixed(3)}, ` +
+        `threshold=${(WATER_LEVEL + LAND_SPAWN_MARGIN).toFixed(3)}. ` +
+        `This position may appear in water. Adjust coordinates or terrain seed.`
+      );
+    }
+  }
+  return h;
 }

@@ -1,4 +1,4 @@
-import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, findBestElevatedPosition, findPositionsInSectors, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, findBestElevatedPosition, findPositionsInSectors, assertSafeLand, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL, WAVE_MAX_AMPLITUDE, LAND_SPAWN_MARGIN } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -591,7 +591,7 @@ describe("terrainUtils", () => {
     });
 
     it("positions have x, z, y numeric properties", () => {
-      const positions = findPositionsInSectors(4, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      const positions = findPositionsInSectors(4, 35, 95);
       positions.forEach((p) => {
         expect(typeof p.x).toBe("number");
         expect(typeof p.z).toBe("number");
@@ -599,6 +599,91 @@ describe("terrainUtils", () => {
         expect(isNaN(p.x)).toBe(false);
         expect(isNaN(p.z)).toBe(false);
         expect(isNaN(p.y)).toBe(false);
+      });
+    });
+  });
+
+  // ── Water placement guards ───────────────────────────────────────────────
+  describe("water placement constants", () => {
+    it("WAVE_MAX_AMPLITUDE is exported and positive", () => {
+      expect(WAVE_MAX_AMPLITUDE).toBeGreaterThan(0);
+    });
+
+    it("WAVE_MAX_AMPLITUDE matches the sum of shader wave amplitudes (>=0.855)", () => {
+      // 0.26 + 0.20 + 0.28 + 0.065 + 0.050 = 0.855 — rounded up for safety
+      expect(WAVE_MAX_AMPLITUDE).toBeGreaterThanOrEqual(0.855);
+      expect(WAVE_MAX_AMPLITUDE).toBeLessThan(1.0);
+    });
+
+    it("LAND_SPAWN_MARGIN is exported and greater than WAVE_MAX_AMPLITUDE", () => {
+      expect(LAND_SPAWN_MARGIN).toBeGreaterThan(WAVE_MAX_AMPLITUDE);
+    });
+
+    it("WATER_LEVEL + LAND_SPAWN_MARGIN is positive (safe-land threshold is above sea level)", () => {
+      expect(WATER_LEVEL + LAND_SPAWN_MARGIN).toBeGreaterThan(0);
+    });
+  });
+
+  describe("generateSpawnPoints — water guard", () => {
+    beforeAll(() => { initNoise(42); });
+
+    it("all points are at or above safe land threshold", () => {
+      const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      const points = generateSpawnPoints(50, 10, 120, 789);
+      points.forEach((p) => {
+        expect(p.y).toBeGreaterThanOrEqual(safeThreshold);
+      });
+    });
+
+    it("no spawn points appear in the shallow-water beach zone", () => {
+      const beachZoneUpper = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      const points = generateSpawnPoints(100, 5, 200, 99);
+      const beachZonePoints = points.filter(
+        (p) => p.y > WATER_LEVEL && p.y < beachZoneUpper
+      );
+      expect(beachZonePoints).toHaveLength(0);
+    });
+  });
+
+  describe("findPositionsInSectors — water guard", () => {
+    beforeAll(() => { initNoise(42); });
+
+    it("default minHeight equals WATER_LEVEL + LAND_SPAWN_MARGIN", () => {
+      const positions = findPositionsInSectors(4, 35, 95);
+      const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      positions.forEach((p) => {
+        expect(p.y).toBeGreaterThanOrEqual(safeThreshold);
+      });
+    });
+  });
+
+  describe("assertSafeLand", () => {
+    beforeAll(() => { initNoise(42); });
+
+    it("returns a number and does not throw", () => {
+      const h = assertSafeLand("Test structure", 0, 0);
+      expect(typeof h).toBe("number");
+      expect(isNaN(h)).toBe(false);
+      // Origin is the player spawn zone — must at least be above water
+      expect(h).toBeGreaterThan(WATER_LEVEL);
+    });
+
+    it("does not throw for a safe land position", () => {
+      expect(() => assertSafeLand("Safe", 0, 0)).not.toThrow();
+    });
+
+    it("does not throw for an underwater position (only warns in dev)", () => {
+      expect(() => assertSafeLand("Water", 0, -200)).not.toThrow();
+    });
+
+    it("dynamically placed ruins and lighthouse are always above safe land threshold", () => {
+      initNoise(42);
+      const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      // The game uses findPositionsInSectors(2, 75, 115, …) for ruins + lighthouse
+      const remotePositions = findPositionsInSectors(2, 75, 115, safeThreshold, 8.0);
+      expect(remotePositions.length).toBeGreaterThanOrEqual(1);
+      remotePositions.forEach((pos) => {
+        expect(pos.y).toBeGreaterThanOrEqual(safeThreshold);
       });
     });
   });

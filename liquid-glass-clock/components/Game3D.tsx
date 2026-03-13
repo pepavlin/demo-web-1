@@ -17,6 +17,8 @@ import {
   WORLD_SIZE,
   TERRAIN_SEGMENTS,
   WATER_LEVEL,
+  LAND_SPAWN_MARGIN,
+  assertSafeLand,
 } from "@/lib/terrainUtils";
 import { createTerrainTexture } from "@/lib/terrainTextures";
 import {
@@ -238,8 +240,11 @@ const POSSESS_RADIUS = 3.5; // units — show [E] prompt within this distance
 const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when possessed
 
 // ─── Lighthouse Constants ─────────────────────────────────────────────────────
-const LIGHTHOUSE_X = -95;       // world X coordinate — accessible northwest coastal rise
-const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable boundary (±123.5)
+// These are `let` so the terrain-analysis block can relocate them to the best
+// dry-land coastal position after the height grid is initialised.  The initial
+// values are only used as fallbacks if the search fails (extremely unlikely).
+let LIGHTHOUSE_X = -95;
+let LIGHTHOUSE_Z = 85;
 
 // ─── Mountain Constants ────────────────────────────────────────────────────────
 /** World-space centre of the mountain with waterfall and cave (southwest quadrant) */
@@ -1775,13 +1780,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       SNIPER_TOWER_Z = sniperPos.z;
     }
 
+    // Ruins + Lighthouse — place in two OPPOSITE sectors of the 75-115 unit ring
+    // so they are always on safe land and well separated from each other.
+    // Using findPositionsInSectors(2, …) guarantees one position per sector half.
+    const remotePositions = findPositionsInSectors(2, 75, 115, WATER_LEVEL + LAND_SPAWN_MARGIN, 8.0);
+    const ruinsDynamicPos  = remotePositions[0] ?? null;
+    const lighthouseDynPos = remotePositions[1] ?? null;
+    if (lighthouseDynPos) {
+      LIGHTHOUSE_X = lighthouseDynPos.x;
+      LIGHTHOUSE_Z = lighthouseDynPos.z;
+    }
+
     // Catapults — one per angular sector, all on dry land
+    // Uses the default minHeight (WATER_LEVEL + LAND_SPAWN_MARGIN) from findPositionsInSectors.
     const dynamicCatapultPositions = findPositionsInSectors(
       CATAPULT_COUNT,
       35,
       95,
-      WATER_LEVEL + 0.5,
-      5.0,
     );
 
     // Renderer
@@ -3134,26 +3149,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       { x: 0, z: 15, ry: Math.PI / 2 },
       { x: 0, z: -15, ry: Math.PI / 2 },
     ];
+    const SAFE_LAND = WATER_LEVEL + LAND_SPAWN_MARGIN;
     penPositions.forEach(({ x, z, ry }) => {
       for (let i = 0; i < 3; i++) {
+        const px = x + (i - 1) * 3 * Math.cos(ry);
+        const pz = z + (i - 1) * 3 * Math.sin(ry);
+        const py = getTerrainHeightSampled(px, pz);
+        // Skip any post whose ground is below the safe land threshold so that
+        // fence sections near the shoreline never appear underwater.
+        if (py < SAFE_LAND) continue;
         const postGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6);
         const post = new THREE.Mesh(postGeo, fenceMat);
-        const py = getTerrainHeightSampled(
-          x + (i - 1) * 3 * Math.cos(ry),
-          z + (i - 1) * 3 * Math.sin(ry)
-        );
-        post.position.set(
-          x + (i - 1) * 3 * Math.cos(ry),
-          py + 0.6,
-          z + (i - 1) * 3 * Math.sin(ry)
-        );
+        post.position.set(px, py + 0.6, pz);
         scene.add(post);
       }
+      const ry2 = getTerrainHeightSampled(x, z);
+      // Only add the connecting rail if the centre of this fence panel is on land.
+      if (ry2 < SAFE_LAND) return;
       const railGeo = new THREE.CylinderGeometry(0.04, 0.04, 9, 6);
       const rail = new THREE.Mesh(railGeo, fenceMat);
       rail.rotation.z = Math.PI / 2;
       rail.rotation.y = ry;
-      const ry2 = getTerrainHeightSampled(x, z);
       rail.position.set(x, ry2 + 0.9, z);
       scene.add(rail);
     });
@@ -3162,11 +3178,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const { group: windmillGroup, blades } = buildWindmill();
     const windmillX = 28;
     const windmillZ = 28;
-    windmillGroup.position.set(windmillX, getTerrainHeightSampled(windmillX, windmillZ), windmillZ);
+    const windmillGroundY = assertSafeLand("Windmill", windmillX, windmillZ);
+    windmillGroup.position.set(windmillX, windmillGroundY, windmillZ);
     scene.add(windmillGroup);
     windmillBladesRef.current = blades;
     // Cylinder collider for the windmill tower (base radius 1.1, approx 10m tall)
-    treeCollisionRef.current.push({ x: windmillX, z: windmillZ, radius: 1.1 + PLAYER_RADIUS, baseY: getTerrainHeightSampled(windmillX, windmillZ), height: 10, walkable: false });
+    treeCollisionRef.current.push({ x: windmillX, z: windmillZ, radius: 1.1 + PLAYER_RADIUS, baseY: windmillGroundY, height: 10, walkable: false });
 
     // ── Farmhouse (near the pen) ──────────────────────────────────────────────
     let houseSeed = 88;
@@ -3177,14 +3194,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const house = buildHouse(houseRng);
     const houseX = -28;
     const houseZ = 22;
-    house.position.set(houseX, getTerrainHeightSampled(houseX, houseZ), houseZ);
+    const houseGroundY = assertSafeLand("Farmhouse", houseX, houseZ);
+    house.position.set(houseX, houseGroundY, houseZ);
     house.rotation.y = Math.PI * 0.15;
     scene.add(house);
     // Box collider for the house walls (7×5.5 footprint, 4.5m tall walls, pitched roof = not walkable)
-    {
-      const houseGroundY = getTerrainHeightSampled(houseX, houseZ);
-      boxCollidersRef.current.push({ cx: houseX, cy: houseGroundY + 2.25, cz: houseZ, halfW: 3.5, halfH: 2.25, halfD: 2.75, rotY: Math.PI * 0.15, walkable: false });
-    }
+    boxCollidersRef.current.push({ cx: houseX, cy: houseGroundY + 2.25, cz: houseZ, halfW: 3.5, halfH: 2.25, halfD: 2.75, rotY: Math.PI * 0.15, walkable: false });
 
     // ── Ruins (distant location) ──────────────────────────────────────────────
     let ruinsSeed = 999;
@@ -3193,15 +3208,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       return (ruinsSeed >>> 0) / 0xffffffff;
     };
     const { group: ruins, boxColliders: ruinsBoxes, cylColliders: ruinsCyls }: RuinsResult = buildRuins(ruinsRng);
-    const ruinsX = 180;
-    const ruinsZ = -120;
+    // NOTE: The original hardcoded position (180, -120) was outside the world boundary
+    // (halfWorld = 133.5) and sat deep underwater. We now reuse the sector position
+    // found in the terrain-analysis block (ruinsDynamicPos) so ruins always appear on
+    // dry, scenic terrain and on the OPPOSITE side of the map from the lighthouse.
+    const ruinsPos = ruinsDynamicPos ?? { x: 80, z: -80, y: 5 };
+    const ruinsX = ruinsPos.x;
+    const ruinsZ = ruinsPos.z;
     const ruinsRotY = 0.4;
-    ruins.position.set(ruinsX, getTerrainHeightSampled(ruinsX, ruinsZ), ruinsZ);
+    const ruinsGroundY = assertSafeLand("Ruins", ruinsX, ruinsZ);
+    ruins.position.set(ruinsX, ruinsGroundY, ruinsZ);
     ruins.rotation.y = ruinsRotY;
     scene.add(ruins);
     // Register ruins colliders in world space (rotate local positions by ruinsRotY)
     {
-      const ruinsGroundY = getTerrainHeightSampled(ruinsX, ruinsZ);
       const cosR = Math.cos(ruinsRotY);
       const sinR = Math.sin(ruinsRotY);
       for (const bc of ruinsBoxes) {
@@ -3230,16 +3250,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     // ── Lighthouse (on a coastal rise) ───────────────────────────────────────
     const { group: lighthouse, beamPivot, lighthouseLight } = buildLighthouse();
-    lighthouse.position.set(LIGHTHOUSE_X, getTerrainHeightSampled(LIGHTHOUSE_X, LIGHTHOUSE_Z), LIGHTHOUSE_Z);
+    const lighthouseGroundY = assertSafeLand("Lighthouse", LIGHTHOUSE_X, LIGHTHOUSE_Z);
+    lighthouse.position.set(LIGHTHOUSE_X, lighthouseGroundY, LIGHTHOUSE_Z);
     scene.add(lighthouse);
     lighthouseBeamRef.current = beamPivot;
     lighthouseLightRef.current = lighthouseLight;
     // Cylinder collider for the lighthouse base (radius 2.2, ~18m tall, not walkable on top)
-    treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS, baseY: getTerrainHeightSampled(LIGHTHOUSE_X, LIGHTHOUSE_Z), height: 18, walkable: false });
+    treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS, baseY: lighthouseGroundY, height: 18, walkable: false });
 
     // ── Sniper Tower (northeast elevated area) ────────────────────────────────
     {
-      const towerTerrainY = getTerrainHeightSampled(SNIPER_TOWER_X, SNIPER_TOWER_Z);
+      const towerTerrainY = assertSafeLand("Sniper Tower", SNIPER_TOWER_X, SNIPER_TOWER_Z);
       const towerResult = buildSniperTowerMesh();
       towerResult.group.position.set(SNIPER_TOWER_X, towerTerrainY, SNIPER_TOWER_Z);
       scene.add(towerResult.group);
