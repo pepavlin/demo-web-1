@@ -85,6 +85,7 @@ import {
   type SniperTowerResult,
   type BiolumPlantResult,
 } from "@/lib/meshBuilders";
+import { createTreeSprite, disposeTreeSpriteCache } from "@/lib/spriteUtils";
 import {
   type BoxCollider3D,
   type CylinderCollider3D,
@@ -633,6 +634,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     maxSway: number;       // max rotation amplitude (radians)
     posX: number;          // world X for LOD distance check
     posZ: number;          // world Z for LOD distance check
+    /** Billboard sprite shown beyond LOD_SPRITE_DIST — only present for trees. */
+    sprite?: THREE.Sprite | null;
   }>>([]);
   /** 3D cylinder colliders for trees, columns, towers and other round obstacles.
    *  radius already includes PLAYER_RADIUS (legacy convention).
@@ -1890,6 +1893,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (tree.hp <= 0) {
           tree.isFalling = true;
           tree.fallTimer = 0;
+          // Hide the sprite immediately so it doesn't float while the 3D mesh falls
+          if (tree.sprite) tree.sprite.visible = false;
           // Remove from wind-sway list so the falling tree doesn't animate oddly
           floraRef.current = floraRef.current.filter((f) => f.rootMesh !== tree.mesh);
         }
@@ -3028,6 +3033,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       result.group.position.set(p.x, p.y, p.z);
       scene.add(result.group);
 
+      // Create billboard sprite for distance LOD — add directly to scene so
+      // it can be shown/hidden independently of the 3D group.
+      const treeSprite = createTreeSprite(result.treeType, result.treeHeight);
+      treeSprite.position.set(p.x, p.y + result.treeHeight * 0.5, p.z);
+      scene.add(treeSprite);
+
       // Register foliage for wind animation (skip dead trees with empty foliage)
       if (result.foliageGroup.children.length > 0) {
         floraRef.current.push({
@@ -3038,6 +3049,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           maxSway: result.hasCollision ? 0.025 : 0.045, // large trees sway less
           posX: p.x,
           posZ: p.z,
+          sprite: treeSprite,
+        });
+      } else {
+        // Dead trees have no foliage — register a minimal entry so the sprite
+        // LOD still gets managed each frame.
+        floraRef.current.push({
+          foliageGroup: result.foliageGroup,
+          rootMesh: result.group,
+          windPhase: 0,
+          windSpeed: 1,
+          maxSway: 0,
+          posX: p.x,
+          posZ: p.z,
+          sprite: treeSprite,
         });
       }
 
@@ -3080,6 +3105,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         burnTimer: 0,
         burnDamageTimer: 0,
         burnEffect: null,
+        sprite: treeSprite,
+        treeType: result.treeType,
       });
     });
 
@@ -4797,6 +4824,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const LOD_FLORA_DIST_SQ = 80 * 80;
         // On mobile use a shorter visibility radius; desktop shows full world.
         const LOD_FLORA_VIS_SQ = IS_MOBILE ? 110 * 110 : 220 * 220;
+        // Distance beyond which we swap the 3D mesh for a 2D sprite billboard.
+        // On desktop: 3D up to ~70 units, sprite from 70–220.
+        // On mobile:  3D up to ~40 units, sprite from 40–110.
+        const LOD_SPRITE_DIST_SQ = IS_MOBILE ? 40 * 40 : 70 * 70;
         const camPosX = cameraRef.current ? cameraRef.current.position.x : 0;
         const camPosZ = cameraRef.current ? cameraRef.current.position.z : 0;
         // Wind sway updated every other frame — motion is continuous so
@@ -4806,8 +4837,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const dx = flora.posX - camPosX;
           const dz = flora.posZ - camPosZ;
           const dSq = dx * dx + dz * dz;
-          // Visibility LOD — hide very distant plants
-          flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
+
+          // Sprite LOD: for tree entries that carry a billboard sprite, toggle
+          // between the 3D mesh and the cheaper sprite depending on distance.
+          if (flora.sprite) {
+            const isClose  = dSq < LOD_SPRITE_DIST_SQ;
+            const isVis    = dSq < LOD_FLORA_VIS_SQ;
+            // Show 3D mesh when close; show sprite when mid-range; hide both when far.
+            flora.rootMesh.visible  = isClose;
+            flora.sprite.visible    = !isClose && isVis;
+          } else {
+            // Bushes and other flora without sprites: simple visibility toggle.
+            flora.rootMesh.visible = dSq < LOD_FLORA_VIS_SQ;
+          }
+
           if (!updateFloraWind || dSq > LOD_FLORA_DIST_SQ) return;
           const t = elapsed * flora.windSpeed + flora.windPhase;
           // Gentle sinusoidal sway: X axis tilts forward/back, Z tilts side-to-side
@@ -6785,6 +6828,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             if (tree.hp <= 0 && !tree.isFalling) {
               tree.isFalling = true;
               tree.fallTimer = 0;
+              // Hide the billboard sprite so it doesn't hover over the falling tree
+              if (tree.sprite) tree.sprite.visible = false;
             }
           }
 
@@ -6829,6 +6874,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (fallProgress >= 1) {
           tree.isChopped = true;
           if (sceneRef.current) sceneRef.current.remove(tree.mesh);
+
+          // Remove and dispose the billboard sprite together with the 3D mesh
+          if (tree.sprite && sceneRef.current) {
+            sceneRef.current.remove(tree.sprite);
+            (tree.sprite.material as THREE.SpriteMaterial).dispose();
+            tree.sprite = null;
+          }
 
           // Remove its collision entry (only large trees have one)
           if (tree.hasCollision) {
@@ -8471,7 +8523,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up wood logs
       woodLogMeshesRef.current.forEach((log) => scene.remove(log.mesh));
       woodLogMeshesRef.current = [];
+      // Clean up tree sprites (billboard LOD objects)
+      treeDataRef.current.forEach((tree) => {
+        if (tree.sprite) {
+          scene.remove(tree.sprite);
+          (tree.sprite.material as THREE.SpriteMaterial).dispose();
+        }
+      });
       treeDataRef.current = [];
+      disposeTreeSpriteCache();
       // Clean up entity LOD meshes
       sheepListRef.current.forEach((sheep) => { if (sheep.lodMesh) scene.remove(sheep.lodMesh); });
       foxListRef.current.forEach((fox) => { if (fox.lodMesh) scene.remove(fox.lodMesh); });
