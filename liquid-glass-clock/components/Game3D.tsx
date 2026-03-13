@@ -77,7 +77,7 @@ import {
   buildAirplane3DMesh,
   buildAirstripMesh,
   buildAirstripSignMesh,
-  buildMountainWithWaterfallAndCave,
+
   buildCity,
   buildSniperTowerMesh,
   buildSniperMesh,
@@ -273,11 +273,6 @@ const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when po
 // values are only used as fallbacks if the search fails (extremely unlikely).
 let LIGHTHOUSE_X = -95;
 let LIGHTHOUSE_Z = 85;
-
-// ─── Mountain Constants ────────────────────────────────────────────────────────
-/** World-space centre of the mountain with waterfall and cave (southwest quadrant) */
-const MOUNTAIN_X = -60;
-const MOUNTAIN_Z = -80;
 
 // ─── City Constants ────────────────────────────────────────────────────────────
 /** World-space centre of the procedural city (northeast area) */
@@ -3341,37 +3336,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
-    // ── Mountain with waterfall and cave (southwest quadrant) ─────────────────
-    {
-      const mountainGroundY = getTerrainHeightSampled(MOUNTAIN_X, MOUNTAIN_Z);
-      const mountainResult: CityResult = buildMountainWithWaterfallAndCave();
-      mountainResult.group.position.set(MOUNTAIN_X, mountainGroundY, MOUNTAIN_Z);
-      scene.add(mountainResult.group);
-
-      // Register colliders in world space (3D with height info)
-      for (const bc of mountainResult.boxColliders) {
-        boxCollidersRef.current.push({
-          cx: MOUNTAIN_X + bc.lx,
-          cy: mountainGroundY + (bc.ly ?? 0),
-          cz: MOUNTAIN_Z + bc.lz,
-          halfW: bc.halfW,
-          halfH: bc.halfH ?? 0.5,
-          halfD: bc.halfD,
-          rotY: bc.rotY,
-          walkable: bc.walkable ?? false,
-        });
-      }
-      for (const cc of mountainResult.cylColliders) {
-        treeCollisionRef.current.push({
-          x: MOUNTAIN_X + cc.lx,
-          baseY: mountainGroundY,
-          z: MOUNTAIN_Z + cc.lz,
-          radius: cc.radius + PLAYER_RADIUS,
-          height: cc.height ?? 65,
-          walkable: cc.walkable ?? false,
-        });
-      }
-    }
 
     // ── City (northeast area) ─────────────────────────────────────────────────
     {
@@ -7741,20 +7705,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           }
 
-          // Mountain marker
-          {
-            const mmx = cx + MOUNTAIN_X * scale;
-            const mmz = cy + MOUNTAIN_Z * scale;
-            if (mmx >= 0 && mmx <= W && mmz >= 0 && mmz <= W) {
-              ctx.fillStyle = "#8abcff";
-              ctx.beginPath();
-              ctx.arc(mmx, mmz, 5, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.fillStyle = "#ffffff";
-              ctx.font = "bold 8px monospace";
-              ctx.fillText("⛰", mmx - 5, mmz + 3);
-            }
-          }
 
           // Player arrow — always based on body position, not camera offset
           const px = cx + playerBodyPosRef.current.x * scale;
