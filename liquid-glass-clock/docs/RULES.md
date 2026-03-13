@@ -47,7 +47,7 @@ Do NOT focus on:
 | Terrain | `lib/terrainUtils.ts`, `lib/terrainTextures.ts` |
 | Weather | `lib/weatherSystem.ts` |
 | Harbor / Sailboats | `lib/harborSystem.ts` |
-| Buildings / Sculpting | `lib/buildingSystem.ts`, `lib/buildingTypes.ts` |
+| World Items Persistence | `lib/worldItemsPersistence.ts` |
 | Sound | `lib/soundManager.ts` |
 | Mesh Builders | `lib/meshBuilders.ts` |
 | Game Types | `lib/gameTypes.ts` |

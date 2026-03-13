@@ -25,26 +25,9 @@ import {
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
 import {
-  BlockMaterial,
-  BuildMode,
-  BuildingUiState,
-  PlacedBlockData,
-  BLOCK_DEFS,
-  BLOCK_MATERIAL_ORDER,
-  BUILD_RANGE,
-  MAX_BLOCKS,
-} from "@/lib/buildingTypes";
-import {
-  buildBlockMesh,
-  buildGhostMesh,
-  updateGhostMaterial,
-  getPlacementPosition,
-  blockKey,
-  saveBlocks,
-  loadBlocks,
   saveWorldItems,
   loadWorldItems,
-} from "@/lib/buildingSystem";
+} from "@/lib/worldItemsPersistence";
 import {
   buildSheepMesh,
   buildFoxMesh,
@@ -710,12 +693,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   /** Stored reference to restart the rAF loop after a pause. */
   const restartAnimLoopRef = useRef<(() => void) | null>(null);
 
-  // ─── Building / Terrain Sculpt Refs ──────────────────────────────────────────
-  const buildModeRef = useRef<BuildMode>("explore");
-  const selectedMaterialRef = useRef<BlockMaterial>("wood");
-  const placedBlockMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
-  const placedBlocksDataRef = useRef<PlacedBlockData[]>([]);
-  const ghostMeshRef = useRef<THREE.Mesh | null>(null);
   /** Group containing all voxel terrain chunk meshes. */
   const terrainMeshRef = useRef<THREE.Group | null>(null);
   /** Voxel terrain result — provides chunk refresh after deformation. */
@@ -826,11 +803,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [isMuted, setIsMuted] = useState(false);
   const [lightningFlash, setLightningFlash] = useState(0); // 0–1 opacity
   const [weatherLabel, setWeatherLabel] = useState<string>("☀️ Jasno");
-  const [buildingUiState, setBuildingUiState] = useState<BuildingUiState>({
-    mode: "explore",
-    selectedMaterial: "wood",
-    blockCount: 0,
-  });
   const [nearItemPrompt, setNearItemPrompt] = useState<WorldItemType | null>(null);
   const [heldItemType, setHeldItemType] = useState<WorldItemType | null>(null);
   const [nearAirdropPrompt, setNearAirdropPrompt] = useState(false);
@@ -1966,58 +1938,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
   }, []);
 
-  // ─── Block placement ──────────────────────────────────────────────────────────
-  const placeBlock = useCallback((position: THREE.Vector3) => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    if (placedBlocksDataRef.current.length >= MAX_BLOCKS) return;
-
-    const { x, y, z } = position;
-    const key = blockKey(x, y, z);
-    if (placedBlockMeshesRef.current.has(key)) return;
-
-    const mat = selectedMaterialRef.current;
-    const mesh = buildBlockMesh(mat);
-    mesh.position.set(x, y, z);
-    scene.add(mesh);
-    placedBlockMeshesRef.current.set(key, mesh);
-
-    const blockData: PlacedBlockData = { x, y, z, material: mat };
-    placedBlocksDataRef.current.push(blockData);
-    saveBlocks(placedBlocksDataRef.current);
-    soundManager.playBlockPlace();
-    setBuildingUiState((s) => ({ ...s, blockCount: placedBlocksDataRef.current.length }));
-  }, []);
-
-  // ─── Block removal ────────────────────────────────────────────────────────────
-  const removeBlock = useCallback(() => {
-    const scene = sceneRef.current;
-    const cam = cameraRef.current;
-    if (!scene || !cam) return;
-
-    const raycaster = buildRaycasterRef.current;
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-    raycaster.far = BUILD_RANGE;
-
-    const blockMeshes = Array.from(placedBlockMeshesRef.current.values());
-    if (blockMeshes.length === 0) return;
-
-    const hits = raycaster.intersectObjects(blockMeshes, false);
-    if (hits.length > 0) {
-      const hitMesh = hits[0].object as THREE.Mesh;
-      const pos = hitMesh.position;
-      const key = blockKey(pos.x, pos.y, pos.z);
-      scene.remove(hitMesh);
-      placedBlockMeshesRef.current.delete(key);
-      placedBlocksDataRef.current = placedBlocksDataRef.current.filter(
-        (b) => !(b.x === pos.x && b.y === pos.y && b.z === pos.z)
-      );
-      saveBlocks(placedBlocksDataRef.current);
-      soundManager.playBlockRemove();
-      setBuildingUiState((s) => ({ ...s, blockCount: placedBlocksDataRef.current.length }));
-    }
-  }, []);
-
   // ── Scene Setup ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const mountNode = mountRef.current;
@@ -2572,24 +2492,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       terrainMeshRef.current  = voxelResult.group;
       voxelTerrainRef.current = voxelResult;
     });
-
-    // ── Building system: ghost block ──────────────────────────────────────────
-    const ghost = buildGhostMesh("wood");
-    scene.add(ghost);
-    ghostMeshRef.current = ghost;
-
-    // Restore placed blocks from localStorage
-    const savedBlocks = loadBlocks();
-    savedBlocks.forEach((b) => {
-      const mesh = buildBlockMesh(b.material);
-      mesh.position.set(b.x, b.y, b.z);
-      scene.add(mesh);
-      placedBlockMeshesRef.current.set(blockKey(b.x, b.y, b.z), mesh);
-      placedBlocksDataRef.current.push(b);
-    });
-    if (savedBlocks.length > 0) {
-      setBuildingUiState((s) => ({ ...s, blockCount: savedBlocks.length }));
-    }
 
     // ── World items: placement ghost ─────────────────────────────────────────
     const itemGhost = buildPumpkinMesh(1.0);
@@ -3872,11 +3774,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const cam = cameraRef.current;
       const raycaster = buildRaycasterRef.current;
       raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-      // Gather objects to intersect: terrain + placed blocks
-      const targets: THREE.Object3D[] = [
-        ...voxelTerrainRef.current.chunkMeshes,
-        ...Array.from(placedBlockMeshesRef.current.values()),
-      ];
+      const targets: THREE.Object3D[] = [...voxelTerrainRef.current.chunkMeshes];
       const hits = raycaster.intersectObjects(targets, false);
       if (hits.length > 0) {
         const hit = hits[0];
@@ -3889,12 +3787,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       return false;
     };
 
-    // ── Mouse click — attack OR build depending on current mode ───────────────
+    // ── Mouse click — attack ──────────────────────────────────────────────────
     const onMouseDown = (e: MouseEvent) => {
       if (!isLockedRef.current) return;
       if (e.button === 0) {
         // If holding an item, left click places it (or throws bomb)
-        if (heldItemRef.current && buildModeRef.current === "explore") {
+        if (heldItemRef.current) {
           if (heldItemRef.current.type === "bomb") {
             throwBomb();
           } else {
@@ -3902,31 +3800,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
           return;
         }
-        if (buildModeRef.current === "build") {
-          if (ghostMeshRef.current?.visible) {
-            placeBlock(ghostMeshRef.current.position.clone());
+        if (selectedWeaponRef.current === "bow") {
+          // Bow: start charging on press — fire on release
+          isBowChargingRef.current = true;
+          bowChargeStartRef.current = performance.now();
+          bowChargeRef.current = 0;
+          if (bowChargeBarRef.current) {
+            bowChargeBarRef.current.style.width = "0%";
+            bowChargeBarRef.current.parentElement!.style.opacity = "1";
           }
-        } else if (buildModeRef.current === "explore") {
-          if (selectedWeaponRef.current === "bow") {
-            // Bow: start charging on press — fire on release
-            isBowChargingRef.current = true;
-            bowChargeStartRef.current = performance.now();
-            bowChargeRef.current = 0;
-            if (bowChargeBarRef.current) {
-              bowChargeBarRef.current.style.width = "0%";
-              bowChargeBarRef.current.parentElement!.style.opacity = "1";
-            }
-          } else {
-            isMouseHeldRef.current = true; // start auto-fire loop for other weapons
-            doAttack(); // fire immediately on first click
-          }
+        } else {
+          isMouseHeldRef.current = true; // start auto-fire loop for other weapons
+          doAttack(); // fire immediately on first click
         }
       } else if (e.button === 2) {
-        if (buildModeRef.current !== "explore") {
-          removeBlock();
-        } else if (
+        if (
           selectedWeaponRef.current === "sniper" &&
-          buildModeRef.current === "explore" &&
           // Scope only available in first-person — TP aiming is done with the normal view
           cameraModeRef.current === "first"
         ) {
@@ -3942,7 +3831,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) {
         // ── Bow release: fire with power proportional to draw time ──────────
-        if (isBowChargingRef.current && buildModeRef.current === "explore") {
+        if (isBowChargingRef.current) {
           isBowChargingRef.current = false;
           const chargeSeconds = (performance.now() - bowChargeStartRef.current) / 1000;
           const power = Math.min(1.0, Math.max(0.1, chargeSeconds / BOW_MAX_CHARGE_TIME));
@@ -3977,9 +3866,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const onKey = (e: KeyboardEvent) => {
       keysRef.current[e.code] = e.type === "keydown";
 
-      // F key: place held item (if carrying one) OR attack in explore mode
+      // F key: place held item (if carrying one) OR attack
       // Bombs are thrown with G, not placed — skip placement for bomb type
-      if (e.type === "keydown" && e.code === "KeyF" && buildModeRef.current === "explore") {
+      if (e.type === "keydown" && e.code === "KeyF") {
         if (heldItemRef.current && heldItemRef.current.type !== "bomb") {
           tryPlaceHeldItemViaRaycast();
         } else if (!heldItemRef.current) {
@@ -4341,29 +4230,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // G key — throw held bomb
-      if (e.type === "keydown" && e.code === "KeyG" && buildModeRef.current === "explore") {
+      if (e.type === "keydown" && e.code === "KeyG") {
         if (heldItemRef.current?.type === "bomb") {
           throwBomb();
         }
       }
 
-      // B key — toggle build mode on/off
-      if (e.type === "keydown" && e.code === "KeyB") {
-        const next: BuildMode = buildModeRef.current !== "explore" ? "explore" : "build";
-        buildModeRef.current = next;
-        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-        setBuildingUiState((s) => ({ ...s, mode: next }));
-      }
-
-      // T key — open chat (only in explore mode)
-      if (e.type === "keydown" && e.code === "KeyT" && buildModeRef.current === "explore" && isLockedRef.current) {
+      // T key — open chat
+      if (e.type === "keydown" && e.code === "KeyT" && isLockedRef.current) {
         e.preventDefault();
         document.exitPointerLock();
         setChatOpen(true);
       }
 
-      // Digit keys 1–6 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
-      if (e.type === "keydown" && buildModeRef.current === "explore") {
+      // Digit keys 1–6 — select weapon
+      if (e.type === "keydown") {
         const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
         if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
@@ -4379,17 +4260,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             swapWeaponMesh(newWeapon);
             if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
           }
-        }
-      }
-
-      // Digit keys 1–8 — select block material in build mode
-      if (e.type === "keydown" && buildModeRef.current !== "explore") {
-        const digit = parseInt(e.key);
-        if (digit >= 1 && digit <= 8) {
-          const newMat = BLOCK_MATERIAL_ORDER[digit - 1];
-          selectedMaterialRef.current = newMat;
-          if (ghostMeshRef.current) updateGhostMaterial(ghostMeshRef.current, newMat);
-          setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
         }
       }
 
@@ -4450,35 +4320,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
-    // ── Mouse wheel — cycle materials or weapons ──────────────────────────────
+    // ── Mouse wheel — cycle weapons ────────────────────────────────────────────
     const onWheel = (e: WheelEvent) => {
       if (!isLockedRef.current) return;
 
-      if (buildModeRef.current === "build") {
-        const cur = BLOCK_MATERIAL_ORDER.indexOf(selectedMaterialRef.current);
-        const next =
-          (cur + (e.deltaY > 0 ? 1 : -1) + BLOCK_MATERIAL_ORDER.length) %
-          BLOCK_MATERIAL_ORDER.length;
-        const newMat = BLOCK_MATERIAL_ORDER[next];
-        selectedMaterialRef.current = newMat;
-        if (ghostMeshRef.current) updateGhostMaterial(ghostMeshRef.current, newMat);
-        setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
-      } else if (buildModeRef.current === "explore") {
-        // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
-        const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
-        const curIdx = cur < 0 ? 0 : cur;
-        const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
-        const newWeapon = WEAPON_ORDER[next];
-        if (isScopedRef.current && newWeapon !== "sniper") {
-          isScopedRef.current = false;
-          setIsScoped(false);
-        }
-        setSelectedWeapon(newWeapon);
-        selectedWeaponRef.current = newWeapon;
-        swapWeaponMesh(newWeapon);
-        if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+      const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
+      const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
+      const curIdx = cur < 0 ? 0 : cur;
+      const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
+      const newWeapon = WEAPON_ORDER[next];
+      if (isScopedRef.current && newWeapon !== "sniper") {
+        isScopedRef.current = false;
+        setIsScoped(false);
       }
+      setSelectedWeapon(newWeapon);
+      selectedWeaponRef.current = newWeapon;
+      swapWeaponMesh(newWeapon);
+      if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
     };
     // passive: false would suppress default scrolling, but we keep passive:true
     // since we don't need to block page scroll (pointer lock suppresses it anyway)
@@ -5312,28 +5170,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           cam.position.z = result.z;
         }
 
-        // Building block horizontal collision — AABB per block
-        for (const block of placedBlocksDataRef.current) {
-          const bdx = cam.position.x - block.x;
-          const bdz = cam.position.z - block.z;
-          if (Math.abs(bdx) > 1.5 || Math.abs(bdz) > 1.5) continue; // quick distance cull
-          const playerFeetY = cam.position.y - PLAYER_HEIGHT;
-          const blockTop = block.y + 0.5;
-          const blockBottom = block.y - 0.5;
-          // Only apply horizontal push when player height overlaps with block
-          if (playerFeetY >= blockTop || cam.position.y <= blockBottom) continue;
-          const inflH = 0.5 + PLAYER_RADIUS;
-          if (Math.abs(bdx) < inflH && Math.abs(bdz) < inflH) {
-            const overlapX = inflH - Math.abs(bdx);
-            const overlapZ = inflH - Math.abs(bdz);
-            if (overlapX < overlapZ) {
-              cam.position.x += overlapX * Math.sign(bdx);
-            } else {
-              cam.position.z += overlapZ * Math.sign(bdz);
-            }
-          }
-        }
-
         const player = playerRef.current;
         const terrainY = getTerrainHeightSampled(cam.position.x, cam.position.z);
         const isOverWater = terrainY < WATER_LEVEL;
@@ -5391,18 +5227,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           player.velY += GRAVITY * dt;
           cam.position.y += player.velY * dt;
 
-          // ── Ground detection: terrain + placed blocks + 3D walkable colliders ──
+          // ── Ground detection: terrain + 3D walkable colliders ────────────────
           let groundY = terrainY + PLAYER_HEIGHT;
-
-          // Placed blocks (1×1×1 cubes placed by the player)
-          for (const block of placedBlocksDataRef.current) {
-            const bdx = Math.abs(cam.position.x - block.x);
-            const bdz = Math.abs(cam.position.z - block.z);
-            if (bdx <= 0.5 && bdz <= 0.5) {
-              const blockGroundY = block.y + 0.5 + PLAYER_HEIGHT;
-              if (blockGroundY > groundY) groundY = blockGroundY;
-            }
-          }
 
           // 3D walkable surfaces: building rooftops, wall tops, etc.
           // getWalkableSurfaceY returns the camera height to stand at, or -Infinity if none.
@@ -6085,27 +5911,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // ── Build mode: ghost block preview ───────────────────────────────────────
-      if (buildModeRef.current === "build" && cameraRef.current) {
-        const cam = cameraRef.current;
-        const raycaster = buildRaycasterRef.current;
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-        raycaster.far = BUILD_RANGE;
-        const rayTargets: THREE.Object3D[] = voxelTerrainRef.current
-          ? [...voxelTerrainRef.current.chunkMeshes, ...placedBlockMeshesRef.current.values()]
-          : [...placedBlockMeshesRef.current.values()];
-        const hits = raycaster.intersectObjects(rayTargets, false);
-        if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
-          const placePos = getPlacementPosition(hits[0].point, hits[0].face.normal);
-          ghostMeshRef.current.position.copy(placePos);
-          ghostMeshRef.current.visible = true;
-        } else if (ghostMeshRef.current) {
-          ghostMeshRef.current.visible = false;
-        }
-      } else {
-        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-      }
-
       // ── Possessed sheep control ────────────────────────────────────────────
       if (isLockedRef.current && possessedSheepRef.current) {
         const sheep = possessedSheepRef.current;
@@ -6283,7 +6088,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // ── Auto-fire while left mouse button is held (explore mode, non-bow/sniper) ──
       // Sniper is single-shot only (handled on mousedown); bow is charge-based
-      if (isMouseHeldRef.current && buildModeRef.current === "explore"
+      if (isMouseHeldRef.current
           && selectedWeaponRef.current !== "bow"
           && selectedWeaponRef.current !== "sniper") {
         doAttack();
@@ -7642,16 +7447,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const cam = cameraRef.current;
             const raycaster = buildRaycasterRef.current;
             raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-            const targets: THREE.Object3D[] = [
-              ...voxelTerrainRef.current.chunkMeshes,
-              ...Array.from(placedBlockMeshesRef.current.values()),
-            ];
+            const targets: THREE.Object3D[] = [...voxelTerrainRef.current.chunkMeshes];
             const hits = raycaster.intersectObjects(targets, false);
-            if (hits.length > 0 && hits[0].distance < BUILD_RANGE + 2) {
+            if (hits.length > 0 && hits[0].distance < 10) {
               const hp = hits[0].point;
               const groundY = getTerrainHeightSampled(hp.x, hp.z);
               ghost.position.set(hp.x, groundY, hp.z);
-              ghost.visible = buildModeRef.current === "explore";
+              ghost.visible = true;
             } else {
               ghost.visible = false;
             }
@@ -8463,10 +8265,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           // handled by MobileControls buttons — don't accidentally trigger attacks.
           if (IS_MOBILE) return;
           if (isLockedRef.current) {
-            // Attack only in explore mode; build mode is handled by onMouseDown.
             // Bow uses hold-and-release mechanic — the onClick path is a fallback
             // for quick taps; fire at minimum power so the mechanic stays consistent.
-            if (buildModeRef.current === "explore" && selectedWeaponRef.current !== "bow") {
+            if (selectedWeaponRef.current !== "bow") {
               doAttack();
             }
           } else {
@@ -8756,19 +8557,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               </>
             )}
 
-            {/* Placed blocks counter */}
-            {buildingUiState.blockCount > 0 && (
-              <>
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
-                <div className="flex justify-between items-center">
-                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🧱 Bloky</span>
-                  <span className="text-xs font-bold text-cyan-300 tabular-nums">
-                    {buildingUiState.blockCount}
-                    <span style={{ color: "rgba(255,255,255,0.30)" }}> / {MAX_BLOCKS}</span>
-                  </span>
-                </div>
-              </>
-            )}
           </div>
 
           {/* Win notifications */}
@@ -9772,57 +9560,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ═══════════════ BOTTOM CENTER — Build Mode HUD ═══════════════ */}
-      {gameState.isLocked && buildingUiState.mode !== "explore" && (
-        <div
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 pointer-events-none select-none"
-          style={{ zIndex: 55 }}
-        >
-          {/* Material palette */}
-          <div className="flex gap-2 items-end justify-center" style={{ marginBottom: 10 }}>
-            {BLOCK_MATERIAL_ORDER.map((mat, i) => {
-              const def = BLOCK_DEFS[mat];
-              const isSelected = buildingUiState.selectedMaterial === mat;
-              const hex = "#" + def.color.toString(16).padStart(6, "0");
-              return (
-                <div key={mat} className="flex flex-col items-center gap-1">
-                  <div
-                    style={{
-                      width: isSelected ? 46 : 34,
-                      height: isSelected ? 46 : 34,
-                      background: hex,
-                      borderRadius: 8,
-                      border: isSelected
-                        ? "2px solid rgba(255,255,255,0.90)"
-                        : "2px solid rgba(255,255,255,0.18)",
-                      boxShadow: isSelected ? `0 0 14px ${hex}99` : "none",
-                      transition: "all 0.14s ease",
-                    }}
-                  />
-                  <span style={{ fontSize: 9, color: isSelected ? "#fff" : "rgba(255,255,255,0.45)" }}>
-                    {i + 1}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Selected material label + mode indicator */}
-          <div
-            className="rounded-xl text-white text-xs text-center font-semibold"
-            style={{
-              padding: "9px 22px",
-              background: "rgba(60,160,50,0.82)",
-              backdropFilter: "blur(12px)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              boxShadow: "0 2px 14px rgba(0,0,0,0.45)",
-            }}
-          >
-            {`Stavění: ${BLOCK_DEFS[buildingUiState.selectedMaterial].label}  ·  Klik=umístit  ·  Pklik=smazat  ·  Scroll=materiál  ·  [B] konec`}
-          </div>
-        </div>
-      )}
-
       {/* ═══════════════ BOTTOM CENTER — Controls hint ═══════════════ */}
       {gameState.isLocked && (
         <div className="fixed bottom-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -9839,7 +9576,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             WASD – pohyb &nbsp;·&nbsp; Myš – pohled &nbsp;·&nbsp; Mezerník – skok &nbsp;·&nbsp;
             Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
             <span style={{ color: "#f87171", opacity: 1 }}>[F]/Drž klik</span> – útok &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#86efac", opacity: 1 }}>[B]</span> – stavění &nbsp;·&nbsp;{" "}
             <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
             <span style={{ color: "#34d399", opacity: 1 }}>[T]</span> – chat &nbsp;·&nbsp;{" "}
             <span style={{ color: "#fbbf24", opacity: 1 }}>[V]</span> – {cameraMode === "first" ? "1. osoba" : "3. osoba"} &nbsp;·&nbsp;{" "}
