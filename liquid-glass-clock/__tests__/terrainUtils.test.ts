@@ -64,6 +64,87 @@ describe("terrainUtils", () => {
     });
   });
 
+  describe("boundary mountain ring", () => {
+    beforeAll(() => {
+      initNoise(42);
+    });
+
+    it("world edges are significantly higher than the center (mountain wall)", () => {
+      const centerH = getTerrainHeight(0, 0);
+      // Sample all four edges near the boundary
+      const edgePoints = [
+        [WORLD_SIZE / 2 - 1, 0],
+        [-(WORLD_SIZE / 2 - 1), 0],
+        [0, WORLD_SIZE / 2 - 1],
+        [0, -(WORLD_SIZE / 2 - 1)],
+      ];
+      edgePoints.forEach(([x, z]) => {
+        const h = getTerrainHeight(x, z);
+        expect(h).toBeGreaterThan(centerH + 20);
+      });
+    });
+
+    it("mountain height is above rock/snow threshold (>= 28) at world edge", () => {
+      // At the very edge the peak should be in rock/snow shader territory (height >= 28)
+      const edgeSamples = [
+        [WORLD_SIZE / 2 - 2, 0],
+        [0, WORLD_SIZE / 2 - 2],
+        [-(WORLD_SIZE / 2 - 2), 0],
+        [0, -(WORLD_SIZE / 2 - 2)],
+        [WORLD_SIZE / 2 - 2, WORLD_SIZE / 2 - 2],
+      ];
+      edgeSamples.forEach(([x, z]) => {
+        const h = getTerrainHeight(x, z);
+        expect(h).toBeGreaterThan(28);
+      });
+    });
+
+    it("center spawn zone is unaffected by edge mountains (height near 0)", () => {
+      // distFromEdge at (0,0) >> RISE_ZONE so edgeRise = 0
+      const h = getTerrainHeight(0, 0);
+      expect(Math.abs(h)).toBeLessThan(1);
+    });
+
+    it("mountain ring is continuous — all four corners are elevated", () => {
+      const half = WORLD_SIZE / 2 - 3;
+      const corners = [
+        [half, half],
+        [-half, half],
+        [half, -half],
+        [-half, -half],
+      ];
+      corners.forEach(([x, z]) => {
+        const h = getTerrainHeight(x, z);
+        expect(h).toBeGreaterThan(20);
+      });
+    });
+
+    it("boundary zone (last 50 units) is markedly higher than inner terrain when sampled at the same angles", () => {
+      // Compare height right at the edge vs. a point 60 units inside (safely outside RISE_ZONE)
+      // The edge rise is deterministic for a given (x,z), so compare same-angle pairs.
+      const half = WORLD_SIZE / 2;
+      const RISE_ZONE = 50;
+      let edgeTally = 0;
+      let innerTally = 0;
+      const SAMPLES = 8;
+      for (let i = 0; i < SAMPLES; i++) {
+        const angle = (i / SAMPLES) * Math.PI * 2;
+        // Very close to the edge (5 units inside)
+        const ex = Math.cos(angle) * (half - 5);
+        const ez = Math.sin(angle) * (half - 5);
+        // Well inside the no-rise zone
+        const ix = Math.cos(angle) * (half - RISE_ZONE - 10);
+        const iz = Math.sin(angle) * (half - RISE_ZONE - 10);
+        edgeTally += getTerrainHeight(ex, ez);
+        innerTally += getTerrainHeight(ix, iz);
+      }
+      const edgeMean  = edgeTally  / SAMPLES;
+      const innerMean = innerTally / SAMPLES;
+      // Edge samples should average considerably higher due to boundary rise
+      expect(edgeMean).toBeGreaterThan(innerMean + 10);
+    });
+  });
+
   describe("WATER_LEVEL", () => {
     it("exports WATER_LEVEL as a number", () => {
       expect(typeof WATER_LEVEL).toBe("number");
