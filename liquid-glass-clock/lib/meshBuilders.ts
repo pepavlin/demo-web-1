@@ -2752,16 +2752,26 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     ceilLight.position.set(cx, maxY - 0.1, cz);
     group.add(ceilLight);
 
-    // Add a point light for this room
-    const pLight = new THREE.PointLight(0x6aabff, 2.8, Math.max(w, d) * 2.2);
-    pLight.position.set(cx, maxY - 0.5, cz);
-    pLight.castShadow = true;
-    pLight.shadow.mapSize.set(512, 512);
-    pLight.shadow.camera.near = 0.1;
-    pLight.shadow.camera.far = Math.max(w, d) * 2.2;
-    pLight.shadow.bias = -0.001;
-    group.add(pLight);
-    lights.push({ light: pLight, baseIntensity: 2.8, phase: Math.random() * Math.PI * 2 });
+    // Add point lights for this room — two lights spread along the longer axis
+    // for better coverage. Each has higher intensity so MeshStandardMaterial
+    // looks bright under ACES Filmic tonemapping.
+    const longerAxis = w >= d ? 'x' : 'z';
+    const lightPositions = longerAxis === 'x'
+      ? [{ x: minX + w * 0.3, z: cz }, { x: minX + w * 0.7, z: cz }]
+      : [{ x: cx, z: minZ + d * 0.3 }, { x: cx, z: minZ + d * 0.7 }];
+    lightPositions.forEach(({ x, z }, li) => {
+      const pLight = new THREE.PointLight(0x6aabff, 4.5, Math.max(w, d) * 1.8);
+      pLight.position.set(x, maxY - 0.5, z);
+      pLight.castShadow = li === 0; // only first light casts shadows to save perf
+      if (li === 0) {
+        pLight.shadow.mapSize.set(512, 512);
+        pLight.shadow.camera.near = 0.1;
+        pLight.shadow.camera.far = Math.max(w, d) * 1.8;
+        pLight.shadow.bias = -0.001;
+      }
+      group.add(pLight);
+      lights.push({ light: pLight, baseIntensity: 4.5, phase: Math.random() * Math.PI * 2 });
+    });
   };
 
   // Helper: add a door frame between rooms
@@ -3075,16 +3085,27 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   group.add(holoWire);
   animatedMeshes.push({ mesh: holoWire, type: 'hologram' });
 
-  // Bridge overhead lights (stronger)
-  const bridgeLight = new THREE.PointLight(0x3366ff, 2.0, 28);
+  // Bridge overhead lights (stronger — large room needs more coverage)
+  const bridgeLight = new THREE.PointLight(0x3366ff, 4.0, 32);
   bridgeLight.position.set(46, 5.5, 0);
   group.add(bridgeLight);
-  lights.push({ light: bridgeLight, baseIntensity: 2.0, phase: 1.0 });
+  lights.push({ light: bridgeLight, baseIntensity: 4.0, phase: 1.0 });
 
-  const bridgeAccentLight = new THREE.PointLight(0x00aaff, 1.2, 20);
+  const bridgeAccentLight = new THREE.PointLight(0x00aaff, 2.5, 24);
   bridgeAccentLight.position.set(52, 5.0, 0);
   group.add(bridgeAccentLight);
-  lights.push({ light: bridgeAccentLight, baseIntensity: 1.2, phase: 2.1 });
+  lights.push({ light: bridgeAccentLight, baseIntensity: 2.5, phase: 2.1 });
+
+  // Additional fill lights on bridge wings
+  const bridgeWingL = new THREE.PointLight(0x2255cc, 2.0, 20);
+  bridgeWingL.position.set(40, 5.0, -8);
+  group.add(bridgeWingL);
+  lights.push({ light: bridgeWingL, baseIntensity: 2.0, phase: 0.4 });
+
+  const bridgeWingR = new THREE.PointLight(0x2255cc, 2.0, 20);
+  bridgeWingR.position.set(40, 5.0, 8);
+  group.add(bridgeWingR);
+  lights.push({ light: bridgeWingR, baseIntensity: 2.0, phase: 1.6 });
 
   // Wall display panels on bridge sides
   for (let pz = -9; pz <= 9; pz += 6) {
@@ -3150,10 +3171,10 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
 
   // Reading light above each bunk
   bunkPositions.forEach(([bx, bz]) => {
-    const readLight = new THREE.PointLight(0xffcc88, 0.6, 4);
+    const readLight = new THREE.PointLight(0xffcc88, 1.5, 7);
     readLight.position.set(bx, 2.5, bz);
     group.add(readLight);
-    lights.push({ light: readLight, baseIntensity: 0.6, phase: Math.random() * Math.PI * 2 });
+    lights.push({ light: readLight, baseIntensity: 1.5, phase: Math.random() * Math.PI * 2 });
   });
 
   // Small round window in crew quarters
@@ -3212,10 +3233,10 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   }
 
   // Reactor glow light
-  const reactorLight = new THREE.PointLight(0xff6600, 3.5, 22);
+  const reactorLight = new THREE.PointLight(0xff6600, 6.0, 28);
   reactorLight.position.set(20, 2.2, -12);
   group.add(reactorLight);
-  lights.push({ light: reactorLight, baseIntensity: 3.5, phase: 0 });
+  lights.push({ light: reactorLight, baseIntensity: 6.0, phase: 0 });
 
   // Pipe network around reactor
   addPipe(20, 4.0, -12, 8.2, 4.0, -12, 0.1);
@@ -3259,20 +3280,31 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     }
   }
 
-  // Engineering bay extra lights
-  const engLight1 = new THREE.PointLight(0xff4400, 1.2, 18);
+  // Engineering bay extra lights — warm orange fills to complement reactor glow
+  const engLight1 = new THREE.PointLight(0xff4400, 3.0, 22);
   engLight1.position.set(13, 5.0, -12);
   group.add(engLight1);
-  lights.push({ light: engLight1, baseIntensity: 1.2, phase: 0.7 });
-  const engLight2 = new THREE.PointLight(0xff4400, 1.2, 18);
+  lights.push({ light: engLight1, baseIntensity: 3.0, phase: 0.7 });
+  const engLight2 = new THREE.PointLight(0xff4400, 3.0, 22);
   engLight2.position.set(27, 5.0, -12);
   group.add(engLight2);
-  lights.push({ light: engLight2, baseIntensity: 1.2, phase: 2.3 });
+  lights.push({ light: engLight2, baseIntensity: 3.0, phase: 2.3 });
+  // Corner fill lights so far edges of bay aren't in shadow
+  const engCornerL = new THREE.PointLight(0xcc3300, 2.0, 16);
+  engCornerL.position.set(10, 4.5, -20);
+  group.add(engCornerL);
+  lights.push({ light: engCornerL, baseIntensity: 2.0, phase: 1.4 });
+  const engCornerR = new THREE.PointLight(0xcc3300, 2.0, 16);
+  engCornerR.position.set(30, 4.5, -20);
+  group.add(engCornerR);
+  lights.push({ light: engCornerR, baseIntensity: 2.0, phase: 3.1 });
 
   // ──────────────────────────────────────────────────────────────────────────
   // Global ambient fill for the interior
+  // Brighter blue-tinted ambient so MeshStandardMaterial surfaces are readable
+  // even in corners not directly lit by point lights.
   // ──────────────────────────────────────────────────────────────────────────
-  const ambientLight = new THREE.AmbientLight(0x102040, 0.8);
+  const ambientLight = new THREE.AmbientLight(0x304870, 3.5);
   group.add(ambientLight);
 
   return {

@@ -280,6 +280,13 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
   const lights: BunkerInteriorResult["lights"] = [];
   const animatedMeshes: BunkerInteriorResult["animatedMeshes"] = [];
 
+  // ── Global ambient — essential for MeshStandardMaterial to show up ──────────
+  // Without this, when the earth-world group is hidden, there is zero ambient
+  // light and the bunker interior looks completely black in corners.
+  // A dim green-tinted ambient matches the underground laboratory atmosphere.
+  const ambientLight = new THREE.AmbientLight(0x182a18, 3.0);
+  group.add(ambientLight);
+
   // ── Shared materials ────────────────────────────────────────────────────────
   const containerMat = new THREE.MeshStandardMaterial({
     color: 0x3a4a38, roughness: 0.85, metalness: 0.55,
@@ -506,20 +513,20 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     }
   }
 
-  // Fluorescent light strip (container 1)
-  {
+  // Fluorescent light strip (container 1) — two strips for full-length coverage
+  for (const lz of [3.0, 9.0]) {
     const stripGeo = new THREE.BoxGeometry(0.12, 0.04, 2.5);
     const stripMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: new THREE.Color(0xddffdd), emissiveIntensity: 1.2,
+      color: 0xffffff, emissive: new THREE.Color(0xddffdd), emissiveIntensity: 2.0,
     });
     const strip = new THREE.Mesh(stripGeo, stripMat);
-    strip.position.set(0, CONTAINER_H - 0.05, 6.0);
+    strip.position.set(0, CONTAINER_H - 0.05, lz);
     group.add(strip);
 
-    const light1 = new THREE.PointLight(0xaaffaa, 1.2, 10);
-    light1.position.set(0, CONTAINER_H - 0.2, 6.0);
+    const light1 = new THREE.PointLight(0xaaffaa, 3.5, 14);
+    light1.position.set(0, CONTAINER_H - 0.2, lz);
     group.add(light1);
-    lights.push({ light: light1, baseIntensity: 1.2, phase: 0.3 });
+    lights.push({ light: light1, baseIntensity: 3.5, phase: 0.3 + lz * 0.1 });
   }
 
   // Emergency red light (container 1)
@@ -529,10 +536,10 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     em.position.set(CONTAINER_W / 2 - 0.25, CONTAINER_H - 0.25, 2.0);
     group.add(em);
 
-    const emLight = new THREE.PointLight(0xff2200, 0.6, 6);
+    const emLight = new THREE.PointLight(0xff2200, 1.5, 8);
     emLight.position.copy(em.position);
     group.add(emLight);
-    lights.push({ light: emLight, baseIntensity: 0.6, phase: 1.7 });
+    lights.push({ light: emLight, baseIntensity: 1.5, phase: 1.7 });
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -650,20 +657,20 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     group.add(bio);
   }
 
-  // Fluorescent light strip (container 2 — two strips)
+  // Fluorescent light strip (container 2 — two strips, increased intensity and range)
   for (const lz of [15.0, 21.0]) {
     const stripGeo = new THREE.BoxGeometry(0.12, 0.04, 2.2);
     const stripMat2 = new THREE.MeshStandardMaterial({
-      color: 0xffffff, emissive: new THREE.Color(0xddffd8), emissiveIntensity: 1.1,
+      color: 0xffffff, emissive: new THREE.Color(0xddffd8), emissiveIntensity: 2.0,
     });
     const strip = new THREE.Mesh(stripGeo, stripMat2);
     strip.position.set(0, CONTAINER_H - 0.05, lz);
     group.add(strip);
 
-    const llight = new THREE.PointLight(0xaaffaa, 1.0, 9);
+    const llight = new THREE.PointLight(0xaaffaa, 3.0, 13);
     llight.position.set(0, CONTAINER_H - 0.15, lz);
     group.add(llight);
-    lights.push({ light: llight, baseIntensity: 1.0, phase: lz * 0.17 });
+    lights.push({ light: llight, baseIntensity: 3.0, phase: lz * 0.17 });
   }
 
   // Overhead pipes (ceiling runs in lab)
@@ -752,26 +759,33 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     animatedMeshes.push({ mesh: status, type: "server_led" });
   }
 
-  // Blue server room lighting
+  // Blue server room lighting — three lights for full coverage of 12-unit container
   {
-    const light3 = new THREE.PointLight(0x4488ff, 0.7, 12);
-    light3.position.set(0, CONTAINER_H - 0.3, 30.0);
-    group.add(light3);
-    lights.push({ light: light3, baseIntensity: 0.7, phase: 2.1 });
+    // Front blue fill
+    const lightFront = new THREE.PointLight(0x4488ff, 2.5, 14);
+    lightFront.position.set(0, CONTAINER_H - 0.3, 26.0);
+    group.add(lightFront);
+    lights.push({ light: lightFront, baseIntensity: 2.5, phase: 2.1 });
 
-    // Cold white overhead
+    // Centre cold white overhead strip
     const stripGeo3 = new THREE.BoxGeometry(0.12, 0.04, 2.5);
     const stripMat3 = new THREE.MeshStandardMaterial({
-      color: 0xaaccff, emissive: new THREE.Color(0x8899dd), emissiveIntensity: 1.0,
+      color: 0xaaccff, emissive: new THREE.Color(0x8899dd), emissiveIntensity: 2.0,
     });
     const strip3 = new THREE.Mesh(stripGeo3, stripMat3);
     strip3.position.set(0, CONTAINER_H - 0.05, 30.0);
     group.add(strip3);
 
-    const whiteLight = new THREE.PointLight(0xaaccff, 0.8, 10);
+    const whiteLight = new THREE.PointLight(0xaaccff, 2.5, 14);
     whiteLight.position.set(0, CONTAINER_H - 0.2, 30.0);
     group.add(whiteLight);
-    lights.push({ light: whiteLight, baseIntensity: 0.8, phase: 0.9 });
+    lights.push({ light: whiteLight, baseIntensity: 2.5, phase: 0.9 });
+
+    // Rear blue fill near back wall / exit
+    const lightRear = new THREE.PointLight(0x4466cc, 2.0, 12);
+    lightRear.position.set(0, CONTAINER_H - 0.3, 34.0);
+    group.add(lightRear);
+    lights.push({ light: lightRear, baseIntensity: 2.0, phase: 1.5 });
   }
 
   // Emergency exit sign near ladder
