@@ -504,6 +504,8 @@ class SoundManager {
       this._playCrossbowShot();
     } else if (weaponType === "machinegun") {
       this._playMachineGunShot();
+    } else if (weaponType === "flamethrower") {
+      this._playFlamethrowerShot();
     } else {
       this._playBowShot();
     }
@@ -678,6 +680,63 @@ class SoundManager {
     crackEnv.connect(this.sfxGain);
     crackSrc.start(t);
     crackSrc.stop(t + 0.05);
+  }
+
+  /** Flamethrower fire burst: whooshing hiss + low combustion rumble. */
+  private _playFlamethrowerShot(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Whoosh / pressurised gas hiss — bandpass noise, quick attack, medium decay
+    const hissSrc = ctx.createBufferSource();
+    hissSrc.buffer = this._noiseBuffer(0.18);
+    const hissFlt = ctx.createBiquadFilter();
+    hissFlt.type = "bandpass";
+    hissFlt.frequency.value = 1800 + Math.random() * 400;
+    hissFlt.Q.value = 0.5;
+    const hissEnv = ctx.createGain();
+    hissEnv.gain.setValueAtTime(0, t);
+    hissEnv.gain.linearRampToValueAtTime(0.28, t + 0.01);
+    hissEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    hissSrc.connect(hissFlt);
+    hissFlt.connect(hissEnv);
+    hissEnv.connect(this.sfxGain);
+    hissSrc.start(t);
+    hissSrc.stop(t + 0.18);
+
+    // Low combustion rumble — sub-bass oscillator simulating ignition
+    const rumbleOsc = ctx.createOscillator();
+    rumbleOsc.type = "sawtooth";
+    rumbleOsc.frequency.setValueAtTime(55 + Math.random() * 20, t);
+    rumbleOsc.frequency.exponentialRampToValueAtTime(30, t + 0.14);
+    const rumbleFlt = ctx.createBiquadFilter();
+    rumbleFlt.type = "lowpass";
+    rumbleFlt.frequency.value = 320;
+    const rumbleEnv = ctx.createGain();
+    rumbleEnv.gain.setValueAtTime(0.15, t);
+    rumbleEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    rumbleOsc.connect(rumbleFlt);
+    rumbleFlt.connect(rumbleEnv);
+    rumbleEnv.connect(this.sfxGain);
+    rumbleOsc.start(t);
+    rumbleOsc.stop(t + 0.14);
+
+    // Crackling high-frequency tail — brief noise burst above 4 kHz
+    const crackSrc = ctx.createBufferSource();
+    crackSrc.buffer = this._noiseBuffer(0.08);
+    const crackFlt = ctx.createBiquadFilter();
+    crackFlt.type = "highpass";
+    crackFlt.frequency.value = 4000 + Math.random() * 1000;
+    crackFlt.Q.value = 0.4;
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0.10, t + 0.005);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    crackSrc.connect(crackFlt);
+    crackFlt.connect(crackEnv);
+    crackEnv.connect(this.sfxGain);
+    crackSrc.start(t + 0.005);
+    crackSrc.stop(t + 0.08);
   }
 
   /**

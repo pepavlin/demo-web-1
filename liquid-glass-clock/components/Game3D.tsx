@@ -82,6 +82,8 @@ import {
   buildSniperTowerMesh,
   buildSniperMesh,
   buildMachineGunMesh,
+  buildFlamethrowerMesh,
+  buildFlameParticleMesh,
   buildWoodLogMesh,
   buildAirdropCrateMesh,
   buildParachuteMesh,
@@ -224,6 +226,14 @@ const ARROW_GRAVITY = -22;      // downward acceleration (units/s²) for bow arr
 // Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
+// ─── Flamethrower Constants ───────────────────────────────────────────────────
+/** Number of flame particles spawned per attack tick. */
+const FLAME_PARTICLE_COUNT = 4;
+/** Lifetime of each flame particle (range = speed × lifetime ≈ 15 units). */
+const FLAME_PARTICLE_LIFETIME = 1.9;
+/** Half-angle of the flame cone spread (radians). */
+const FLAME_CONE_SPREAD = 0.28;
+
 // ─── Weapon Anchor System ─────────────────────────────────────────────────────
 // Defines weapon transforms for each view mode.  Adding a new weapon type only
 // requires adding entries here; the attachment/swap logic is generic.
@@ -238,23 +248,25 @@ type WeaponTransformConfig = {
 
 /** First-person: weapon positioned in camera-local space (bottom-right of screen). */
 const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:      { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
-  bow:        { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
-  crossbow:   { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
-  sniper:     { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
-  axe:        { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
-  machinegun: { pos: [0.20, -0.22, -0.54], rot: [0,            -0.08, 0   ], scale: 1.2 },
+  sword:        { pos: [0.25, -0.28, -0.48], rot: [ Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
+  bow:          { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
+  crossbow:     { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
+  sniper:       { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
+  axe:          { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
+  machinegun:   { pos: [0.20, -0.22, -0.54], rot: [0,            -0.08, 0   ], scale: 1.2 },
+  flamethrower: { pos: [0.22, -0.24, -0.52], rot: [0,            -0.10, 0   ], scale: 1.1 },
 };
 
 /** Third-person: weapon positioned relative to the "handR" anchor on the player body.
  *  The anchor is at the tip of armR so the weapon moves naturally with arm swing. */
 const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
-  sword:      { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
-  bow:        { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
-  crossbow:   { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
-  sniper:     { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
-  axe:        { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
-  machinegun: { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+  sword:        { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.2], scale: 0.8 },
+  bow:          { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
+  crossbow:     { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
+  sniper:       { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+  axe:          { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
+  machinegun:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+  flamethrower: { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.9 },
 };
 
 // ─── Bomb Constants ───────────────────────────────────────────────────────────
@@ -1089,6 +1101,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : type === "sniper" ? buildSniperMesh()
       : type === "axe" ? buildAxeMesh()
       : type === "machinegun" ? buildMachineGunMesh()
+      : type === "flamethrower" ? buildFlamethrowerMesh()
       : buildSwordMesh();
 
     weaponMeshRef.current = newMesh;
@@ -1574,12 +1587,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       swordSwingTimerRef.current = 0; // restart the swing timer
     }
 
-    // ── Muzzle flash (only for ranged weapons) ──────────────────────────────
+    // ── Muzzle flash (ranged weapons) / flame glow (flamethrower) ───────────
     if (muzzleFlashRef.current && weaponCfg.bulletSpeed > 0) {
-      muzzleFlashRef.current.intensity = 4;
-      setTimeout(() => {
-        if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
-      }, 75);
+      if (weaponCfg.type === "flamethrower") {
+        muzzleFlashRef.current.color.setHex(0xff5500);
+        muzzleFlashRef.current.intensity = 3;
+        setTimeout(() => {
+          if (muzzleFlashRef.current) {
+            muzzleFlashRef.current.intensity = 0;
+            muzzleFlashRef.current.color.setHex(0xffaa22);
+          }
+        }, 110);
+      } else {
+        muzzleFlashRef.current.intensity = 4;
+        setTimeout(() => {
+          if (muzzleFlashRef.current) muzzleFlashRef.current.intensity = 0;
+        }, 75);
+      }
     }
 
     const cam = cameraRef.current;
@@ -1602,30 +1626,46 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       startPos.addScaledVector(forward, 1.2);
 
       const isBow = weaponCfg.type === "bow";
-      const projectileMesh = isBow ? buildArrowProjectileMesh() : buildBulletMesh();
-      projectileMesh.position.copy(startPos);
+      const isFlamethrower = weaponCfg.type === "flamethrower";
 
-      // Orient arrow to face the shoot direction immediately
-      if (isBow) {
-        const fwd = forward.clone();
-        projectileMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), fwd);
+      if (isFlamethrower) {
+        // ── Flamethrower: spawn FLAME_PARTICLE_COUNT particles in a cone ────
+        for (let fi = 0; fi < FLAME_PARTICLE_COUNT; fi++) {
+          const flameMesh = buildFlameParticleMesh();
+          flameMesh.position.copy(startPos);
+          scene.add(flameMesh);
+          const spreadDir = forward.clone();
+          spreadDir.x += (Math.random() - 0.5) * FLAME_CONE_SPREAD;
+          spreadDir.y += (Math.random() - 0.5) * FLAME_CONE_SPREAD * 0.5;
+          spreadDir.normalize();
+          const speed = weaponCfg.bulletSpeed * (0.75 + Math.random() * 0.5);
+          bulletsRef.current.push({
+            mesh: flameMesh,
+            velocity: spreadDir.multiplyScalar(speed),
+            lifetime: FLAME_PARTICLE_LIFETIME,
+            weaponType: "flamethrower",
+          });
+        }
+      } else {
+        const projectileMesh = isBow ? buildArrowProjectileMesh() : buildBulletMesh();
+        projectileMesh.position.copy(startPos);
+        if (isBow) {
+          const fwd = forward.clone();
+          projectileMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), fwd);
+        }
+        scene.add(projectileMesh);
+        const effectiveSpeed = isBow
+          ? weaponCfg.bulletSpeed * Math.max(0.15, powerMultiplier)
+          : weaponCfg.bulletSpeed;
+        bulletsRef.current.push({
+          mesh: projectileMesh,
+          velocity: forward.clone().multiplyScalar(effectiveSpeed),
+          lifetime: BULLET_LIFETIME,
+          useGravity: isBow,
+          power: isBow ? powerMultiplier : undefined,
+          weaponType: selectedWeaponRef.current,
+        });
       }
-
-      scene.add(projectileMesh);
-
-      // For the bow, scale bullet speed by the draw power (min 15% of full speed).
-      const effectiveSpeed = isBow
-        ? weaponCfg.bulletSpeed * Math.max(0.15, powerMultiplier)
-        : weaponCfg.bulletSpeed;
-
-      bulletsRef.current.push({
-        mesh: projectileMesh,
-        velocity: forward.clone().multiplyScalar(effectiveSpeed),
-        lifetime: BULLET_LIFETIME,
-        useGravity: isBow,
-        power: isBow ? powerMultiplier : undefined,
-        weaponType: selectedWeaponRef.current,
-      });
     }
 
     // ── Melee hit (sword / axe — ranged weapons deal damage through projectile collision) ───
@@ -1937,6 +1977,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : wType === "sniper" ? buildSniperMesh()
       : wType === "axe" ? buildAxeMesh()
       : wType === "machinegun" ? buildMachineGunMesh()
+      : wType === "flamethrower" ? buildFlamethrowerMesh()
       : buildSwordMesh(); // sword
     // Apply canonical first-person transform via the config system
     applyWeaponTransform(weaponGroup, wType, "first");
@@ -4189,7 +4230,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // Digit keys 1–6 — select weapon in explore mode (sniper [4] always available once acquired or from weapon select)
       if (e.type === "keydown" && buildModeRef.current === "explore") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
         if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
@@ -4290,7 +4331,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setBuildingUiState((s) => ({ ...s, selectedMaterial: newMat }));
       } else if (buildModeRef.current === "explore") {
         // Mouse wheel — cycle through weapons
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun"];
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
         const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
         const curIdx = cur < 0 ? 0 : cur;
         const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
@@ -6368,6 +6409,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
         // Move bullet forward
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
+
+        // ── Flame particle visual: expand as particle ages ───────────────────
+        if (bullet.weaponType === "flamethrower") {
+          const progress = 1 - bullet.lifetime / FLAME_PARTICLE_LIFETIME;
+          bullet.mesh.scale.setScalar(0.12 + progress * 0.55);
+          bullet.mesh.position.y += 0.8 * dt * progress;
+        }
 
         // ── Arrow ground sticking (bow arrows only) ──────────────────────────
         if (bullet.useGravity && !bullet.isStuck) {
@@ -8692,10 +8740,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           </div>
 
           {/* Weapon slots HUD — all 6 weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun"] as WeaponType[]).map((w, idx) => {
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : "🎯";
             const onCooldown = isActive && !gameState.attackReady;
             const RING_R = 10;
             const ringCircumference = 2 * Math.PI * RING_R;
