@@ -21,6 +21,7 @@ import {
 import {
   initVoxelNoise,
   generateVoxelTerrainAsync,
+  digVoxelSphere,
   type VoxelTerrainResult,
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
@@ -69,6 +70,7 @@ import {
   buildFlamethrowerMesh,
   buildFlameParticleMesh,
   buildBurningEffect,
+  buildShovelMesh,
   buildWoodLogMesh,
   buildAirdropCrateMesh,
   buildParachuteMesh,
@@ -255,6 +257,7 @@ const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
   axe:          { pos: [0.22, -0.26, -0.44], rot: [ Math.PI / 2, -0.25, 0.4 ], scale: 1.1 },
   machinegun:   { pos: [0.20, -0.22, -0.54], rot: [0,            -0.08, 0   ], scale: 1.2 },
   flamethrower: { pos: [0.22, -0.24, -0.52], rot: [0,            -0.10, 0   ], scale: 1.1 },
+  shovel:       { pos: [0.22, -0.28, -0.46], rot: [ Math.PI / 2, -0.22, 0.35], scale: 1.0 },
 };
 
 /** Third-person: weapon positioned relative to the "handR" anchor on the player body.
@@ -267,6 +270,7 @@ const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
   axe:          { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.3], scale: 0.9 },
   machinegun:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
   flamethrower: { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.9 },
+  shovel:       { pos: [0.0,  0.0,  0.08], rot: [ Math.PI / 2, 0.0, -0.28], scale: 0.9 },
 };
 
 // ─── Bomb Constants ───────────────────────────────────────────────────────────
@@ -1150,6 +1154,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : type === "axe" ? buildAxeMesh()
       : type === "machinegun" ? buildMachineGunMesh()
       : type === "flamethrower" ? buildFlamethrowerMesh()
+      : type === "shovel" ? buildShovelMesh()
       : buildSwordMesh();
 
     weaponMeshRef.current = newMesh;
@@ -1667,8 +1672,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Weapon recoil kick ──────────────────────────────────────────────────
     weaponRecoilRef.current = 1;
 
-    // ── Sword / axe swing animation trigger ─────────────────────────────────
-    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
+    // ── Sword / axe / shovel swing animation trigger ─────────────────────────
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe" || weaponCfg.type === "shovel") {
       swordSwingTimerRef.current = 0; // restart the swing timer
     }
 
@@ -1977,6 +1982,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setTimeout(() => setAttackEffect(null), 700);
       }
     }
+
+    // ── Shovel: dig voxel terrain at camera aim point ────────────────────────
+    if (weaponCfg.type === "shovel" && voxelTerrainRef.current && terrainMatRef.current) {
+      const raycaster = buildRaycasterRef.current;
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
+      raycaster.far = weaponCfg.range * 2;
+      const hits = raycaster.intersectObjects(voxelTerrainRef.current.chunkMeshes, false);
+      if (hits.length > 0 && hits[0].distance <= weaponCfg.range * 2) {
+        const hp     = hits[0].point;
+        const radius = weaponCfg.terrainDigRadius ?? 2.5;
+        digVoxelSphere(hp.x, hp.y, hp.z, radius);
+        // Refresh all chunks within dig radius + one chunk width
+        voxelTerrainRef.current.refreshChunksAt(hp.x, hp.z, radius + 32, terrainMatRef.current);
+      }
+    }
   }, []);
 
   // ── Scene Setup ─────────────────────────────────────────────────────────────
@@ -2067,6 +2087,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : wType === "axe" ? buildAxeMesh()
       : wType === "machinegun" ? buildMachineGunMesh()
       : wType === "flamethrower" ? buildFlamethrowerMesh()
+      : wType === "shovel" ? buildShovelMesh()
       : buildSwordMesh(); // sword
     // Apply canonical first-person transform via the config system
     applyWeaponTransform(weaponGroup, wType, "first");
@@ -4314,10 +4335,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Digit keys 1–6 — select weapon
+      // Digit keys 1–8 — select weapon
       if (e.type === "keydown") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
-        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6") {
+        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"];
+        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6" || e.code === "Digit7" || e.code === "Digit8") {
           const idx = parseInt(e.code.replace("Digit", "")) - 1;
           const newWeapon = WEAPON_ORDER[idx];
           if (newWeapon) {
@@ -4395,7 +4416,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const onWheel = (e: WheelEvent) => {
       if (!isLockedRef.current) return;
 
-      const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"];
+      const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"];
       const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
       const curIdx = cur < 0 ? 0 : cur;
       const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
@@ -6237,8 +6258,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // naturally with the arm animation — no manual position overrides needed.
       weaponRecoilRef.current = Math.max(0, weaponRecoilRef.current - dt * 8);
 
-      // Always advance sword swing timer so it doesn't freeze when switching modes
-      if (selectedWeaponRef.current === "sword") {
+      // Always advance sword/shovel swing timer so it doesn't freeze when switching modes
+      if (selectedWeaponRef.current === "sword" || selectedWeaponRef.current === "shovel") {
         const SWORD_SWING_DURATION = 0.30;
         if (swordSwingTimerRef.current < SWORD_SWING_DURATION) {
           swordSwingTimerRef.current += dt;
@@ -9049,11 +9070,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — all 6 weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"] as WeaponType[]).map((w, idx) => {
+          {/* Weapon slots HUD — all weapons, active one highlighted */}
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : "🎯";
+            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : w === "shovel" ? "⛏️" : "🎯";
             const onCooldown = isActive && !gameState.attackReady;
             const RING_R = 10;
             const ringCircumference = 2 * Math.PI * RING_R;

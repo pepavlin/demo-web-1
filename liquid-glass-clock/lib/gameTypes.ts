@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // ─── Weapon system ────────────────────────────────────────────────────────────
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun" | "flamethrower";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun" | "flamethrower" | "shovel";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -19,6 +19,11 @@ export interface WeaponConfig {
   color: string;
   /** Multiplier applied to damage when hitting trees (default 1 if omitted) */
   treeDamageMultiplier?: number;
+  /**
+   * Radius (world units) of the spherical excavation when this weapon is used
+   * to dig voxel terrain.  Only meaningful for "shovel"; omit for all others.
+   */
+  terrainDigRadius?: number;
 }
 
 export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
@@ -85,6 +90,16 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     cooldown: 0.07, // fast continuous stream
     bulletSpeed: 11, // slow-moving fire blobs
     color: "#ef4444", // fire red
+  },
+  shovel: {
+    type: "shovel",
+    label: "Lopata",
+    damage: 20,          // light melee damage if hitting enemies
+    range: 3.5,          // max digging reach from player position
+    cooldown: 0.7,       // moderate dig cooldown
+    bulletSpeed: 0,      // melee only — no projectiles
+    color: "#a3a3a3",    // steel grey
+    terrainDigRadius: 2.5, // sphere radius in world units per dig
   },
 };
 
