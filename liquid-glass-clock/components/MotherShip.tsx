@@ -4,8 +4,22 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 // ── Material helpers ────────────────────────────────────────────────────────
+// Lightens a hex color by a given factor (>1 = brighter)
+function lightenColor(hex: number, factor: number): number {
+  const r = Math.min(255, Math.round(((hex >> 16) & 0xff) * factor));
+  const g = Math.min(255, Math.round(((hex >> 8) & 0xff) * factor));
+  const b = Math.min(255, Math.round((hex & 0xff) * factor));
+  return (r << 16) | (g << 8) | b;
+}
+
+// All hull materials are brightened ~2.5x and roughness reduced so they
+// scatter more light (lighter walls / floor feel)
 const hullMat = (color: number, roughness = 0.85, metalness = 0.6) =>
-  new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  new THREE.MeshStandardMaterial({
+    color: lightenColor(color, 2.5),
+    roughness: Math.max(0.35, roughness - 0.35),
+    metalness: Math.min(1.0, metalness + 0.15),
+  });
 
 // ── Procedural ship geometry ────────────────────────────────────────────────
 
@@ -435,18 +449,27 @@ export default function MotherShip() {
     camera.lookAt(0, 80, -20);
 
     // ── Ambient & Directional Light ───────────────────────────────────────
-    const ambient = new THREE.AmbientLight(0x2a3050, 1.5);
+    // Boosted ambient so hull surfaces catch more diffuse light
+    const ambient = new THREE.AmbientLight(0x4a5878, 3.0);
     scene.add(ambient);
 
     // Orange glow from city fires below
-    const cityGlow = new THREE.DirectionalLight(0xff6633, 0.8);
+    const cityGlow = new THREE.DirectionalLight(0xff6633, 1.4);
     cityGlow.position.set(0, -1, 0);
     scene.add(cityGlow);
 
     // Cold edge light – distant overcast sun
-    const edgeLight = new THREE.DirectionalLight(0x8899bb, 0.6);
+    const edgeLight = new THREE.DirectionalLight(0x8899bb, 1.2);
     edgeLight.position.set(-1, 0.2, 1);
     scene.add(edgeLight);
+
+    // ── Flashlight / headlamp (celovka) ──────────────────────────────────
+    // A strong SpotLight mounted at the camera, shining toward the ship
+    const flashlight = new THREE.SpotLight(0xffffff, 300, 600, Math.PI / 9, 0.25, 1.2);
+    flashlight.position.set(0, 0, 0);
+    flashlight.target.position.set(0, 80, -30);
+    scene.add(flashlight);
+    scene.add(flashlight.target);
 
     // ── Ship Group (all ship geometry) ────────────────────────────────────
     const shipGroup = new THREE.Group();
@@ -546,6 +569,10 @@ export default function MotherShip() {
       // Gentle bob / sway
       shipGroup.position.y = 80 + Math.sin(t * 0.12) * 1.2;
       shipGroup.rotation.z = Math.sin(t * 0.07) * 0.008;
+
+      // Keep flashlight aimed at the ship's current position
+      flashlight.target.position.set(0, shipGroup.position.y, shipGroup.position.z);
+      flashlight.target.updateMatrixWorld();
 
       // Debris particles orbit with the ship but faster
       debris.rotation.y = t * 0.025;
