@@ -16,7 +16,7 @@ import * as THREE from "three";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Radius around the hatch centre within which [E] prompt appears. */
-export const BUNKER_ENTRY_RADIUS = 3.5;
+export const BUNKER_ENTRY_RADIUS = 5.0;
 
 /** Radius around the exit ladder within which [E] exit prompt appears. */
 export const BUNKER_EXIT_RADIUS = 3.0;
@@ -94,92 +94,90 @@ export function buildBunkerExteriorMesh(_config: BunkerConfig): THREE.Group {
   const ladderMat = new THREE.MeshPhongMaterial({ color: 0x888888, shininess: 40 });
 
   // ── Dirt mound (IcosahedronGeometry scaled flat to simulate raised earth) ──
-  const moundGeo = new THREE.IcosahedronGeometry(3.0, 1);
+  const moundGeo = new THREE.IcosahedronGeometry(3.5, 1);
   const moundMesh = new THREE.Mesh(moundGeo, dirtMat);
-  moundMesh.scale.set(1, 0.28, 1);
-  moundMesh.position.set(0, 0, 0);
+  moundMesh.scale.set(1, 0.5, 1);
+  moundMesh.position.set(0, 0.15, 0);
   moundMesh.receiveShadow = true;
   group.add(moundMesh);
 
   // ── Container top (visible corrugated metal slab) ──────────────────────────
-  // The container is mostly buried; only the top 0.4 units stick above ground.
+  // Container raised well above ground so it is clearly visible.
+  // Y=0.8 means the top face is at ~1.0 above groundY.
+  const SLAB_Y = 0.8;
   const topGeo = new THREE.BoxGeometry(4.8, 0.38, 5.5);
   const topMesh = new THREE.Mesh(topGeo, metalMat);
-  topMesh.position.set(0, 0.25, 0.3);
+  topMesh.position.set(0, SLAB_Y, 0.3);
   topMesh.castShadow = true;
   topMesh.receiveShadow = true;
   group.add(topMesh);
 
-  // Corrugation ridges on top (4 thin strips across width)
+  // Corrugation ridges on top (5 thin strips across width)
   for (let i = 0; i < 5; i++) {
     const ridgeGeo = new THREE.BoxGeometry(4.8, 0.06, 0.12);
     const ridge = new THREE.Mesh(ridgeGeo, metalMat);
-    ridge.position.set(0, 0.47, -2.2 + i * 1.1);
+    ridge.position.set(0, SLAB_Y + 0.22, -2.2 + i * 1.1);
     group.add(ridge);
   }
 
   // ── Corner posts (4 corners of the container top) ─────────────────────────
-  const postGeo = new THREE.BoxGeometry(0.2, 0.6, 0.2);
+  const postGeo = new THREE.BoxGeometry(0.2, SLAB_Y + 0.6, 0.2);
   const corners = [
     [-2.3, -2.5], [-2.3, 2.8], [2.3, -2.5], [2.3, 2.8],
   ] as [number, number][];
   corners.forEach(([px, pz]) => {
     const post = new THREE.Mesh(postGeo, rustMat);
-    post.position.set(px, 0.35, pz);
+    post.position.set(px, (SLAB_Y + 0.6) / 2, pz);
     group.add(post);
   });
 
   // ── Hatch / access door ────────────────────────────────────────────────────
-  // A recessed metal hatch slightly inset in the container top
+  const HATCH_Y = SLAB_Y + 0.20;
   const hatchFrameGeo = new THREE.BoxGeometry(1.5, 0.06, 1.1);
   const hatchFrame = new THREE.Mesh(hatchFrameGeo, rustMat);
-  hatchFrame.position.set(0, 0.45, -0.8);
+  hatchFrame.position.set(0, HATCH_Y, -0.8);
   group.add(hatchFrame);
 
   // The actual hatch door (slightly ajar — open look)
   const hatchDoorGeo = new THREE.BoxGeometry(1.38, 0.06, 1.0);
   const hatchDoor = new THREE.Mesh(hatchDoorGeo, hatchMat);
-  hatchDoor.position.set(0, 0.52, -0.8);
-  // Tilt it slightly open (~20 degrees back)
   hatchDoor.rotation.x = -0.35;
-  hatchDoor.position.z = -0.65;
-  hatchDoor.position.y = 0.55;
+  hatchDoor.position.set(0, HATCH_Y + 0.10, -0.65);
   group.add(hatchDoor);
 
   // Hatch handle (small cylinder)
   const handleGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.35, 6);
   const handle = new THREE.Mesh(handleGeo, ladderMat);
   handle.rotation.z = Math.PI / 2;
-  handle.position.set(0, 0.58, -0.45);
+  handle.position.set(0, HATCH_Y + 0.13, -0.45);
   group.add(handle);
 
   // ── Warning stripes around hatch ──────────────────────────────────────────
   for (let i = 0; i < 3; i++) {
     const stripeGeo = new THREE.BoxGeometry(1.5, 0.04, 0.09);
     const stripe = new THREE.Mesh(stripeGeo, warnMat);
-    stripe.position.set(0, 0.46, -1.4 + i * 0.25);
-    // Alternate with metal
+    stripe.position.set(0, HATCH_Y + 0.01, -1.4 + i * 0.25);
     if (i % 2 === 0) stripe.material = warnMat;
     else stripe.material = metalMat;
     group.add(stripe);
   }
 
   // ── Ladder rungs visible in the hatch opening ────────────────────────────
-  // Two vertical rails
-  const railGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6);
+  // Rails extend from slab top down into the ground (into the bunker)
+  const railGeo = new THREE.CylinderGeometry(0.04, 0.04, SLAB_Y + 1.5, 6);
   const railL = new THREE.Mesh(railGeo, ladderMat);
-  railL.position.set(-0.35, -0.45, -0.8);
+  railL.position.set(-0.35, (SLAB_Y + 1.5) / 2 - (SLAB_Y + 1.5) + SLAB_Y * 0.3, -0.8);
   group.add(railL);
   const railR = new THREE.Mesh(railGeo, ladderMat);
-  railR.position.set(0.35, -0.45, -0.8);
+  railR.position.set(0.35, (SLAB_Y + 1.5) / 2 - (SLAB_Y + 1.5) + SLAB_Y * 0.3, -0.8);
   group.add(railR);
 
   // Rungs
   const rungGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.7, 6);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const rung = new THREE.Mesh(rungGeo, ladderMat);
     rung.rotation.z = Math.PI / 2;
-    rung.position.set(0, -0.1 - i * 0.45, -0.8);
+    rung.position.set(0, SLAB_Y - 0.1 - i * 0.45, -0.8);
     group.add(rung);
   }
 
@@ -187,7 +185,7 @@ export function buildBunkerExteriorMesh(_config: BunkerConfig): THREE.Group {
   const plateGeo = new THREE.BoxGeometry(0.8, 0.3, 0.03);
   const plateMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
   const plate = new THREE.Mesh(plateGeo, plateMat);
-  plate.position.set(1.8, 0.45, -1.5);
+  plate.position.set(1.8, HATCH_Y, -1.5);
   plate.rotation.y = Math.PI / 2;
   group.add(plate);
 
@@ -199,9 +197,53 @@ export function buildBunkerExteriorMesh(_config: BunkerConfig): THREE.Group {
     emissiveIntensity: 0.5,
   });
   const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
-  indicator.position.set(1.8, 0.48, -1.5);
+  indicator.position.set(1.8, HATCH_Y + 0.03, -1.5);
   indicator.rotation.y = Math.PI / 2;
   group.add(indicator);
+
+  // ── Warning beacon post ────────────────────────────────────────────────────
+  // A tall pole with an orange warning beacon — makes the entrance impossible to miss.
+  const poleGeo = new THREE.CylinderGeometry(0.06, 0.08, 3.0, 8);
+  const poleMat = new THREE.MeshPhongMaterial({ color: 0xaaaaaa, shininess: 60 });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.set(-2.5, 1.5, -2.0);
+  pole.castShadow = true;
+  group.add(pole);
+
+  // Orange beacon sphere at the top of the pole
+  const beaconGeo = new THREE.SphereGeometry(0.22, 8, 6);
+  const beaconMat = new THREE.MeshPhongMaterial({
+    color: 0xff6600,
+    emissive: new THREE.Color(0xff4400),
+    emissiveIntensity: 0.8,
+    shininess: 80,
+  });
+  const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+  beacon.position.set(-2.5, 3.1, -2.0);
+  group.add(beacon);
+
+  // Warning sign board on the pole
+  const signGeo = new THREE.BoxGeometry(1.1, 0.7, 0.05);
+  const signMat = new THREE.MeshPhongMaterial({
+    color: 0xffc107,
+    emissive: new THREE.Color(0xcc8800),
+    emissiveIntensity: 0.3,
+  });
+  const sign = new THREE.Mesh(signGeo, signMat);
+  sign.position.set(-2.5, 2.2, -2.0);
+  group.add(sign);
+
+  // Black diagonal stripe on sign (hazard pattern)
+  const signStripe1 = new THREE.BoxGeometry(1.1, 0.12, 0.06);
+  const signStripeMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
+  const ss1 = new THREE.Mesh(signStripe1, signStripeMat);
+  ss1.position.set(-2.5, 2.27, -2.0);
+  ss1.rotation.z = 0.42;
+  group.add(ss1);
+  const ss2 = new THREE.Mesh(signStripe1, signStripeMat);
+  ss2.position.set(-2.5, 2.13, -2.0);
+  ss2.rotation.z = 0.42;
+  group.add(ss2);
 
   // ── Small debris / rocks around the mound ─────────────────────────────────
   const rockMat = new THREE.MeshPhongMaterial({ color: 0x666655 });

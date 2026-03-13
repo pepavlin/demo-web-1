@@ -8141,17 +8141,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ctx.fill();
           ctx.restore();
 
-          // Bunker entrances on minimap
+          // Bunker entrances on minimap — drawn as mini shipping containers
           if (!_inBunker) {
             BUNKER_CONFIGS.forEach((bc) => {
               const bmx = cx + bc.worldX * scale;
               const bmz = cy + bc.worldZ * scale;
               if (bmx >= 0 && bmx <= W && bmz >= 0 && bmz <= W) {
-                ctx.fillStyle = "#88cc88";
-                ctx.fillRect(bmx - 3, bmz - 3, 6, 6);
-                ctx.strokeStyle = "#00ff44";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(bmx - 3, bmz - 3, 6, 6);
+                ctx.save();
+                ctx.translate(bmx, bmz);
+                ctx.rotate(bc.rotation);
+
+                // Glow halo around container
+                ctx.shadowColor = "#ff8800";
+                ctx.shadowBlur = 8;
+
+                // Container body — orange-amber rectangle (proportions like real container)
+                ctx.fillStyle = "#cc5500";
+                ctx.fillRect(-10, -5, 20, 10);
+
+                // Turn off shadow for internal details
+                ctx.shadowBlur = 0;
+
+                // Corrugation lines
+                ctx.strokeStyle = "#ff9933";
+                ctx.lineWidth = 0.8;
+                for (let li = 1; li <= 4; li++) {
+                  const lx = -10 + li * 4;
+                  ctx.beginPath();
+                  ctx.moveTo(lx, -5);
+                  ctx.lineTo(lx, 5);
+                  ctx.stroke();
+                }
+
+                // Bright border
+                ctx.strokeStyle = "#ffcc00";
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(-10, -5, 20, 10);
+
+                ctx.restore();
+
+                // Bunker name label below icon (not rotated, always readable)
+                ctx.fillStyle = "#ffcc00";
+                ctx.font = "bold 8px monospace";
+                ctx.textAlign = "center";
+                ctx.fillText(bc.name, bmx, bmz + 17);
+                ctx.textAlign = "left"; // restore default
               }
             });
           }
