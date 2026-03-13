@@ -96,8 +96,33 @@ interface SpaceStationInteriorResult {
     mesh: THREE.Mesh;
     type: 'hologram' | 'reactor' | 'panel';
   }[];
+  doors: StationDoor[];       // interactive sliding doors between rooms
+}
+
+interface StationDoor {
+  panels: [THREE.Mesh, THREE.Mesh];      // left/right sliding panels
+  closedPos: [THREE.Vector3, THREE.Vector3]; // panel positions when closed
+  openPos: [THREE.Vector3, THREE.Vector3];   // panel positions when open
+  localPos: THREE.Vector3;               // door centre in group-local space
+  axis: 'x' | 'z';                      // axis player crosses through door
 }
 ```
+
+### Sliding Doors
+
+Four interactive doors separate the rooms at their boundaries. Each door consists of two metallic panels with blue glowing edge stripes that slide apart into the door-frame pillars when opened.
+
+| Door | Position (local) | Axis | Connects |
+|------|-----------------|------|---------|
+| Airlock → Corridor | X=5, Z=0 | x | Airlock ↔ Main Corridor |
+| Corridor → Bridge | X=35, Z=0 | x | Main Corridor ↔ Bridge |
+| Corridor → Crew Quarters | X=19, Z=3 | z | Main Corridor ↔ Crew Quarters |
+| Corridor → Engineering | X=19, Z=-3 | z | Main Corridor ↔ Engineering Bay |
+
+**Interaction:** Press `[E]` within 2.5 units of a door to toggle it open/closed.
+A green glowing button panel is mounted on the wall beside each door.
+
+**Animation:** Panels lerp between closed and open positions at 3× lerp speed per second (smooth ~0.33 s open/close).
 
 ### Game State (`components/Game3D.tsx`)
 
@@ -109,10 +134,14 @@ New refs and state:
 | `spaceStationRoomsRef` | `THREE.Box3[]` | Room collision volumes |
 | `spaceStationLightsRef` | array | Light references for animation |
 | `spaceStationAnimMeshesRef` | array | Mesh references for animation |
+| `spaceStationDoorsRef` | `StationDoor[]` | Door mesh references |
+| `stationDoorStateRef` | `{ isOpen, progress }[]` | Per-door animation state |
+| `nearStationDoorIdxRef` | `number` | Index of closest door (-1 = none) |
 | `inSpaceStationRef` | `boolean` ref | True while player is inside |
 | `rocketArrivedRef` | `boolean` ref | Synced with `rocketArrived` state |
 | `inSpaceStation` | `boolean` state | Drives UI visibility |
 | `nearAirlockExit` | `boolean` state | Drives exit prompt |
+| `nearStationDoor` | `'open' \| 'close' \| null` | Drives door interaction prompt |
 
 ### Movement & Collision
 
@@ -181,6 +210,20 @@ Covers:
 - All animated meshes are descendants of the group
 - Airlock room centre is near origin
 - Bridge room extends to X ≥ 50
+
+### `__tests__/spaceStation.test.ts` — sliding doors
+
+Covers:
+- Exactly 4 doors returned by builder
+- Each door has exactly 2 panel meshes (THREE.Mesh instances)
+- Valid `closedPos` and `openPos` arrays (THREE.Vector3)
+- Door axis is `'x'` or `'z'`
+- Open positions are farther apart than closed positions
+- Door `localPos` matches expected room boundary coordinates
+- Animation lerp at progress=0 yields closed position
+- Animation lerp at progress=1 yields open position
+- Proximity detection: at door centre → within interact radius
+- Proximity detection: 5 units away → outside interact radius
 
 ### `__tests__/Game3D.test.tsx` — space station UI
 

@@ -80,6 +80,7 @@ import {
   SNIPER_TOWER_HEIGHT,
   type CityResult,
   type SpaceStationInteriorResult,
+  type StationDoor,
   type SheepMeshParts,
   type RuinsResult,
   type SniperTowerResult,
@@ -789,6 +790,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const spaceStationRoomsRef = useRef<THREE.Box3[]>([]);
   const spaceStationLightsRef = useRef<SpaceStationInteriorResult['lights']>([]);
   const spaceStationAnimMeshesRef = useRef<SpaceStationInteriorResult['animatedMeshes']>([]);
+  const spaceStationDoorsRef = useRef<StationDoor[]>([]);
+  /** Per-door animation state: isOpen + 0..1 lerp progress. */
+  const stationDoorStateRef = useRef<{ isOpen: boolean; progress: number }[]>([]);
+  /** Index of the door the player is currently near (-1 = none). */
+  const nearStationDoorIdxRef = useRef(-1);
   const inSpaceStationRef = useRef(false);
 
   // ─── Bunker Refs ──────────────────────────────────────────────────────────────
@@ -848,6 +854,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [isScoped, setIsScoped] = useState(false);
   const [inSpaceStation, setInSpaceStation] = useState(false);
   const [nearAirlockExit, setNearAirlockExit] = useState(false);
+  const [nearStationDoor, setNearStationDoor] = useState<'open' | 'close' | null>(null);
   const [stationWelcome, setStationWelcome] = useState(false);
   const stationWelcomeTimerRef = useRef(0);
   // ─── Bunker UI State ────────────────────────────────────────────────────────
@@ -3930,6 +3937,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       spaceStationRoomsRef.current = stationResult.rooms;
       spaceStationLightsRef.current = stationResult.lights;
       spaceStationAnimMeshesRef.current = stationResult.animatedMeshes;
+      spaceStationDoorsRef.current = stationResult.doors;
+      stationDoorStateRef.current = stationResult.doors.map(() => ({ isOpen: false, progress: 0 }));
     }
 
     // ── Bunker Interior (shared lab scene — hidden until player enters) ─────────
@@ -4202,6 +4211,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             inSpaceStationRef.current = false;
             setInSpaceStation(false);
             setNearAirlockExit(false);
+            setNearStationDoor(null);
+            nearStationDoorIdxRef.current = -1;
             setStationWelcome(false);
             stationWelcomeTimerRef.current = 0;
             // Return player to Earth near the rocket launch pad
@@ -4228,6 +4239,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             scene.fog = new THREE.FogExp2(0x87ceeb, 0.006);
             // scene.background will be restored by the day/night cycle on the next frame
             return;
+          }
+        }
+
+        // ── Toggle station door near player ──────────────────────────────────
+        if (inSpaceStationRef.current) {
+          const doorIdx = nearStationDoorIdxRef.current;
+          if (doorIdx >= 0 && doorIdx < stationDoorStateRef.current.length) {
+            stationDoorStateRef.current[doorIdx].isOpen = !stationDoorStateRef.current[doorIdx].isOpen;
           }
         }
 
@@ -5271,6 +5290,53 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }
           }
         });
+
+        // ── Sliding door proximity detection & animation ──────────────────────
+        {
+          const cam = cameraRef.current!;
+          const localX = cam.position.x - SPACE_STATION_WORLD_X;
+          const localZ = cam.position.z - SPACE_STATION_WORLD_Z;
+          const DOOR_INTERACT_RADIUS = 2.5;
+
+          let closestIdx = -1;
+          let closestDist = Infinity;
+          const stDoors = spaceStationDoorsRef.current;
+
+          stDoors.forEach((door, i) => {
+            const dx = localX - door.localPos.x;
+            const dz = localZ - door.localPos.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < DOOR_INTERACT_RADIUS && dist < closestDist) {
+              closestDist = dist;
+              closestIdx = i;
+            }
+          });
+
+          if (closestIdx !== nearStationDoorIdxRef.current) {
+            nearStationDoorIdxRef.current = closestIdx;
+            if (closestIdx >= 0) {
+              const s = stationDoorStateRef.current[closestIdx];
+              setNearStationDoor(s.isOpen ? 'close' : 'open');
+            } else {
+              setNearStationDoor(null);
+            }
+          } else if (closestIdx >= 0) {
+            // Keep prompt label in sync with door state (may have changed via E)
+            const s = stationDoorStateRef.current[closestIdx];
+            setNearStationDoor(s.isOpen ? 'close' : 'open');
+          }
+
+          // Animate all doors (lerp panels towards target position)
+          const DOOR_ANIM_SPEED = 3.0; // units per second in progress (0..1)
+          stDoors.forEach((door, i) => {
+            const s = stationDoorStateRef.current[i];
+            const target = s.isOpen ? 1 : 0;
+            s.progress += (target - s.progress) * Math.min(1, DOOR_ANIM_SPEED * dt);
+
+            door.panels[0].position.lerpVectors(door.closedPos[0], door.openPos[0], s.progress);
+            door.panels[1].position.lerpVectors(door.closedPos[1], door.openPos[1], s.progress);
+          });
+        }
       }
 
       // ── Bunker welcome timer ────────────────────────────────────────────────
@@ -9657,6 +9723,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🚀 [E] Airlock – vrátit se na Zemi
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Station door interaction prompt ═══════════════ */}
+      {inSpaceStation && nearStationDoor && !nearAirlockExit && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,20,50,0.95)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(0,180,120,0.60)",
+              boxShadow: "0 0 28px rgba(0,160,100,0.55)",
+            }}
+          >
+            🚪 [E] {nearStationDoor === 'open' ? 'Otevřít dveře' : 'Zavřít dveře'}
           </div>
         </div>
       )}
