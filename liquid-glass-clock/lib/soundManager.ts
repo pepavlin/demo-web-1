@@ -1181,6 +1181,83 @@ class SoundManager {
     rumbleSrc.stop(t + rumbleDur + 0.1);
   }
 
+  // ── Tree-chopping sounds ─────────────────────────────────────────────────
+
+  /** Short woody "thwack" played on each axe swing that hits a tree. */
+  playTreeChop(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Low-frequency thump — wood impact body
+    const thumpOsc = ctx.createOscillator();
+    thumpOsc.type = "sine";
+    thumpOsc.frequency.setValueAtTime(180, t);
+    thumpOsc.frequency.exponentialRampToValueAtTime(60, t + 0.12);
+    const thumpEnv = ctx.createGain();
+    thumpEnv.gain.setValueAtTime(0.35, t);
+    thumpEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    thumpOsc.connect(thumpEnv);
+    thumpEnv.connect(this.sfxGain);
+    thumpOsc.start(t);
+    thumpOsc.stop(t + 0.15);
+
+    // Mid noise burst — "crack" transient of axe biting wood
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = this._noiseBuffer(0.08);
+    const nFlt = ctx.createBiquadFilter();
+    nFlt.type = "bandpass";
+    nFlt.frequency.value = 1400;
+    nFlt.Q.value = 1.2;
+    const nEnv = ctx.createGain();
+    nEnv.gain.setValueAtTime(0.18, t);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    nSrc.connect(nFlt);
+    nFlt.connect(nEnv);
+    nEnv.connect(this.sfxGain);
+    nSrc.start(t);
+    nSrc.stop(t + 0.09);
+  }
+
+  /**
+   * Rumbling crash played when a tree finishes falling.
+   * A deep bass thud followed by a brief wood-splintering noise burst.
+   */
+  playTreeFall(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Bass slam — tree hitting the ground
+    const bassOsc = ctx.createOscillator();
+    bassOsc.type = "sine";
+    bassOsc.frequency.setValueAtTime(90, t);
+    bassOsc.frequency.exponentialRampToValueAtTime(25, t + 0.45);
+    const bassEnv = ctx.createGain();
+    bassEnv.gain.setValueAtTime(0.55, t);
+    bassEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.50);
+    bassOsc.connect(bassEnv);
+    bassEnv.connect(this.sfxGain);
+    bassOsc.start(t);
+    bassOsc.stop(t + 0.52);
+
+    // Splintering crackle — branches snapping
+    const crackSrc = ctx.createBufferSource();
+    crackSrc.buffer = this._noiseBuffer(0.35);
+    const crackFlt = ctx.createBiquadFilter();
+    crackFlt.type = "bandpass";
+    crackFlt.frequency.value = 600;
+    crackFlt.Q.value = 0.7;
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0.22, t + 0.02);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+    crackSrc.connect(crackFlt);
+    crackFlt.connect(crackEnv);
+    crackEnv.connect(this.sfxGain);
+    crackSrc.start(t + 0.02);
+    crackSrc.stop(t + 0.40);
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   destroy(): void {

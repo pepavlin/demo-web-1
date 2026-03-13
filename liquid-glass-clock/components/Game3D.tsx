@@ -77,6 +77,7 @@ import {
   buildCity,
   buildSniperTowerMesh,
   buildSniperMesh,
+  buildWoodLogMesh,
   SNIPER_TOWER_HEIGHT,
   type CityResult,
   type SpaceStationInteriorResult,
@@ -91,7 +92,7 @@ import {
   resolveCylinderCollision3D,
   getWalkableSurfaceY,
 } from "@/lib/collisionSystem";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData } from "@/lib/gameTypes";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -522,6 +523,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
    *  radius already includes PLAYER_RADIUS (legacy convention).
    *  baseY + height define the vertical extent; walkable = can player stand on top. */
   const treeCollisionRef = useRef<CylinderCollider3D[]>([]);
+  /** All interactive trees (with HP) in the world. */
+  const treeDataRef = useRef<TreeData[]>([]);
+  /** Wood log meshes currently lying on the ground waiting to be collected. */
+  const woodLogMeshesRef = useRef<Array<{ mesh: THREE.Group; x: number; z: number; collected: boolean }>>([]);
+  /** Total wood logs collected this session. */
+  const woodCollectedRef = useRef(0);
   /** 3D box colliders for buildings, walls, and other box-shaped obstacles.
    *  cy + halfH define the vertical extent; walkable = can player stand on top face. */
   const boxCollidersRef = useRef<BoxCollider3D[]>([]);
@@ -726,6 +733,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     catapultsDefeated: 0,
     spidersDefeated: 0,
     attackReady: true,
+    woodCollected: 0,
   });
   const [nearCatapultHp, setNearCatapultHp] = useState<{ hp: number; maxHp: number } | null>(null);
   const [catapultWarning, setCatapultWarning] = useState(false);
@@ -1547,6 +1555,44 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           spider.isAlive = false;
           spidersDefeatedRef.current++;
           soundManager.playFoxDeath(); // reuse death sound
+        }
+      }
+    }
+
+    // ── Melee chop on trees (sword only) ────────────────────────────────────
+    if (weaponCfg.type === "sword") {
+      const TREE_CHOP_RANGE = weaponCfg.range * 1.5; // trees are wide — slightly more reach
+      let closestTree: TreeData | null = null;
+      let closestTreeDist = TREE_CHOP_RANGE;
+
+      treeDataRef.current.forEach((tree) => {
+        if (tree.isChopped || tree.isFalling) return;
+        const d = new THREE.Vector2(tree.x - playerPos.x, tree.z - playerPos.z).length();
+        if (d < closestTreeDist) {
+          closestTreeDist = d;
+          closestTree = tree;
+        }
+      });
+
+      if (closestTree) {
+        const tree = closestTree as TreeData;
+        tree.hp = Math.max(0, tree.hp - weaponCfg.damage);
+        tree.hitFlashTimer = 0.2;
+
+        // Flash trunk meshes red
+        tree.trunkMeshes.forEach((m) => {
+          (m.material as THREE.MeshLambertMaterial).color.set(0xff4444);
+        });
+
+        soundManager.playTreeChop();
+        setAttackEffect(`-${weaponCfg.damage} 🪓`);
+        setTimeout(() => setAttackEffect(null), 700);
+
+        if (tree.hp <= 0) {
+          tree.isFalling = true;
+          tree.fallTimer = 0;
+          // Remove from wind-sway list so the falling tree doesn't animate oddly
+          floraRef.current = floraRef.current.filter((f) => f.rootMesh !== tree.mesh);
         }
       }
     }
@@ -2656,6 +2702,31 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           walkable: false,
         });
       }
+
+      // Create interactive TreeData — collect trunk meshes (non-foliage direct children)
+      const trunkMeshes: THREE.Mesh[] = [];
+      result.group.children.forEach((child) => {
+        if (child !== result.foliageGroup && child instanceof THREE.Mesh) {
+          trunkMeshes.push(child as THREE.Mesh);
+        }
+      });
+      const treeMaxHp = result.hasCollision ? 165 : 55; // large trees take 3 sword hits; small take 1
+      treeDataRef.current.push({
+        mesh: result.group,
+        foliageGroup: result.foliageGroup,
+        hp: treeMaxHp,
+        maxHp: treeMaxHp,
+        isFalling: false,
+        isChopped: false,
+        hitFlashTimer: 0,
+        fallTimer: 0,
+        fallRotationX: 0,
+        x: p.x,
+        z: p.z,
+        trunkRadius: result.trunkRadius,
+        hasCollision: result.hasCollision,
+        trunkMeshes,
+      });
     });
 
     // ── Bushes / Shrubs ─────────────────────────────────────────────────────
@@ -5960,6 +6031,76 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
+      // ── Tree fall animation + wood log spawning ─────────────────────────────
+      treeDataRef.current.forEach((tree) => {
+        if (tree.isChopped) return;
+
+        // Restore trunk colour after hit-flash
+        if (tree.hitFlashTimer > 0) {
+          tree.hitFlashTimer = Math.max(0, tree.hitFlashTimer - dt);
+          if (tree.hitFlashTimer === 0) {
+            tree.trunkMeshes.forEach((m) => {
+              (m.material as THREE.MeshLambertMaterial).color.set(0x4a2a10);
+            });
+          }
+        }
+
+        if (!tree.isFalling) return;
+
+        // Tree is falling — rotate it over ~0.8 seconds
+        const FALL_DURATION = 0.8;
+        tree.fallTimer += dt;
+        const fallProgress = Math.min(tree.fallTimer / FALL_DURATION, 1);
+        const targetRotX = Math.PI / 2; // 90° = lying flat
+        tree.fallRotationX = targetRotX * fallProgress * fallProgress; // ease-in
+        tree.mesh.rotation.x = tree.fallRotationX;
+
+        // Halfway through: play crash sound
+        if (tree.fallTimer - dt < FALL_DURATION * 0.55 && tree.fallTimer >= FALL_DURATION * 0.55) {
+          soundManager.playTreeFall();
+        }
+
+        // Done falling — remove tree, drop wood logs
+        if (fallProgress >= 1) {
+          tree.isChopped = true;
+          if (sceneRef.current) sceneRef.current.remove(tree.mesh);
+
+          // Remove its collision entry (only large trees have one)
+          if (tree.hasCollision) {
+            treeCollisionRef.current = treeCollisionRef.current.filter(
+              (c) => !(Math.abs(c.x - tree.x) < 0.01 && Math.abs(c.z - tree.z) < 0.01)
+            );
+          }
+
+          // Drop 2–4 wood logs near the tree stump
+          const logCount = 2 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < logCount; i++) {
+            const angle = (i / logCount) * Math.PI * 2 + Math.random() * 0.5;
+            const dist = 0.8 + Math.random() * 1.2;
+            const lx = tree.x + Math.cos(angle) * dist;
+            const lz = tree.z + Math.sin(angle) * dist;
+            const ly = getTerrainHeight(lx, lz) + 0.25;
+            const logMesh = buildWoodLogMesh();
+            logMesh.position.set(lx, ly, lz);
+            if (sceneRef.current) sceneRef.current.add(logMesh);
+            woodLogMeshesRef.current.push({ mesh: logMesh, x: lx, z: lz, collected: false });
+          }
+        }
+      });
+
+      // ── Wood log collection ─────────────────────────────────────────────────
+      const WOOD_COLLECT_RADIUS = 2.0;
+      woodLogMeshesRef.current.forEach((log) => {
+        if (log.collected) return;
+        const dx = playerPos.x - log.x;
+        const dz = playerPos.z - log.z;
+        if (dx * dx + dz * dz < WOOD_COLLECT_RADIUS * WOOD_COLLECT_RADIUS) {
+          log.collected = true;
+          woodCollectedRef.current++;
+          if (sceneRef.current) sceneRef.current.remove(log.mesh);
+        }
+      });
+
       // ── Fox AI ─────────────────────────────────────────────────────────────
       let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
       let closestAliveFoxDist = Infinity;
@@ -7068,6 +7209,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           catapultsDefeated: catapultsDefeatedRef.current,
           spidersDefeated: spidersDefeatedRef.current,
           attackReady: playerAttackCooldownRef.current <= 0,
+          woodCollected: woodCollectedRef.current,
         }));
       }
 
@@ -7154,6 +7296,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         (p.mesh.material as THREE.MeshLambertMaterial).dispose();
       });
       bloodParticlesRef.current = [];
+      // Clean up wood logs
+      woodLogMeshesRef.current.forEach((log) => scene.remove(log.mesh));
+      woodLogMeshesRef.current = [];
+      treeDataRef.current = [];
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
@@ -7424,6 +7570,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🕷 Pavouci</span>
                   <span className="text-xs font-bold tabular-nums" style={{ color: "#f87171" }}>
                     {gameState.spidersDefeated}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* Wood collected (conditional) */}
+            {gameState.woodCollected > 0 && (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.07)", margin: "16px 0 14px" }} />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.60)" }}>🪵 Dřevo</span>
+                  <span className="text-xs font-bold tabular-nums" style={{ color: "#a3763a" }}>
+                    {gameState.woodCollected}
                   </span>
                 </div>
               </>

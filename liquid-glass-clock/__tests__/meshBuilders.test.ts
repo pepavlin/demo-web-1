@@ -51,6 +51,7 @@ import {
   buildMountainWithWaterfallAndCave,
   buildSniperTowerMesh,
   buildSniperMesh,
+  buildWoodLogMesh,
   SNIPER_TOWER_HEIGHT,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
