@@ -220,9 +220,10 @@ const IMPACT_EFFECT_DURATION = 0.45;     // seconds the impact explosion ring la
 
 // ─── Bullet / Weapon Constants ────────────────────────────────────────────────
 // Per-weapon values come from WEAPON_CONFIGS; these are shared constants:
-const BULLET_LIFETIME = 4;      // seconds before auto-despawn
-const BULLET_HIT_RADIUS = 1.4;  // sphere radius for fox collision
-const ARROW_GRAVITY = -22;      // downward acceleration (units/s²) for bow arrows
+const BULLET_LIFETIME = 4;              // seconds before auto-despawn
+const BULLET_HIT_RADIUS = 1.4;         // sphere radius for fox collision
+const REMOTE_PLAYER_HIT_RADIUS = 0.75; // sphere radius for PvP bullet collision
+const ARROW_GRAVITY = -22;             // downward acceleration (units/s²) for bow arrows
 // Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
@@ -923,12 +924,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     legPhase: number;
     prevX: number;
     prevZ: number;
+    // PvP
+    hp: number;
+    hitFlashTimer: number;
   }>>(new Map());
   const sendUpdateRef = useRef<((update: PlayerUpdate) => void) | null>(null);
-  const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number }>>([]);
+  /** Ref to sendHit — allows calling from inside the animation loop. */
+  const sendHitRef = useRef<((targetId: string, damage: number, weaponType: string) => void) | null>(null);
+  const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number; hp: number }>>([]);
   const [mpNotification, setMpNotification] = useState<string | null>(null);
   const mpNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; color: number }>>([]);
+  /** Name of the player who killed the local player (null = died to environment). */
+  const [killedBy, setKilledBy] = useState<string | null>(null);
 
   // ─── Chat state ──────────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; name: string; color: number; text: string; ts: number }>>([]);
@@ -952,7 +960,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   }, []);
 
   // ─── Multiplayer callbacks (use sceneRef which is set inside useEffect) ───────
-  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number }>) => {
+  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number; hp?: number }>) => {
     const scene = sceneRef.current;
     if (!scene) return;
     const list: Array<{ id: string; name: string; color: number }> = [];
@@ -971,13 +979,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         armL: mesh.getObjectByName("armL") ?? null,
         armR: mesh.getObjectByName("armR") ?? null,
         legPhase: 0, prevX: p.x, prevZ: p.z,
+        hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
       });
       list.push({ id: p.id, name: p.name, color: p.color });
     });
     setOnlinePlayers(list);
   }, []);
 
-  const handlePlayerJoined = useCallback((p: { id: string; name: string; x: number; y: number; z: number; rotY: number; color: number }) => {
+  const handlePlayerJoined = useCallback((p: { id: string; name: string; x: number; y: number; z: number; rotY: number; color: number; hp?: number }) => {
     const scene = sceneRef.current;
     if (!scene) return;
     const mesh = buildRemotePlayerMesh(p.color);
@@ -993,6 +1002,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       armL: mesh.getObjectByName("armL") ?? null,
       armR: mesh.getObjectByName("armR") ?? null,
       legPhase: 0, prevX: p.x, prevZ: p.z,
+      hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
     });
     setOnlinePlayers((prev) => [...prev, { id: p.id, name: p.name, color: p.color }]);
     showMpNotif(`${p.name} se připojil ke světu`);
@@ -1016,21 +1026,71 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     data.targetY = update.y - PLAYER_HEIGHT + 0.825;
     data.targetZ = update.z;
     data.targetRotY = update.rotY;
+    // Sync HP from position broadcasts (server includes hp in each update)
+    if (update.hp !== undefined) data.hp = update.hp;
   }, []);
 
-  const { sendUpdate, sendChat } = useMultiplayer({
+  // ── PvP callbacks ────────────────────────────────────────────────────────────
+
+  const handlePlayerDamaged = useCallback((damage: number, attackerName: string) => {
+    if (gameOver) return;
+    playerHpRef.current = Math.max(0, playerHpRef.current - damage);
+    setHitFlash(true);
+    setTimeout(() => setHitFlash(false), 300);
+    soundManager.playPlayerHit();
+    showMpNotif(`${attackerName} tě zasáhl (-${damage} HP)`);
+    if (playerHpRef.current <= 0) {
+      setGameOver(true);
+      setKilledBy(attackerName);
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameOver, showMpNotif]);
+
+  const handlePlayerKilledBy = useCallback((killerName: string) => {
+    setKilledBy(killerName);
+  }, []);
+
+  const handleGotKill = useCallback((victimName: string) => {
+    showMpNotif(`Zabil jsi ${victimName}!`);
+  }, [showMpNotif]);
+
+  const handlePlayerHpUpdate = useCallback((id: string, hp: number) => {
+    const data = remotePlayersRef.current.get(id);
+    if (data) data.hp = hp;
+  }, []);
+
+  const handleRespawn = useCallback(() => {
+    // Server grants respawn: restore HP and re-lock pointer
+    playerHpRef.current = PLAYER_MAX_HP;
+    setGameOver(false);
+    setKilledBy(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const { sendUpdate, sendChat, sendHit } = useMultiplayer({
     playerName,
     onInit: handleMultiplayerInit,
     onPlayerJoined: handlePlayerJoined,
     onPlayerLeft: handlePlayerLeft,
     onPlayerUpdated: handlePlayerUpdated,
     onChatMessage: handleChatMessage,
+    onPlayerDamaged: handlePlayerDamaged,
+    onPlayerKilledBy: handlePlayerKilledBy,
+    onGotKill: handleGotKill,
+    onPlayerHpUpdate: handlePlayerHpUpdate,
+    onRespawn: handleRespawn,
   });
 
   // Keep sendChat in a ref so it can be called from event handlers
   useEffect(() => {
     sendChatRef.current = sendChat;
   }, [sendChat]);
+
+  // Keep sendHit in a ref so it can be called from the animation loop
+  useEffect(() => {
+    sendHitRef.current = sendHit;
+  }, [sendHit]);
 
   // Keep sendUpdate in a ref so it can be called from the animation loop
   useEffect(() => {
@@ -1526,6 +1586,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
   }
 
+  // ─── Flash remote player mesh white-red on PvP hit ───────────────────────────
+  function flashRemotePlayerMesh(mesh: THREE.Group) {
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.set(0xff2200);
+          setTimeout(() => mat.emissive.set(0x000000), 220);
+        }
+      }
+    });
+  }
+
   // ─── Spawn blood particles at a world position ────────────────────────────────
   function spawnBloodParticles(scene: THREE.Scene, pos: THREE.Vector3) {
     const count = 22 + Math.floor(Math.random() * 10);
@@ -1834,6 +1908,30 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           // Spawn blood immediately at moment of death
           spawnBloodParticles(sceneRef.current!, sheep.mesh.position);
         }
+      }
+    }
+
+    // ── Melee hit on remote players (PvP — sword / axe) ─────────────────────
+    if (weaponCfg.type === "sword" || weaponCfg.type === "axe") {
+      let closestRemoteId: string | null = null;
+      let closestRemoteDist = weaponCfg.range;
+
+      remotePlayersRef.current.forEach((rp, id) => {
+        if (rp.hp <= 0) return; // skip dead players
+        const d = rp.mesh.position.distanceTo(playerPos);
+        if (d < closestRemoteDist) {
+          closestRemoteDist = d;
+          closestRemoteId = id;
+        }
+      });
+
+      if (closestRemoteId) {
+        const rp = remotePlayersRef.current.get(closestRemoteId)!;
+        sendHitRef.current?.(closestRemoteId, weaponCfg.damage, weaponCfg.type);
+        flashRemotePlayerMesh(rp.mesh);
+        rp.hitFlashTimer = 0.25;
+        setAttackEffect(`-${weaponCfg.damage}`);
+        setTimeout(() => setAttackEffect(null), 700);
       }
     }
   }, []);
@@ -6554,6 +6652,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
+        // ── Remote player (PvP) bullet collision ─────────────────────────────
+        if (!bulletHit) {
+          for (const [targetId, rp] of remotePlayersRef.current) {
+            if (rp.hp <= 0) continue; // skip dead players
+            // Aim for body center (mesh origin is at feet, body center is +0.5 up)
+            const playerCenter = rp.mesh.position.clone();
+            playerCenter.y += 0.5;
+            const dist = bullet.mesh.position.distanceTo(playerCenter);
+            if (dist < REMOTE_PLAYER_HIT_RADIUS) {
+              const weaponKey = bullet.weaponType ?? selectedWeaponRef.current;
+              const baseDmg = WEAPON_CONFIGS[weaponKey].damage;
+              const dmg = bullet.power !== undefined
+                ? Math.round(baseDmg * (0.5 + 0.5 * bullet.power))
+                : baseDmg;
+              sendHitRef.current?.(targetId, dmg, weaponKey);
+              flashRemotePlayerMesh(rp.mesh);
+              rp.hitFlashTimer = 0.25;
+              setAttackEffect(`-${dmg}`);
+              setTimeout(() => setAttackEffect(null), 700);
+              toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
         // ── WorldItem hit callbacks (e.g. bombs explode when shot) ──────────
         if (!bulletHit) {
           for (const item of worldItemsRef.current) {
@@ -7833,6 +7957,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           data.prevX = data.mesh.position.x;
           data.prevZ = data.mesh.position.z;
+
+          // ── PvP hit flash timer ─────────────────────────────────────────────
+          if (data.hitFlashTimer > 0) {
+            data.hitFlashTimer = Math.max(0, data.hitFlashTimer - dt);
+          }
         });
       }
 
@@ -8048,7 +8177,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // ── Remote player name labels ──────────────────────────────────────────
       if (remotePlayersRef.current.size > 0 && cameraRef.current) {
-        const labels: Array<{ id: string; name: string; x: number; y: number }> = [];
+        const labels: Array<{ id: string; name: string; x: number; y: number; hp: number }> = [];
         remotePlayersRef.current.forEach((data, id) => {
           const pos = data.mesh.position.clone();
           pos.y += 2.2; // above head
@@ -8056,7 +8185,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (projected.z < 1) {
             const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
             const sy = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-            labels.push({ id, name: data.name, x: sx, y: sy });
+            labels.push({ id, name: data.name, x: sx, y: sy, hp: data.hp });
           }
         });
         setPlayerLabels(labels);
@@ -9683,7 +9812,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             <div className="text-5xl" style={{ marginBottom: 16 }}>💀</div>
             <h2 className="text-3xl font-bold" style={{ marginBottom: 12 }}>Byl jsi poražen!</h2>
-            <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky, pavouci nebo katapulty tě dostaly…</p>
+            {killedBy ? (
+              <p className="text-red-400 text-sm font-semibold" style={{ marginBottom: 8 }}>
+                Zastřelil tě hráč <span className="text-white">{killedBy}</span>!
+              </p>
+            ) : (
+              <p className="text-gray-400 text-sm" style={{ marginBottom: 8 }}>Lišky, pavouci nebo katapulty tě dostaly…</p>
+            )}
             <p className="text-gray-500 text-xs" style={{ marginBottom: 4 }}>
               Porazil jsi <span className="text-orange-400 font-bold">{gameState.foxesDefeated}</span> lišek
             </p>
@@ -9711,31 +9846,59 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ─── Remote player name labels ───────────────────────────────────────── */}
-      {playerLabels.map((label) => (
-        <div
-          key={label.id}
-          className="fixed pointer-events-none select-none"
-          style={{
-            left: label.x,
-            top: label.y,
-            transform: "translate(-50%, -50%)",
-            zIndex: 55,
-          }}
-        >
+      {/* ─── Remote player name labels + health bars ─────────────────────────── */}
+      {playerLabels.map((label) => {
+        const hpPct = Math.max(0, Math.min(100, (label.hp / PLAYER_MAX_HP) * 100));
+        const hpColor = hpPct > 50 ? "#22c55e" : hpPct > 25 ? "#eab308" : "#ef4444";
+        return (
           <div
-            className="rounded-lg text-white text-xs font-bold px-2 py-1 whitespace-nowrap"
+            key={label.id}
+            className="fixed pointer-events-none select-none"
             style={{
-              background: "rgba(5,8,20,0.75)",
-              border: "1px solid rgba(74,158,255,0.4)",
-              backdropFilter: "blur(6px)",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+              left: label.x,
+              top: label.y,
+              transform: "translate(-50%, -50%)",
+              zIndex: 55,
             }}
           >
-            {label.name}
+            {/* HP bar */}
+            <div
+              style={{
+                width: 60,
+                height: 5,
+                background: "rgba(0,0,0,0.55)",
+                borderRadius: 3,
+                marginBottom: 3,
+                overflow: "hidden",
+                border: "1px solid rgba(0,0,0,0.4)",
+              }}
+            >
+              <div
+                style={{
+                  width: `${hpPct}%`,
+                  height: "100%",
+                  background: hpColor,
+                  transition: "width 0.15s ease",
+                  borderRadius: 3,
+                }}
+              />
+            </div>
+            {/* Name label */}
+            <div
+              className="rounded-lg text-white text-xs font-bold px-2 py-1 whitespace-nowrap"
+              style={{
+                background: "rgba(5,8,20,0.75)",
+                border: "1px solid rgba(74,158,255,0.4)",
+                backdropFilter: "blur(6px)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                textAlign: "center",
+              }}
+            >
+              {label.name}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* ─── Multiplayer join/leave notification ─────────────────────────────── */}
       {mpNotification && gameStarted && (

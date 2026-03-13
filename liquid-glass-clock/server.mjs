@@ -51,8 +51,17 @@ const io = new Server(httpServer, {
 });
 
 // ── Player state ─────────────────────────────────────────────────────────────
-// Map<socketId, { id, name, x, y, z, rotY, pitch }>
+// Map<socketId, { id, name, x, y, z, rotY, pitch, color, hp, joinTime }>
 const players = new Map();
+
+// ── PvP constants ────────────────────────────────────────────────────────────
+const PLAYER_MAX_HP = 100;
+/** Milliseconds of spawn protection after joining or respawning. */
+const SPAWN_PROTECTION_MS = 3000;
+/** Milliseconds before a killed player auto-respawns. */
+const RESPAWN_DELAY_MS = 5000;
+/** Maximum damage per hit (sanity clamp against cheating). */
+const MAX_HIT_DAMAGE = 200;
 
 // ── Player color palette (assigned by join order) ────────────────────────────
 const PLAYER_COLORS = [
@@ -84,6 +93,8 @@ io.on("connection", (socket) => {
       rotY: 0,
       pitch: 0,
       color,
+      hp: PLAYER_MAX_HP,
+      joinTime: Date.now(),
     };
     players.set(socket.id, player);
 
@@ -109,7 +120,52 @@ io.on("connection", (socket) => {
     player.z = data.z;
     player.rotY = data.rotY;
     player.pitch = data.pitch;
-    socket.broadcast.emit("player:update", { id: socket.id, ...data });
+    // Include hp so remote clients can show health bars
+    socket.broadcast.emit("player:update", { id: socket.id, ...data, hp: player.hp });
+  });
+
+  // ── PvP: player hit ───────────────────────────────────────────────────────
+  socket.on("player:hit", ({ targetId, damage, weaponType }) => {
+    const attacker = players.get(socket.id);
+    const target = players.get(targetId);
+    if (!attacker || !target) return;
+
+    // Spawn protection: ignore hits on recently spawned players
+    if (Date.now() - target.joinTime < SPAWN_PROTECTION_MS) return;
+
+    // Dead players cannot be hit
+    if (target.hp <= 0) return;
+
+    const clampedDamage = Math.max(1, Math.min(MAX_HIT_DAMAGE, Math.round(damage)));
+    target.hp = Math.max(0, target.hp - clampedDamage);
+
+    // Notify the target about the incoming damage
+    io.to(targetId).emit("player:damaged", {
+      damage: clampedDamage,
+      attackerId: socket.id,
+      attackerName: attacker.name,
+    });
+
+    // Broadcast updated HP to all clients so health bars stay in sync
+    io.emit("player:hp_update", { id: targetId, hp: target.hp });
+
+    if (target.hp <= 0) {
+      // Notify target they were killed
+      io.to(targetId).emit("player:killed_by", { killerName: attacker.name });
+      // Notify attacker of the kill
+      socket.emit("player:got_kill", { victimName: target.name });
+
+      console.log(`[PvP] ${attacker.name} killed ${target.name}`);
+
+      // Auto-respawn after delay
+      setTimeout(() => {
+        if (!players.has(targetId)) return; // disconnected before respawn
+        target.hp = PLAYER_MAX_HP;
+        target.joinTime = Date.now(); // reset spawn protection
+        io.to(targetId).emit("player:respawn");
+        io.emit("player:hp_update", { id: targetId, hp: PLAYER_MAX_HP });
+      }, RESPAWN_DELAY_MS);
+    }
   });
 
   // ── Chat ──────────────────────────────────────────────────────────────────

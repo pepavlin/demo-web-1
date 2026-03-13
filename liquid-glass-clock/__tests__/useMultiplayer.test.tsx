@@ -165,4 +165,97 @@ describe("useMultiplayer hook", () => {
     mockSocket.connected = true;
     expect(result.current.isConnected()).toBe(true);
   });
+
+  // ── PvP tests ──────────────────────────────────────────────────────────────
+
+  it("registers player:damaged event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("player:damaged");
+  });
+
+  it("registers player:killed_by event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("player:killed_by");
+  });
+
+  it("registers player:got_kill event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("player:got_kill");
+  });
+
+  it("registers player:hp_update event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("player:hp_update");
+  });
+
+  it("registers player:respawn event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("player:respawn");
+  });
+
+  it("calls onPlayerDamaged when player:damaged fires", () => {
+    const onPlayerDamaged = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onPlayerDamaged }));
+    const damagedCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:damaged");
+    act(() => { damagedCall![1]({ damage: 40, attackerId: "attacker1", attackerName: "Alice" }); });
+    expect(onPlayerDamaged).toHaveBeenCalledWith(40, "Alice");
+  });
+
+  it("calls onPlayerKilledBy when player:killed_by fires", () => {
+    const onPlayerKilledBy = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onPlayerKilledBy }));
+    const killedCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:killed_by");
+    act(() => { killedCall![1]({ killerName: "Bob" }); });
+    expect(onPlayerKilledBy).toHaveBeenCalledWith("Bob");
+  });
+
+  it("calls onGotKill when player:got_kill fires", () => {
+    const onGotKill = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onGotKill }));
+    const gotKillCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:got_kill");
+    act(() => { gotKillCall![1]({ victimName: "Enemy" }); });
+    expect(onGotKill).toHaveBeenCalledWith("Enemy");
+  });
+
+  it("calls onPlayerHpUpdate when player:hp_update fires", () => {
+    const onPlayerHpUpdate = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onPlayerHpUpdate }));
+    const hpUpdateCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:hp_update");
+    act(() => { hpUpdateCall![1]({ id: "player123", hp: 60 }); });
+    expect(onPlayerHpUpdate).toHaveBeenCalledWith("player123", 60);
+  });
+
+  it("calls onRespawn when player:respawn fires", () => {
+    const onRespawn = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onRespawn }));
+    const respawnCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:respawn");
+    act(() => { respawnCall![1](); });
+    expect(onRespawn).toHaveBeenCalled();
+  });
+
+  it("returns a sendHit function", () => {
+    const { result } = renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    expect(typeof result.current.sendHit).toBe("function");
+  });
+
+  it("sendHit emits player:hit to socket with target, damage and weaponType", () => {
+    const { result } = renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    act(() => {
+      result.current.sendHit("target-socket-id", 85, "crossbow");
+    });
+    expect(mockSocket.emit).toHaveBeenCalledWith("player:hit", {
+      targetId: "target-socket-id",
+      damage: 85,
+      weaponType: "crossbow",
+    });
+  });
 });
