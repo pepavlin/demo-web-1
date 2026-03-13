@@ -548,6 +548,11 @@ export interface AirdropData {
   loot: AirdropLoot;
 }
 
+// ─── Entity Sync ────────────────────────────────────────────────────────────
+// Re-export core sync types so consumers only need to import from gameTypes.
+export type { EntityState, EntityBatch, EntityEvent, SyncOptions } from "./entitySyncManager";
+export { EntitySyncManager } from "./entitySyncManager";
+
 // ─── Airplane system ────────────────────────────────────────────────────────
 export type AirplaneState = 'idle' | 'boarded' | 'flying';
 

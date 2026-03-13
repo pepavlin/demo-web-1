@@ -93,15 +93,28 @@ describe("useMultiplayer hook", () => {
     expect(mockSocket.emit).toHaveBeenCalledWith("player:join", { name: "Alice" });
   });
 
-  it("calls onInit when players:init is received", () => {
+  it("calls onInit when players:init is received (new format with hostId)", () => {
     const onInit = jest.fn();
     renderHook(() =>
       useMultiplayer({ playerName: "TestPlayer", onInit })
     );
     const initCall = mockSocket.on.mock.calls.find((c) => c[0] === "players:init");
     const mockPlayers = { abc: { id: "abc", name: "Bob", x: 1, y: 2, z: 3, rotY: 0, pitch: 0, color: 0xff0000 } };
+    // New format: server sends { players, hostId }
+    act(() => { initCall![1]({ players: mockPlayers, hostId: "socket-host-id" }); });
+    expect(onInit).toHaveBeenCalledWith(mockPlayers, "socket-host-id");
+  });
+
+  it("calls onInit with legacy format (plain record without hostId)", () => {
+    const onInit = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onInit })
+    );
+    const initCall = mockSocket.on.mock.calls.find((c) => c[0] === "players:init");
+    // Legacy: server sends plain record (backwards compatibility)
+    const mockPlayers = { abc: { id: "abc", name: "Bob", x: 1, y: 2, z: 3, rotY: 0, pitch: 0, color: 0xff0000 } };
     act(() => { initCall![1](mockPlayers); });
-    expect(onInit).toHaveBeenCalledWith(mockPlayers);
+    expect(onInit).toHaveBeenCalledWith(mockPlayers, null);
   });
 
   it("calls onPlayerJoined when player:joined fires", () => {
@@ -257,5 +270,69 @@ describe("useMultiplayer hook", () => {
       damage: 85,
       weaponType: "crossbow",
     });
+  });
+
+  // ── Entity sync tests ───────────────────────────────────────────────────────
+
+  it("registers entity:batch event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const events = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(events).toContain("entity:batch");
+  });
+
+  it("registers entity:event event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const events = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(events).toContain("entity:event");
+  });
+
+  it("registers host:changed event listener", () => {
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer" }));
+    const events = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(events).toContain("host:changed");
+  });
+
+  it("calls onEntityBatch when entity:batch fires", () => {
+    const onEntityBatch = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onEntityBatch }));
+    const batchCall = mockSocket.on.mock.calls.find((c) => c[0] === "entity:batch");
+    const batch = { sheep_0: { x: 10, z: 20, a: 1.5, f: 0, g: 0, b: 0, bt: 0 } };
+    act(() => { batchCall![1](batch); });
+    expect(onEntityBatch).toHaveBeenCalledWith(batch);
+  });
+
+  it("calls onEntityEvent when entity:event fires", () => {
+    const onEntityEvent = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onEntityEvent }));
+    const eventCall = mockSocket.on.mock.calls.find((c) => c[0] === "entity:event");
+    const event = { id: "sheep_5", type: "death", payload: { score: 1 } };
+    act(() => { eventCall![1](event); });
+    expect(onEntityEvent).toHaveBeenCalledWith(event);
+  });
+
+  it("calls onHostChanged when host:changed fires", () => {
+    const onHostChanged = jest.fn();
+    renderHook(() => useMultiplayer({ playerName: "TestPlayer", onHostChanged }));
+    const hostCall = mockSocket.on.mock.calls.find((c) => c[0] === "host:changed");
+    act(() => { hostCall![1]({ hostId: "new-host-id" }); });
+    expect(onHostChanged).toHaveBeenCalledWith("new-host-id");
+  });
+
+  it("returns sendEntityBatch function that emits entity:batch", () => {
+    const { result } = renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const batch = { fox_0: { x: 5, z: 3, ry: 0.7 } };
+    act(() => { result.current.sendEntityBatch(batch); });
+    expect(mockSocket.emit).toHaveBeenCalledWith("entity:batch", batch);
+  });
+
+  it("returns sendEntityEvent function that emits entity:event", () => {
+    const { result } = renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const event = { id: "rocket", type: "rocket_state", payload: { state: "launching" } };
+    act(() => { result.current.sendEntityEvent(event); });
+    expect(mockSocket.emit).toHaveBeenCalledWith("entity:event", event);
   });
 });

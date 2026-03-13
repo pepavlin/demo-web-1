@@ -54,6 +54,22 @@ const io = new Server(httpServer, {
 // Map<socketId, { id, name, x, y, z, rotY, pitch, color, hp, joinTime }>
 const players = new Map();
 
+// ── Host tracking ─────────────────────────────────────────────────────────────
+// The host is the first connected player.  They are responsible for simulating
+// shared NPC entities (sheep, foxes, etc.) and broadcasting their states.
+// When the host disconnects the next player in join-order becomes host.
+let hostId = null;
+
+/** Assign a new host (the next player in insertion order). Notifies all clients. */
+function reassignHost() {
+  const nextPlayer = players.values().next().value;
+  hostId = nextPlayer ? nextPlayer.id : null;
+  if (hostId) {
+    console.log(`[Host] New host: ${players.get(hostId).name} (${hostId})`);
+    io.emit("host:changed", { hostId });
+  }
+}
+
 // ── PvP constants ────────────────────────────────────────────────────────────
 const PLAYER_MAX_HP = 100;
 /** Milliseconds of spawn protection after joining or respawning. */
@@ -98,17 +114,24 @@ io.on("connection", (socket) => {
     };
     players.set(socket.id, player);
 
-    // Send existing players to the newly joined player
+    // First player to join becomes host
+    const isFirstPlayer = players.size === 1;
+    if (isFirstPlayer) {
+      hostId = socket.id;
+      console.log(`[Host] Initial host: ${player.name} (${socket.id})`);
+    }
+
+    // Send existing players + host info to the newly joined player
     const others = {};
     players.forEach((p, id) => {
       if (id !== socket.id) others[id] = p;
     });
-    socket.emit("players:init", others);
+    socket.emit("players:init", { players: others, hostId });
 
     // Broadcast new player to everyone else
     socket.broadcast.emit("player:joined", player);
 
-    console.log(`[WS] ${player.name} joined (total: ${players.size})`);
+    console.log(`[WS] ${player.name} joined (total: ${players.size}, host: ${hostId === socket.id ? "YES" : "no"})`);
   });
 
   // ── Position update ───────────────────────────────────────────────────────
@@ -184,6 +207,21 @@ io.on("connection", (socket) => {
     console.log(`[Chat] ${player.name}: ${msg}`);
   });
 
+  // ── Entity sync: batch state broadcast (host → all others) ───────────────
+  // The host periodically sends compact batches of NPC entity states.
+  // The server simply relays them to all other connected clients.
+  socket.on("entity:batch", (batch) => {
+    if (socket.id !== hostId) return; // Only accept from the current host
+    socket.broadcast.emit("entity:batch", batch);
+  });
+
+  // ── Entity sync: discrete events (host → all others) ─────────────────────
+  // Used for state-change events that must not be missed (e.g. entity death).
+  socket.on("entity:event", (event) => {
+    if (socket.id !== hostId) return; // Only accept from the current host
+    socket.broadcast.emit("entity:event", event);
+  });
+
   // ── Disconnect ────────────────────────────────────────────────────────────
   socket.on("disconnect", () => {
     const player = players.get(socket.id);
@@ -191,6 +229,11 @@ io.on("connection", (socket) => {
     io.emit("player:left", { id: socket.id });
     if (player) {
       console.log(`[WS] ${player.name} left (total: ${players.size})`);
+    }
+
+    // If the host disconnected, assign the next player as host
+    if (socket.id === hostId) {
+      reassignHost();
     }
   });
 });

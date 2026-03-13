@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
+import type { EntityBatch, EntityEvent } from "@/lib/entitySyncManager";
 
 export interface RemotePlayer {
   id: string;
@@ -34,7 +35,7 @@ export interface ChatMessage {
 
 export interface UseMultiplayerOptions {
   playerName: string;
-  onInit?: (players: Record<string, RemotePlayer>) => void;
+  onInit?: (players: Record<string, RemotePlayer>, hostId: string | null) => void;
   onPlayerJoined?: (player: RemotePlayer) => void;
   onPlayerLeft?: (id: string) => void;
   onPlayerUpdated?: (id: string, update: PlayerUpdate) => void;
@@ -49,12 +50,37 @@ export interface UseMultiplayerOptions {
   onPlayerHpUpdate?: (id: string, hp: number) => void;
   /** Called when this local player should respawn (server-triggered). */
   onRespawn?: () => void;
+  /**
+   * Called when a batch of entity states arrives from the host.
+   * Non-host clients should apply these to their local entity instances.
+   */
+  onEntityBatch?: (batch: EntityBatch) => void;
+  /**
+   * Called when a discrete entity event arrives from the host (e.g. death).
+   * Both host and non-host clients can handle these.
+   */
+  onEntityEvent?: (event: EntityEvent) => void;
+  /**
+   * Called when the simulation host changes.
+   * `hostId` is the socket id of the new host (or null if no players remain).
+   */
+  onHostChanged?: (hostId: string | null) => void;
 }
 
 export interface UseMultiplayerReturn {
   sendUpdate: (update: PlayerUpdate) => void;
   sendChat: (text: string) => void;
   sendHit: (targetId: string, damage: number, weaponType: string) => void;
+  /**
+   * Send a batch of entity states to all other clients (host only).
+   * The server will relay the batch to all connected non-host clients.
+   */
+  sendEntityBatch: (batch: EntityBatch) => void;
+  /**
+   * Send a discrete entity event to all other clients (host only).
+   * Use for important one-off state changes (e.g. entity death, state machine transitions).
+   */
+  sendEntityEvent: (event: EntityEvent) => void;
   isConnected: () => boolean;
 }
 
@@ -70,6 +96,9 @@ export function useMultiplayer({
   onGotKill,
   onPlayerHpUpdate,
   onRespawn,
+  onEntityBatch,
+  onEntityEvent,
+  onHostChanged,
 }: UseMultiplayerOptions): UseMultiplayerReturn {
   const socketRef = useRef<Socket | null>(null);
   const lastUpdateTimeRef = useRef(0);
@@ -84,6 +113,9 @@ export function useMultiplayer({
   const onGotKillRef = useRef(onGotKill);
   const onPlayerHpUpdateRef = useRef(onPlayerHpUpdate);
   const onRespawnRef = useRef(onRespawn);
+  const onEntityBatchRef = useRef(onEntityBatch);
+  const onEntityEventRef = useRef(onEntityEvent);
+  const onHostChangedRef = useRef(onHostChanged);
 
   // Update all callback refs in a single effect — avoids many separate render-phase effects
   useEffect(() => {
@@ -97,6 +129,9 @@ export function useMultiplayer({
     onGotKillRef.current        = onGotKill;
     onPlayerHpUpdateRef.current = onPlayerHpUpdate;
     onRespawnRef.current        = onRespawn;
+    onEntityBatchRef.current    = onEntityBatch;
+    onEntityEventRef.current    = onEntityEvent;
+    onHostChangedRef.current    = onHostChanged;
   });
 
   useEffect(() => {
@@ -107,8 +142,16 @@ export function useMultiplayer({
       socket.emit("player:join", { name: playerName });
     });
 
-    socket.on("players:init", (players: Record<string, RemotePlayer>) => {
-      onInitRef.current?.(players);
+    // Server now sends { players, hostId } instead of just the players record
+    socket.on("players:init", (data: { players: Record<string, RemotePlayer>; hostId: string | null } | Record<string, RemotePlayer>) => {
+      // Support both old format (plain record) and new format ({ players, hostId })
+      if (data && "players" in data && typeof (data as { players: unknown }).players === "object" && !("id" in data)) {
+        const d = data as { players: Record<string, RemotePlayer>; hostId: string | null };
+        onInitRef.current?.(d.players, d.hostId);
+      } else {
+        // Legacy fallback
+        onInitRef.current?.(data as Record<string, RemotePlayer>, null);
+      }
     });
 
     socket.on("player:joined", (player: RemotePlayer) => {
@@ -150,6 +193,20 @@ export function useMultiplayer({
       onRespawnRef.current?.();
     });
 
+    // ── Entity sync events ────────────────────────────────────────────────────
+
+    socket.on("entity:batch", (batch: EntityBatch) => {
+      onEntityBatchRef.current?.(batch);
+    });
+
+    socket.on("entity:event", (event: EntityEvent) => {
+      onEntityEventRef.current?.(event);
+    });
+
+    socket.on("host:changed", ({ hostId }: { hostId: string | null }) => {
+      onHostChangedRef.current?.(hostId);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -173,9 +230,19 @@ export function useMultiplayer({
     socketRef.current?.emit("player:hit", { targetId, damage, weaponType });
   }, []);
 
+  /** Send a batch of entity states (host only). */
+  const sendEntityBatch = useCallback((batch: EntityBatch) => {
+    socketRef.current?.emit("entity:batch", batch);
+  }, []);
+
+  /** Send a discrete entity event (host only). */
+  const sendEntityEvent = useCallback((event: EntityEvent) => {
+    socketRef.current?.emit("entity:event", event);
+  }, []);
+
   const isConnected = useCallback(() => {
     return socketRef.current?.connected ?? false;
   }, []);
 
-  return { sendUpdate, sendChat, sendHit, isConnected };
+  return { sendUpdate, sendChat, sendHit, sendEntityBatch, sendEntityEvent, isConnected };
 }

@@ -142,6 +142,7 @@ import {
   generateLightningPath,
 } from "@/lib/weatherSystem";
 import { useMultiplayer, type PlayerUpdate } from "@/hooks/useMultiplayer";
+import { EntitySyncManager, type EntityBatch, type EntityEvent } from "@/lib/entitySyncManager";
 import WeaponSelect from "./WeaponSelect";
 import MobileControls from "./MobileControls";
 import ChatPanel from "./ChatPanel";
@@ -901,6 +902,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [gameOver, setGameOver] = useState(false);
   const implementBufferRef = useRef<string>("");
 
+  // ─── Entity Sync Refs ────────────────────────────────────────────────────────
+  /** Singleton entity sync manager — lives for the lifetime of the game scene. */
+  const entitySyncManagerRef = useRef(new EntitySyncManager());
+  /** True when this client is the simulation host (first connected player). */
+  const isHostRef = useRef(false);
+  /** Ref to sendEntityBatch — allows calling from the animation loop. */
+  const sendEntityBatchRef = useRef<((batch: EntityBatch) => void) | null>(null);
+  /** Ref to sendEntityEvent — allows calling from the animation loop. */
+  const sendEntityEventRef = useRef<((event: EntityEvent) => void) | null>(null);
+
   // ─── Multiplayer Refs ────────────────────────────────────────────────────────
   const remotePlayersRef = useRef<Map<string, {
     mesh: THREE.Group;
@@ -955,9 +966,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   }, []);
 
   // ─── Multiplayer callbacks (use sceneRef which is set inside useEffect) ───────
-  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number; hp?: number }>) => {
+  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number; hp?: number }>, hostId: string | null) => {
     const scene = sceneRef.current;
     if (!scene) return;
+
+    // Determine if this client is the host based on server assignment.
+    // The server sends only OTHER players in the init payload.
+    // If hostId is NOT present in the others map, it must be our own socket id → we are the host.
+    // If hostId IS in the others map, someone else is the host → we are not.
+    const isHost = hostId !== null && !players[hostId];
+    isHostRef.current = isHost;
+    entitySyncManagerRef.current.setIsHost(isHost);
+
     const list: Array<{ id: string; name: string; color: number }> = [];
     Object.values(players).forEach((p) => {
       const mesh = buildRemotePlayerMesh(p.color);
@@ -1063,7 +1083,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { sendUpdate, sendChat, sendHit } = useMultiplayer({
+  // ── Entity sync callbacks ─────────────────────────────────────────────────
+
+  /** Apply a batch of entity states received from the host. */
+  const handleEntityBatch = useCallback((batch: EntityBatch) => {
+    entitySyncManagerRef.current.applyBatch(batch);
+  }, []);
+
+  /** Dispatch a discrete entity event received from the host. */
+  const handleEntityEvent = useCallback((event: EntityEvent) => {
+    entitySyncManagerRef.current.applyEvent(event);
+  }, []);
+
+  /** Handle host reassignment — update isHost and notify sync manager. */
+  const handleHostChanged = useCallback((newHostId: string | null) => {
+    // When the host disconnects, the server promotes the next player.
+    // We can only confirm we're the new host when we receive `players:init`
+    // or a `host:changed` that includes our own socket id.
+    // Since we don't expose the socket id directly, we check: if the new hostId
+    // is NOT among currently-known remote players, it must be ours.
+    const remoteHasHost = newHostId !== null && remotePlayersRef.current.has(newHostId);
+    const nowHost = newHostId !== null && !remoteHasHost;
+    isHostRef.current = nowHost;
+    entitySyncManagerRef.current.setIsHost(nowHost);
+  }, []);
+
+  const { sendUpdate, sendChat, sendHit, sendEntityBatch, sendEntityEvent } = useMultiplayer({
     playerName,
     onInit: handleMultiplayerInit,
     onPlayerJoined: handlePlayerJoined,
@@ -1075,6 +1120,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     onGotKill: handleGotKill,
     onPlayerHpUpdate: handlePlayerHpUpdate,
     onRespawn: handleRespawn,
+    onEntityBatch: handleEntityBatch,
+    onEntityEvent: handleEntityEvent,
+    onHostChanged: handleHostChanged,
   });
 
   // Keep sendChat in a ref so it can be called from event handlers
@@ -1091,6 +1139,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   useEffect(() => {
     sendUpdateRef.current = sendUpdate;
   }, [sendUpdate]);
+
+  // Keep entity sync senders in refs so they can be called from the animation loop
+  useEffect(() => {
+    sendEntityBatchRef.current = sendEntityBatch;
+  }, [sendEntityBatch]);
+
+  useEffect(() => {
+    sendEntityEventRef.current = sendEntityEvent;
+  }, [sendEntityEvent]);
 
   const lockPointer = useCallback(() => {
     if (mountRef.current) {
@@ -3277,6 +3334,69 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       };
     });
 
+    // ── Entity sync registration ──────────────────────────────────────────────
+    // Register all sheep and foxes with the EntitySyncManager so they can be
+    // synchronised across multiplayer clients.  syncEnabled: true means they
+    // participate in network sync; set to false to make an entity local-only.
+    const mgr = entitySyncManagerRef.current;
+    mgr.clear(); // reset in case of scene rebuild
+
+    sheepListRef.current.forEach((sheep, idx) => {
+      const id = `sheep_${idx}`;
+      mgr.register(id, {
+        syncEnabled: true,
+        syncRate: 10, // 10 Hz is sufficient for NPC movement
+        serialize: () => ({
+          x:  sheep.mesh.position.x,
+          z:  sheep.mesh.position.z,
+          a:  sheep.currentAngle,
+          f:  sheep.isFleeing  ? 1 : 0,
+          g:  sheep.isGrazing  ? 1 : 0,
+          b:  sheep.isBurning  ? 1 : 0,
+          bt: sheep.burnTimer,
+        }),
+        apply: (s) => {
+          sheep.mesh.position.x = s.x;
+          sheep.mesh.position.z = s.z;
+          sheep.currentAngle    = s.a;
+          sheep.isFleeing       = s.f > 0.5;
+          sheep.isGrazing       = s.g > 0.5;
+          // Burning visual sync: start/stop burn effect based on host state
+          if (s.b > 0.5 && !sheep.isBurning) {
+            sheep.isBurning  = true;
+            sheep.burnTimer  = s.bt;
+          } else if (s.b < 0.5 && sheep.isBurning) {
+            sheep.isBurning  = false;
+            sheep.burnTimer  = 0;
+            if (sheep.burnEffect) {
+              sheep.mesh.remove(sheep.burnEffect);
+              sheep.burnEffect = null;
+            }
+          } else if (sheep.isBurning) {
+            sheep.burnTimer = s.bt;
+          }
+        },
+      });
+    });
+
+    foxListRef.current.forEach((fox, idx) => {
+      const id = `fox_${idx}`;
+      mgr.register(id, {
+        syncEnabled: true,
+        syncRate: 10,
+        serialize: () => ({
+          x:  fox.mesh.position.x,
+          z:  fox.mesh.position.z,
+          ry: fox.mesh.rotation.y,
+        }),
+        apply: (s) => {
+          fox.mesh.position.x = s.x;
+          fox.mesh.position.z = s.z;
+          fox.mesh.rotation.y = s.ry;
+        },
+      });
+    });
+
     // ── Catapults ─────────────────────────────────────────────────────────────
     // Positions were pre-computed from the fully-generated height grid above,
     // guaranteeing all catapults land on dry land spread evenly around the map.
@@ -3752,6 +3872,49 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         countdownTimer: 0,
         exhaustParticles,
       };
+
+      // Register rocket with entity sync manager (created after rocketDataRef is set)
+      const rd = rocketDataRef.current;
+      entitySyncManagerRef.current.register('rocket', {
+        syncEnabled: true,
+        syncRate: 5,
+        serialize: () => ({
+          x:  rd.mesh.position.x,
+          y:  rd.mesh.position.y,
+          z:  rd.mesh.position.z,
+          lp: rd.launchProgress,
+        }),
+        apply: (s) => {
+          rd.mesh.position.x = s.x;
+          rd.mesh.position.y = s.y;
+          rd.mesh.position.z = s.z;
+          rd.launchProgress  = s.lp;
+        },
+      });
+
+      // Listen for rocket discrete state events
+      entitySyncManagerRef.current.onEvent('rocket_state', (_id, payload) => {
+        if (!payload) return;
+        const state = payload.state as string;
+        rd.state = state as typeof rd.state;
+        if (state === 'launching') {
+          rd.flameGroup.visible = true;
+          rd.exhaustParticles.forEach((p) => { p.visible = true; });
+          setRocketLaunching(true);
+        } else if (state === 'arrived') {
+          rd.flameGroup.visible = false;
+          rd.exhaustParticles.forEach((p) => { p.visible = false; });
+          setRocketLaunching(false);
+          rocketArrivedRef.current = true;
+          setRocketArrived(true);
+        }
+      });
+
+      entitySyncManagerRef.current.onEvent('rocket_countdown', (_id, payload) => {
+        if (!payload) return;
+        rd.countdown = payload.value as number;
+        setRocketCountdown(rd.countdown > 0 ? rd.countdown : null);
+      });
     }
 
     // ── Space Station Interior ─────────────────────────────────────────────────
@@ -5772,6 +5935,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               rd.countdownTimer -= 1.0;
               rd.countdown -= 1;
               setRocketCountdown(rd.countdown);
+              // Broadcast countdown tick to other clients
+              if (isHostRef.current) {
+                sendEntityEventRef.current?.({ id: 'rocket', type: 'rocket_countdown', payload: { value: rd.countdown } });
+              }
               if (rd.countdown <= 0) {
                 // Begin actual launch
                 rd.state = 'launching';
@@ -5780,6 +5947,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 rd.exhaustParticles.forEach((p) => { p.visible = true; });
                 setRocketCountdown(null);
                 setRocketLaunching(true);
+                // Broadcast state transition
+                if (isHostRef.current) {
+                  sendEntityEventRef.current?.({ id: 'rocket', type: 'rocket_state', payload: { state: 'launching' } });
+                }
               }
             }
 
@@ -5875,6 +6046,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               // Signal that player is now at the mothership (E key will enter station)
               rocketArrivedRef.current = true;
               setRocketArrived(true);
+              // Broadcast arrived state to other clients
+              if (isHostRef.current) {
+                sendEntityEventRef.current?.({ id: 'rocket', type: 'rocket_state', payload: { state: 'arrived' } });
+              }
               // Player stays on rocket (onRocketRef stays true) — camera handled in 'arrived' block below
             }
           }
@@ -7032,24 +7207,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             fox.burnEffect.scale.setScalar(flicker);
           }
 
-          // DoT tick
-          if (fox.burnDamageTimer <= 0) {
-            fox.burnDamageTimer = BURN_DOT_INTERVAL;
-            fox.hp = Math.max(0, fox.hp - BURN_DOT_DAMAGE);
-            if (fox.hp <= 0 && !fox.isDying) {
-              fox.isDying = true;
-              fox.deathTimer = 0;
-              foxesDefeatedRef.current++;
-              soundManager.playFoxDeath();
+          // DoT tick and fire spread — host only (damage is authoritative)
+          if (isHostRef.current) {
+            if (fox.burnDamageTimer <= 0) {
+              fox.burnDamageTimer = BURN_DOT_INTERVAL;
+              fox.hp = Math.max(0, fox.hp - BURN_DOT_DAMAGE);
+              if (fox.hp <= 0 && !fox.isDying) {
+                fox.isDying = true;
+                fox.deathTimer = 0;
+                foxesDefeatedRef.current++;
+                soundManager.playFoxDeath();
+              }
             }
-          }
 
-          // Fire spread to nearby sheep (foxes spreading fire to sheep)
-          if (fox.burnTimer % BURN_SPREAD_INTERVAL < dt) {
-            for (const sheep of sheepListRef.current) {
-              if (sheep.isBurning || !sheep.isAlive || sheep.isDying) continue;
-              if (fox.mesh.position.distanceTo(sheep.mesh.position) < BURN_SPREAD_RADIUS) {
-                if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(sheep, scene);
+            // Fire spread to nearby sheep (foxes spreading fire to sheep)
+            if (fox.burnTimer % BURN_SPREAD_INTERVAL < dt) {
+              for (const sheep of sheepListRef.current) {
+                if (sheep.isBurning || !sheep.isAlive || sheep.isDying) continue;
+                if (fox.mesh.position.distanceTo(sheep.mesh.position) < BURN_SPREAD_RADIUS) {
+                  if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(sheep, scene);
+                }
               }
             }
           }
@@ -7093,74 +7270,78 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           closestAliveFox = fox;
         }
 
-        // Fox hunts sheep only — does not chase player
-        const foxPrevX = fm.position.x;
-        const foxPrevZ = fm.position.z;
+        // Fox AI movement — only the host runs the simulation.
+        // Non-host clients receive positions via entity:batch and skip AI.
+        if (isHostRef.current) {
+          const foxPrevX = fm.position.x;
+          const foxPrevZ = fm.position.z;
 
-        {
-          // Find closest sheep to hunt — refresh cache every ~0.25 s (4× per second)
-          // instead of doing a full O(n) scan every frame for every fox.
-          fox.sheepSearchTimer -= dt;
-          if (fox.sheepSearchTimer <= 0) {
-            let closestDist = FOX_CHASE_RADIUS;
-            let closestSheep: SheepData | null = null;
-            sheepListRef.current.forEach((sheep) => {
-              if (!sheep.isAlive) return;
-              const d = fm.position.distanceTo(sheep.mesh.position);
-              if (d < closestDist) {
-                closestDist = d;
-                closestSheep = sheep;
+          {
+            // Find closest sheep to hunt — refresh cache every ~0.25 s (4× per second)
+            // instead of doing a full O(n) scan every frame for every fox.
+            fox.sheepSearchTimer -= dt;
+            if (fox.sheepSearchTimer <= 0) {
+              let closestDist = FOX_CHASE_RADIUS;
+              let closestSheep: SheepData | null = null;
+              sheepListRef.current.forEach((sheep) => {
+                if (!sheep.isAlive) return;
+                const d = fm.position.distanceTo(sheep.mesh.position);
+                if (d < closestDist) {
+                  closestDist = d;
+                  closestSheep = sheep;
+                }
+              });
+              fox.cachedNearestSheep = closestSheep;
+              fox.sheepSearchTimer = 0.25;
+            }
+            const closestSheep = fox.cachedNearestSheep;
+
+            if (closestSheep !== null) {
+              // Chase sheep
+              const target = (closestSheep as SheepData).mesh.position;
+              const dx = target.x - fm.position.x;
+              const dz = target.z - fm.position.z;
+              const len = Math.sqrt(dx * dx + dz * dz);
+              if (len > 0.1) {
+                fm.position.x += (dx / len) * FOX_SPEED * dt;
+                fm.position.z += (dz / len) * FOX_SPEED * dt;
+                fm.rotation.y = Math.atan2(-dz, dx);
               }
-            });
-            fox.cachedNearestSheep = closestSheep;
-            fox.sheepSearchTimer = 0.25;
+              if (len < 8) {
+                (closestSheep as SheepData).isFleeing = true;
+                const fleeAngle = Math.atan2(
+                  (closestSheep as SheepData).mesh.position.z - fm.position.z,
+                  (closestSheep as SheepData).mesh.position.x - fm.position.x
+                );
+                (closestSheep as SheepData).targetAngle = fleeAngle;
+              }
+            } else {
+              // Wander
+              fox.wanderTimer -= dt;
+              if (fox.wanderTimer <= 0) {
+                fox.wanderAngle += (Math.random() - 0.5) * Math.PI;
+                fox.wanderTimer = 2 + Math.random() * 4;
+              }
+              fm.position.x += Math.cos(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
+              fm.position.z += Math.sin(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
+              fm.rotation.y = -fox.wanderAngle;
+
+              const half = WORLD_SIZE / 2 - 20;
+              if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
+              if (Math.abs(fm.position.z) > half) fox.wanderAngle = -fox.wanderAngle;
+            }
           }
-          const closestSheep = fox.cachedNearestSheep;
 
-          if (closestSheep !== null) {
-            // Chase sheep
-            const target = (closestSheep as SheepData).mesh.position;
-            const dx = target.x - fm.position.x;
-            const dz = target.z - fm.position.z;
-            const len = Math.sqrt(dx * dx + dz * dz);
-            if (len > 0.1) {
-              fm.position.x += (dx / len) * FOX_SPEED * dt;
-              fm.position.z += (dz / len) * FOX_SPEED * dt;
-              fm.rotation.y = Math.atan2(-dz, dx);
-            }
-            if (len < 8) {
-              (closestSheep as SheepData).isFleeing = true;
-              const fleeAngle = Math.atan2(
-                (closestSheep as SheepData).mesh.position.z - fm.position.z,
-                (closestSheep as SheepData).mesh.position.x - fm.position.x
-              );
-              (closestSheep as SheepData).targetAngle = fleeAngle;
-            }
-          } else {
-            // Wander
-            fox.wanderTimer -= dt;
-            if (fox.wanderTimer <= 0) {
-              fox.wanderAngle += (Math.random() - 0.5) * Math.PI;
-              fox.wanderTimer = 2 + Math.random() * 4;
-            }
-            fm.position.x += Math.cos(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
-            fm.position.z += Math.sin(fox.wanderAngle) * FOX_SPEED * 0.5 * dt;
-            fm.rotation.y = -fox.wanderAngle;
-
-            const half = WORLD_SIZE / 2 - 20;
-            if (Math.abs(fm.position.x) > half) fox.wanderAngle = Math.PI - fox.wanderAngle;
-            if (Math.abs(fm.position.z) > half) fox.wanderAngle = -fox.wanderAngle;
+          // Water boundary: fox cannot enter water
+          if (getTerrainHeightSampled(fm.position.x, fm.position.z) < WATER_LEVEL) {
+            fm.position.x = foxPrevX;
+            fm.position.z = foxPrevZ;
+            fox.wanderAngle = Math.atan2(fm.position.z, fm.position.x) + Math.PI;
           }
-        }
+        } // end host-only fox AI
 
-        // Water boundary: fox cannot enter water
-        if (getTerrainHeightSampled(fm.position.x, fm.position.z) < WATER_LEVEL) {
-          fm.position.x = foxPrevX;
-          fm.position.z = foxPrevZ;
-          fox.wanderAngle = Math.atan2(fm.position.z, fm.position.x) + Math.PI;
-        }
-
-        // Snap to the visual terrain surface (bilinear interpolation matches mesh)
+        // Snap to the visual terrain surface — runs on all clients so the mesh
+        // stays on the ground regardless of which client received the position.
         fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z);
 
       });
@@ -7954,24 +8135,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             sheep.burnEffect.scale.setScalar(flicker);
           }
 
-          // DoT tick
-          if (sheep.burnDamageTimer <= 0) {
-            sheep.burnDamageTimer = BURN_DOT_INTERVAL;
-            sheep.hp = Math.max(0, sheep.hp - BURN_DOT_DAMAGE);
-            if (sheep.hp <= 0 && !sheep.isDying) {
-              sheep.isDying = true;
-              sheep.deathTimer = 0;
-              sheep.deathRotationY = sheep.mesh.rotation.y;
-              spawnBloodParticles(scene, sheep.mesh.position);
+          // DoT tick and fire spread — host only (damage is authoritative)
+          if (isHostRef.current) {
+            if (sheep.burnDamageTimer <= 0) {
+              sheep.burnDamageTimer = BURN_DOT_INTERVAL;
+              sheep.hp = Math.max(0, sheep.hp - BURN_DOT_DAMAGE);
+              if (sheep.hp <= 0 && !sheep.isDying) {
+                sheep.isDying = true;
+                sheep.deathTimer = 0;
+                sheep.deathRotationY = sheep.mesh.rotation.y;
+                spawnBloodParticles(scene, sheep.mesh.position);
+              }
             }
-          }
 
-          // Fire spread to nearby sheep
-          if (sheep.burnTimer % BURN_SPREAD_INTERVAL < dt) {
-            for (const other of sheepListRef.current) {
-              if (other === sheep || other.isBurning || !other.isAlive || other.isDying) continue;
-              if (sheep.mesh.position.distanceTo(other.mesh.position) < BURN_SPREAD_RADIUS) {
-                if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(other, scene);
+            // Fire spread to nearby sheep
+            if (sheep.burnTimer % BURN_SPREAD_INTERVAL < dt) {
+              for (const other of sheepListRef.current) {
+                if (other === sheep || other.isBurning || !other.isAlive || other.isDying) continue;
+                if (sheep.mesh.position.distanceTo(other.mesh.position) < BURN_SPREAD_RADIUS) {
+                  if (Math.random() < BURN_SPREAD_CHANCE) igniteEntity(other, scene);
+                }
               }
             }
           }
@@ -8009,99 +8192,104 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           closeSheepCount++;
         }
 
-        // Sheep flee from the player body, but NOT when player is possessing a sheep
-        // (controlled sheep moves naturally among others, not as a scary human presence)
-        const fleeingFromPlayer = !possessedSheepRef.current && dist < SHEEP_FLEE_RADIUS;
-        if (!sheep.isFleeing) sheep.isFleeing = fleeingFromPlayer;
+        // ── Sheep AI: host-authoritative movement ─────────────────────────────
+        // The host runs the full AI+movement simulation and broadcasts entity states.
+        // Non-host clients receive positions via entity:batch and only run animations.
+        let movingSpeed: number;
+        let isFlee: boolean;
+        let angleDiff = 0; // used in head look-ahead animation
 
-        let movingSpeed = SHEEP_SPEED;
+        if (isHostRef.current) {
+          // Sheep flee from the player body, but NOT when player is possessing a sheep
+          // (controlled sheep moves naturally among others, not as a scary human presence)
+          const fleeingFromPlayer = !possessedSheepRef.current && dist < SHEEP_FLEE_RADIUS;
+          if (!sheep.isFleeing) sheep.isFleeing = fleeingFromPlayer;
 
-        if (sheep.isFleeing) {
-          // Fleeing: run away from threat
-          const angle = fleeingFromPlayer
-            ? Math.atan2(-dz, -dx)
-            : sheep.targetAngle;
-          sheep.targetAngle = angle;
-          movingSpeed = SHEEP_FLEE_SPEED;
-          sheep.isFleeing = false;   // reset each frame — set by fox AI or player proximity
-          sheep.isGrazing = false;   // stop grazing when fleeing
-        } else {
-          // ── Grazing logic ──────────────────────────────────────────────────
-          sheep.grazingTimer -= dt;
-          if (sheep.grazingTimer <= 0) {
-            sheep.isGrazing = !sheep.isGrazing;
-            if (sheep.isGrazing) {
-              // Graze for 3–9 seconds
-              sheep.grazingTimer = 3 + Math.random() * 6;
-            } else {
-              // Walk for 12–35 seconds before next graze
-              sheep.grazingTimer = 12 + Math.random() * 23;
-            }
-          }
+          movingSpeed = SHEEP_SPEED;
 
-          if (!sheep.isGrazing) {
-            // Natural wandering with gentle direction changes
-            sheep.wanderTimer -= dt;
-            if (sheep.wanderTimer <= 0) {
-              // Small course corrections — max ±40° per change
-              sheep.targetAngle += (Math.random() - 0.5) * Math.PI * 0.44;
-              // Wander in one direction for 2–6 seconds
-              sheep.wanderTimer = 2 + Math.random() * 4;
-            }
-            // Natural speed variation: combine two slow sine waves
-            const t = elapsed + sheep.phaseOffset;
-            const speedMult = 0.82 + 0.12 * Math.sin(t * 0.38) + 0.07 * Math.sin(t * 0.9 + 1.7);
-            movingSpeed = SHEEP_SPEED * speedMult;
+          if (sheep.isFleeing) {
+            // Fleeing: run away from threat
+            const angle = fleeingFromPlayer
+              ? Math.atan2(-dz, -dx)
+              : sheep.targetAngle;
+            sheep.targetAngle = angle;
+            movingSpeed = SHEEP_FLEE_SPEED;
+            sheep.isFleeing = false;   // reset each frame — set by fox AI or player proximity
+            sheep.isGrazing = false;   // stop grazing when fleeing
           } else {
-            movingSpeed = 0; // standing still while grazing
+            // ── Grazing logic ────────────────────────────────────────────────
+            sheep.grazingTimer -= dt;
+            if (sheep.grazingTimer <= 0) {
+              sheep.isGrazing = !sheep.isGrazing;
+              if (sheep.isGrazing) {
+                sheep.grazingTimer = 3 + Math.random() * 6;
+              } else {
+                sheep.grazingTimer = 12 + Math.random() * 23;
+              }
+            }
+
+            if (!sheep.isGrazing) {
+              sheep.wanderTimer -= dt;
+              if (sheep.wanderTimer <= 0) {
+                sheep.targetAngle += (Math.random() - 0.5) * Math.PI * 0.44;
+                sheep.wanderTimer = 2 + Math.random() * 4;
+              }
+              const t = elapsed + sheep.phaseOffset;
+              const speedMult = 0.82 + 0.12 * Math.sin(t * 0.38) + 0.07 * Math.sin(t * 0.9 + 1.7);
+              movingSpeed = SHEEP_SPEED * speedMult;
+            } else {
+              movingSpeed = 0;
+            }
           }
-        }
 
-        // ── Smooth turning — always face direction of travel ────────────────
-        const isFlee = movingSpeed >= SHEEP_FLEE_SPEED;
-        const turnRate = isFlee ? SHEEP_TURN_SPEED * 2.2 : SHEEP_TURN_SPEED;
-        let angleDiff = sheep.targetAngle - sheep.currentAngle;
-        while (angleDiff > Math.PI)  angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        const maxTurn = turnRate * dt;
-        if (Math.abs(angleDiff) < maxTurn) {
-          sheep.currentAngle = sheep.targetAngle;
+          // Smooth turning — always face direction of travel
+          isFlee = movingSpeed >= SHEEP_FLEE_SPEED;
+          const turnRate = isFlee ? SHEEP_TURN_SPEED * 2.2 : SHEEP_TURN_SPEED;
+          angleDiff = sheep.targetAngle - sheep.currentAngle;
+          while (angleDiff > Math.PI)  angleDiff -= 2 * Math.PI;
+          while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+          const maxTurn = turnRate * dt;
+          if (Math.abs(angleDiff) < maxTurn) {
+            sheep.currentAngle = sheep.targetAngle;
+          } else {
+            sheep.currentAngle += Math.sign(angleDiff) * maxTurn;
+          }
+
+          // Movement
+          const spd = movingSpeed * dt;
+          const sheepPrevX = s.position.x;
+          const sheepPrevZ = s.position.z;
+          s.position.x += Math.cos(sheep.currentAngle) * spd;
+          s.position.z += Math.sin(sheep.currentAngle) * spd;
+
+          // Water boundary
+          if (getTerrainHeightSampled(s.position.x, s.position.z) < WATER_LEVEL) {
+            s.position.x = sheepPrevX;
+            s.position.z = sheepPrevZ;
+            sheep.targetAngle = sheep.currentAngle + Math.PI * (0.75 + Math.random() * 0.5);
+          }
+
+          // World boundary
+          const half = WORLD_SIZE / 2 - 20;
+          if (Math.abs(s.position.x) > half) {
+            s.position.x = Math.sign(s.position.x) * half;
+            sheep.targetAngle = Math.PI - sheep.currentAngle;
+          }
+          if (Math.abs(s.position.z) > half) {
+            s.position.z = Math.sign(s.position.z) * half;
+            sheep.targetAngle = -sheep.currentAngle;
+          }
         } else {
-          sheep.currentAngle += Math.sign(angleDiff) * maxTurn;
-        }
+          // Non-host: positions received from network batch — derive animation params from state flags
+          isFlee = sheep.isFleeing;
+          movingSpeed = sheep.isFleeing ? SHEEP_FLEE_SPEED : (sheep.isGrazing ? 0 : SHEEP_SPEED);
+        } // end host/non-host sheep AI
 
-        // ── Movement ─────────────────────────────────────────────────────────
-        const spd = movingSpeed * dt;
-        const sheepPrevX = s.position.x;
-        const sheepPrevZ = s.position.z;
-        s.position.x += Math.cos(sheep.currentAngle) * spd;
-        s.position.z += Math.sin(sheep.currentAngle) * spd;
-
-        // Water boundary: sheep cannot enter water
-        if (getTerrainHeightSampled(s.position.x, s.position.z) < WATER_LEVEL) {
-          s.position.x = sheepPrevX;
-          s.position.z = sheepPrevZ;
-          sheep.targetAngle = sheep.currentAngle + Math.PI * (0.75 + Math.random() * 0.5);
-        }
-
-        // Boundary: reflect targetAngle so turning is smooth at edges
-        const half = WORLD_SIZE / 2 - 20;
-        if (Math.abs(s.position.x) > half) {
-          s.position.x = Math.sign(s.position.x) * half;
-          sheep.targetAngle = Math.PI - sheep.currentAngle;
-        }
-        if (Math.abs(s.position.z) > half) {
-          s.position.z = Math.sign(s.position.z) * half;
-          sheep.targetAngle = -sheep.currentAngle;
-        }
-
-        // Snap to the visual terrain surface (bilinear interpolation matches mesh)
+        // Snap to terrain and update rotation — runs on all clients
         s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
-        // Sheep rotation always matches currentAngle (it already turns smoothly)
         s.rotation.y = -sheep.currentAngle;
 
         // ── Walk phase ───────────────────────────────────────────────────────
-        // Phase advances proportionally to actual speed
         sheep.walkPhase += movingSpeed * SHEEP_STEP_FREQ * dt;
 
         // ── Leg animation — diagonal gait ────────────────────────────────────
@@ -8458,6 +8646,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         voxelTerrainRef.current.updateTerrainLOD(cam.position.x, cam.position.z);
       }
 
+      // ── Entity sync: broadcast NPC states (host only) ─────────────────────
+      // The EntitySyncManager batches all registered entities and throttles sends
+      // to each entity's configured Hz rate.  Non-hosts skip this block entirely.
+      if (isHostRef.current && sendEntityBatchRef.current) {
+        entitySyncManagerRef.current.collectAndSend(sendEntityBatchRef.current, now);
+      }
+
       renderer.render(scene, cameraRef.current!);
     };
     // Store a reference so onLockChange can restart the loop after a pause
@@ -8538,6 +8733,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up remote player meshes
       remotePlayersRef.current.forEach((data) => scene.remove(data.mesh));
       remotePlayersRef.current.clear();
+      // Clean up entity sync manager
+      entitySyncManagerRef.current.clear();
+      isHostRef.current = false;
       if (mpNotifTimerRef.current) clearTimeout(mpNotifTimerRef.current);
       // Clean up weather objects
       if (rainRef.current) { scene.remove(rainRef.current); rainRef.current = null; }
