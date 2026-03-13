@@ -81,13 +81,43 @@ export interface WeaponConfig {
 
 ### Game Loop (`components/Game3D.tsx`)
 
-- **`swapWeaponMesh(type)`** — replaces the camera-parented weapon group when switching.
+- **`swapWeaponMesh(type)`** — removes the old mesh from its current parent (camera or hand anchor), builds a new mesh, and calls `attachWeaponToAnchor` for the current mode.
+- **`attachWeaponToAnchor(mode)`** — the single function responsible for weapon parent/transform. In FP mode: `camera.add(weapon)` with WEAPON_FP_CONFIG transform. In TP mode: `handR.add(weapon)` with WEAPON_TP_CONFIG transform.
 - **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits. **Blocked** when possessing a sheep, on a boat, on the rocket, or inside the space station.
-- **Weapon sway** — per-weapon base position constants for idle sway animation. Sniper has minimal sway; zero sway while scoped.
-- **Scope logic** — right-click mousedown sets `isScopedRef`, hides weapon mesh, smoothly interpolates camera FOV to `SNIPER_SCOPE_FOV` (12°). Release restores `DEFAULT_FOV` (75°).
+- **Weapon sway** — FP-only bob/sway animation updated each frame. In TP the weapon rides the arm animation naturally (weapon is a child of handR which is a child of armR).
+- **Scope logic** — right-click mousedown sets `isScopedRef`, hides weapon mesh, smoothly interpolates camera FOV to `SNIPER_SCOPE_FOV` (12°). Release restores `DEFAULT_FOV` (75°). **Scope is blocked in third-person mode.**
 - **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭) with active weapon highlighted.
 - **Scroll wheel / [1][2][3][4]** — cycle or select weapons during gameplay.
 - **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow).
+
+### Weapon Anchor System
+
+The weapon mesh is re-parented between two anchors depending on the active camera mode:
+
+| Mode | Parent anchor | Transform source |
+|------|--------------|-----------------|
+| First-person | `camera` | `WEAPON_FP_CONFIG[type]` |
+| Third-person | `handR` (child of `armR` on local player body) | `WEAPON_TP_CONFIG[type]` |
+
+**Key files and objects:**
+- `WEAPON_FP_CONFIG` — canonical FP transforms (pos, rot, scale) per weapon type
+- `WEAPON_TP_CONFIG` — canonical TP transforms per weapon type (scale < 1, z offset positive to extend forward from hand)
+- `applyWeaponTransform(mesh, type, mode)` — module-level helper; applies the correct config
+- `attachWeaponToAnchor(mode)` — React callback; detaches from old parent, calls `applyWeaponTransform`, attaches to new parent
+- `tpWeaponAnchorRef` — ref to the `handR` `Object3D` (retrieved via `playerBody.getObjectByName("handR")`)
+- `handR` is added inside `buildRemotePlayerMesh()` as a named child of `armR` at `y = -0.21` (arm tip)
+
+**Adding a new weapon type:**
+1. Add the type to `WeaponType` in `lib/gameTypes.ts`
+2. Add an entry to `WEAPON_FP_CONFIG` and `WEAPON_TP_CONFIG` in `Game3D.tsx`
+3. Add a mesh builder function and register it in `swapWeaponMesh` / `attachWeaponToAnchor`
+4. No changes needed to the anchor system itself
+
+**Bullet spawn position:**
+In third-person, `doAttack()` spawns bullets from `playerBodyPosRef + eye-height offset` (not the camera position) to avoid bullets originating from behind the character.
+
+**Sword melee range:**
+In third-person, the hit-detection origin is `playerBodyPosRef` (not `cam.position`) so sword range is measured from the character's body, not the orbiting camera.
 
 ### State guards
 
