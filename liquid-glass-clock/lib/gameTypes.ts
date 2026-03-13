@@ -429,6 +429,49 @@ export interface RocketData {
   exhaustParticles: THREE.Mesh[];
 }
 
+// ─── Airdrop system ─────────────────────────────────────────────────────────
+
+/** What type of loot can be found inside an airdrop crate. */
+export type AirdropLootType = "coins" | "wood" | "health" | "weapon";
+
+/** Loot package resolved when the crate is opened. */
+export interface AirdropLoot {
+  type: AirdropLootType;
+  /** Numeric reward: coins added, wood added, HP restored, or 0 for weapon. */
+  amount: number;
+  /** Only set when type === "weapon". */
+  weaponType?: WeaponType;
+  /** Czech display name shown in the notification. */
+  label: string;
+}
+
+/** Life-cycle state of a single airdrop event. */
+export type AirdropState = 'falling' | 'landed' | 'opened';
+
+/** Runtime data for an active airdrop crate. */
+export interface AirdropData {
+  /** Root group containing the crate mesh. */
+  mesh: THREE.Group;
+  /** Parachute group — parented to the crate, offset upward. */
+  parachuteMesh: THREE.Group;
+  /** Flashing beacon ring projected onto the terrain below. */
+  beaconMesh: THREE.Mesh;
+  /** Current phase. */
+  state: AirdropState;
+  /** Landing X (world). */
+  x: number;
+  /** Landing Z (world). */
+  z: number;
+  /** Final terrain Y where the crate will rest. */
+  targetY: number;
+  /** Seconds elapsed since landing (used for auto-despawn after 120 s). */
+  despawnTimer: number;
+  /** Beacon animation accumulator. */
+  beaconAge: number;
+  /** Pre-rolled loot — determined at spawn time. */
+  loot: AirdropLoot;
+}
+
 // ─── Airplane system ────────────────────────────────────────────────────────
 export type AirplaneState = 'idle' | 'boarded' | 'flying';
 

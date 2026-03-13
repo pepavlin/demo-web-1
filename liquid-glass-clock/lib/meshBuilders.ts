@@ -4586,3 +4586,213 @@ export function buildWoodLogMesh(): THREE.Group {
 
   return group;
 }
+
+// ─── Airdrop Crate ────────────────────────────────────────────────────────────
+
+/**
+ * Builds a military-style supply crate mesh.
+ *
+ * The crate is a wooden box (1.2 × 1.2 × 1.2 units) with:
+ * - Dark olive-green planks on all faces
+ * - Eight chrome corner L-brackets
+ * - Two crossed yellow nylon straps
+ * - A stenciled "ZÁSOBY" label on the front face
+ *
+ * @returns  A `THREE.Group` whose local origin sits at the crate's bottom centre.
+ */
+export function buildAirdropCrateMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const SIZE = 1.2;
+  const HALF = SIZE / 2;
+
+  // Main box body — olive-drab wood
+  const boxGeo = new THREE.BoxGeometry(SIZE, SIZE, SIZE);
+  const boxMat = new THREE.MeshLambertMaterial({ color: 0x4a5c2e });
+  const box = new THREE.Mesh(boxGeo, boxMat);
+  box.position.y = HALF;
+  box.castShadow = true;
+  box.receiveShadow = true;
+  group.add(box);
+
+  // Plank lines — thin dark boxes overlaid on each face to simulate boards
+  const plankMat = new THREE.MeshLambertMaterial({ color: 0x36451e });
+  const plankThick = 0.015;
+  const plankPositions: Array<{ x: number; y: number; z: number; rx: number; ry: number; rz: number; w: number; h: number }> = [
+    // Front & back horizontal planks
+    { x: 0, y: HALF * 0.4, z: HALF + plankThick, rx: 0, ry: 0, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: 0, y: HALF * 1.6, z: HALF + plankThick, rx: 0, ry: 0, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: 0, y: HALF * 0.4, z: -(HALF + plankThick), rx: 0, ry: 0, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: 0, y: HALF * 1.6, z: -(HALF + plankThick), rx: 0, ry: 0, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    // Left & right horizontal planks
+    { x: HALF + plankThick, y: HALF * 0.4, z: 0, rx: 0, ry: Math.PI / 2, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: HALF + plankThick, y: HALF * 1.6, z: 0, rx: 0, ry: Math.PI / 2, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: -(HALF + plankThick), y: HALF * 0.4, z: 0, rx: 0, ry: Math.PI / 2, rz: 0, w: SIZE + 0.01, h: 0.04 },
+    { x: -(HALF + plankThick), y: HALF * 1.6, z: 0, rx: 0, ry: Math.PI / 2, rz: 0, w: SIZE + 0.01, h: 0.04 },
+  ];
+
+  plankPositions.forEach(({ x, y, z, rx, ry, rz, w, h }) => {
+    const geo = new THREE.BoxGeometry(w, h, plankThick * 2);
+    const mesh = new THREE.Mesh(geo, plankMat);
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx, ry, rz);
+    group.add(mesh);
+  });
+
+  // Metal corner brackets — 8 corners, L-shaped via two thin boxes per corner
+  const metalMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const bL = 0.32; // bracket arm length
+  const bW = 0.06; // bracket width
+  const bT = 0.02; // bracket thickness
+  const corners: Array<[number, number, number]> = [
+    [-HALF, 0,    -HALF],
+    [ HALF, 0,    -HALF],
+    [-HALF, 0,     HALF],
+    [ HALF, 0,     HALF],
+    [-HALF, SIZE, -HALF],
+    [ HALF, SIZE, -HALF],
+    [-HALF, SIZE,  HALF],
+    [ HALF, SIZE,  HALF],
+  ];
+
+  corners.forEach(([cx, cy, cz]) => {
+    const signX = cx < 0 ? 1 : -1;
+    const signZ = cz < 0 ? 1 : -1;
+
+    // X-facing arm
+    const armX = new THREE.Mesh(new THREE.BoxGeometry(bL, bW, bT), metalMat);
+    armX.position.set(cx + signX * (bL / 2 - bT / 2), cy, cz);
+    group.add(armX);
+
+    // Z-facing arm
+    const armZ = new THREE.Mesh(new THREE.BoxGeometry(bT, bW, bL), metalMat);
+    armZ.position.set(cx, cy, cz + signZ * (bL / 2 - bT / 2));
+    group.add(armZ);
+
+    // Vertical arm (top/bottom corners only — run along Y)
+    const armY = new THREE.Mesh(new THREE.BoxGeometry(bT, bL, bT), metalMat);
+    const signY = cy === 0 ? 1 : -1;
+    armY.position.set(cx, cy + signY * (bL / 2 - bT / 2), cz);
+    group.add(armY);
+  });
+
+  // Straps — two flat yellow bands wrapping around the crate
+  const strapMat = new THREE.MeshLambertMaterial({ color: 0xf0c040 });
+  const strapW  = 0.06;
+  const strapT  = 0.01;
+
+  // Strap going around X-axis (front/back/top/bottom loop)
+  [-0.25, 0.25].forEach((xOffset) => {
+    const strapGeo = new THREE.BoxGeometry(strapT * 2, SIZE + 0.02, strapW);
+    // Front face
+    const sf = new THREE.Mesh(new THREE.BoxGeometry(strapT * 2, strapW, SIZE + 0.02), strapMat);
+    sf.position.set(xOffset, HALF, 0);
+    group.add(sf);
+  });
+
+  // Strap going around Z-axis (left/right/top/bottom loop)
+  [-0.25, 0.25].forEach((zOffset) => {
+    const sr = new THREE.Mesh(new THREE.BoxGeometry(SIZE + 0.02, strapW, strapT * 2), strapMat);
+    sr.position.set(0, HALF, zOffset);
+    group.add(sr);
+  });
+
+  return group;
+}
+
+/**
+ * Builds a parachute mesh consisting of:
+ * - 8 canopy panels forming a dome (military green / tan alternating)
+ * - 8 suspension lines from canopy rim to crate attachment point
+ *
+ * The group origin is at the bottom of the rope bundle (the attachment point
+ * to the crate lid).  To position the parachute above the crate, offset the
+ * group in Y by the crate height + desired rope length.
+ *
+ * @param ropeLength  Length of the suspension lines in world units (default 3.0).
+ * @returns           `THREE.Group` ready to be parented to the crate group.
+ */
+export function buildParachuteMesh(ropeLength = 3.0): THREE.Group {
+  const group = new THREE.Group();
+
+  const PANELS     = 8;
+  const DOME_R     = 2.0;  // canopy radius
+  const DOME_H     = 1.2;  // canopy height (dome apex above rim)
+  const colorA     = 0x4b6b3a; // dark military green
+  const colorB     = 0xc9a96e; // tan / sand
+
+  // ── Canopy panels ──────────────────────────────────────────────────────────
+  for (let i = 0; i < PANELS; i++) {
+    const angleStart = (i / PANELS) * Math.PI * 2;
+    const angleEnd   = ((i + 1) / PANELS) * Math.PI * 2;
+    const midAngle   = (angleStart + angleEnd) / 2;
+
+    const mat = new THREE.MeshLambertMaterial({
+      color: i % 2 === 0 ? colorA : colorB,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.92,
+    });
+
+    // Build panel as a simple triangle fan from apex to two rim points.
+    // We use 3 edge segments per side for a rounder look.
+    const SEGS = 3;
+    const vertices: number[] = [];
+    const indices: number[] = [];
+
+    // Apex (centre top)
+    vertices.push(0, ropeLength + DOME_H, 0);
+
+    // Rim arc points
+    for (let s = 0; s <= SEGS; s++) {
+      const a = angleStart + (s / SEGS) * (angleEnd - angleStart);
+      // Points sit on a half-ellipse from rim to apex
+      const rimX = Math.cos(a) * DOME_R;
+      const rimZ = Math.sin(a) * DOME_R;
+      const rimY = ropeLength;
+      vertices.push(rimX, rimY, rimZ);
+    }
+
+    // Triangles: apex (0) → rim[s] → rim[s+1]
+    for (let s = 0; s < SEGS; s++) {
+      indices.push(0, s + 1, s + 2);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const panel = new THREE.Mesh(geo, mat);
+    group.add(panel);
+
+    // Vent hole edge ring seam (thin torus at apex)
+    void midAngle; // used only if we want per-panel markers later
+  }
+
+  // Canopy apex vent — small dark circle at the top
+  const ventGeo = new THREE.CircleGeometry(0.28, 10);
+  const ventMat = new THREE.MeshLambertMaterial({ color: 0x222222, side: THREE.DoubleSide });
+  const vent = new THREE.Mesh(ventGeo, ventMat);
+  vent.position.set(0, ropeLength + DOME_H + 0.01, 0);
+  vent.rotation.x = -Math.PI / 2;
+  group.add(vent);
+
+  // ── Suspension lines ───────────────────────────────────────────────────────
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xddddcc });
+
+  for (let i = 0; i < PANELS; i++) {
+    const angle   = ((i + 0.5) / PANELS) * Math.PI * 2;
+    const rimX    = Math.cos(angle) * DOME_R;
+    const rimZ    = Math.sin(angle) * DOME_R;
+
+    const points = [
+      new THREE.Vector3(rimX, ropeLength, rimZ),
+      new THREE.Vector3(0, 0, 0), // attachment point at crate
+    ];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+    group.add(new THREE.Line(lineGeo, lineMat));
+  }
+
+  return group;
+}
