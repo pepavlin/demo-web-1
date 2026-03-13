@@ -69,17 +69,19 @@ describe("getVoxelDensity", () => {
     expect(isFinite(d)).toBe(true);
   });
 
-  it("returns positive density at y = -20 (well underground at origin)", () => {
-    // At origin, terrain height ≈ 0. y=-20 is far below → should be solid.
+  it("returns negative density at y = -20 (well underground at origin)", () => {
+    // Convention: density = y - surfaceY, so underground → density < 0 (solid/inside).
+    // At origin, terrain height ≈ 0. y=-20 is far below → density ≈ -20 (solid).
     const d = getVoxelDensity(0, -20, 0);
-    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThan(0);
   });
 
-  it("returns negative density high in the sky (y = 100)", () => {
+  it("returns positive density high in the sky (y = 100)", () => {
+    // Convention: density = y - surfaceY, so above ground → density > 0 (air/outside).
     // Terrain height is at most ~55 at boundary mountains.
-    // At y=100 the density must be negative (air).
+    // At y=100 the density must be positive (air).
     const d = getVoxelDensity(0, 100, 0);
-    expect(d).toBeLessThan(0);
+    expect(d).toBeGreaterThan(0);
   });
 
   it("density at surface approximates zero (within 2 units of terrain height)", () => {
@@ -91,12 +93,14 @@ describe("getVoxelDensity", () => {
     expect(Math.abs(d)).toBeLessThan(2);
   });
 
-  it("density decreases as y increases (moving from underground to sky)", () => {
+  it("density increases as y increases (moving from underground to sky)", () => {
+    // Convention: density = y - surfaceY.
+    // Deeper underground → more negative; higher up → more positive.
     const dLow  = getVoxelDensity(30, -10, 30);
     const dMid  = getVoxelDensity(30,   0, 30);
     const dHigh = getVoxelDensity(30,  20, 30);
-    expect(dLow).toBeGreaterThan(dMid);
-    expect(dMid).toBeGreaterThan(dHigh);
+    expect(dLow).toBeLessThan(dMid);
+    expect(dMid).toBeLessThan(dHigh);
   });
 
   it("returns consistent results for same coordinates", () => {
@@ -105,9 +109,13 @@ describe("getVoxelDensity", () => {
     expect(d1).toBe(d2);
   });
 
-  it("cave noise can carve density below zero underground (within carving depth)", () => {
+  it("cave noise can carve density above zero underground (within carving depth)", () => {
+    // Convention: density = y - surfaceY, so solid underground is negative.
+    // Cave carving ADDS positive values to push density toward 0 and beyond.
+    // A carved voxel (air pocket) has density > 0 even though it is underground.
+    //
     // Cave carving max strength is 10 + 4.5 = ~14.5 units.
-    // Caves can only form where the base density (= depth below surface) is less
+    // Caves can only form where base |density| (= depth below surface) is less
     // than the max carving strength (~14.5).  We sample at multiple depths in the
     // 5-13 unit range over a wide XZ area to find at least one carved voxel.
     let foundCave = false;
@@ -120,7 +128,8 @@ describe("getVoxelDensity", () => {
           const caveY = surfaceH - depth;
           if (caveY > VOXEL_Y_MIN) {
             const d = getVoxelDensity(x, caveY, z);
-            if (d < 0) foundCave = true;
+            // Positive density underground means cave carving pushed density above 0
+            if (d > 0) foundCave = true;
           }
         }
       }
@@ -266,10 +275,14 @@ describe("generateVoxelTerrain", () => {
     }).not.toThrow();
   });
 
-  it("material.vertexColors is set to true during generation", () => {
+  it("material.vertexColors is NOT modified during generation (shader declares attribute manually)", () => {
+    // generateVoxelTerrain does NOT set vertexColors=true.  Setting it would
+    // cause Three.js to inject 'in vec3 color' into the shader preamble, which
+    // conflicts with the explicit 'attribute vec3 color' declaration in the
+    // custom terrain vertex shader (GLSL redefinition error).
     const mat = { vertexColors: false } as any;
     generateVoxelTerrain(mat);
-    expect(mat.vertexColors).toBe(true);
+    expect(mat.vertexColors).toBe(false);
   });
 });
 
@@ -298,12 +311,13 @@ describe("getVoxelChunkMeshes", () => {
 describe("cave generation", () => {
   it("caves only form at least CAVE_MIN_DEPTH below the surface", () => {
     const { getTerrainHeight } = require("@/lib/terrainUtils");
-    // Just above the cave min depth threshold (4 units), density should be
-    // mostly positive (solid) even if cave noise is high.
+    // Convention: density = y - surfaceY, so underground is negative.
+    // At 2 units below surface (depth < CAVE_MIN_DEPTH = 4), no cave carving
+    // applies → density is simply y - surfaceY = -2 (solidly negative).
     const surfH = getTerrainHeight(60, 80);
-    // At 2 units below surface, density must be positive (no carving yet)
+    // At 2 units below surface, density must be negative (solid, no carving)
     const d = getVoxelDensity(60, surfH - 2, 80);
-    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThan(0);
   });
 
   it("underground chunks can produce geometry (potential cave openings)", () => {
