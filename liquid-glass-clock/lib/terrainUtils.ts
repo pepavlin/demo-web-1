@@ -210,6 +210,166 @@ export function updateTerrainGeometry(terrain: THREE.Mesh): void {
   geo.computeVertexNormals();
 }
 
+/** Position returned by structure-placement helpers. */
+export interface StructurePosition {
+  x: number;
+  z: number;
+  y: number;
+}
+
+/**
+ * Scan the pre-computed height grid (populated by initNoise) and return the
+ * most elevated land position within the given distance ring from the world
+ * centre.  Ideal for placing the sniper tower on the highest visible hill.
+ *
+ * @param minDist       Minimum distance from centre (world units)
+ * @param maxDist       Maximum distance from centre (world units)
+ * @param minHeight     Minimum terrain height accepted (default 3.0)
+ * @param maxSlopeDelta Max height difference to the next grid cell (slope guard)
+ * @returns Best position found, or null if the grid has not been initialised
+ *          or no valid cell exists in the search range.
+ */
+export function findBestElevatedPosition(
+  minDist: number,
+  maxDist: number,
+  minHeight = 3.0,
+  maxSlopeDelta = 6.0,
+): StructurePosition | null {
+  if (!heightGrid) return null;
+
+  const N = TERRAIN_SEGMENTS + 1;
+  const halfSize = WORLD_SIZE / 2;
+  const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+  const BOUNDARY_MARGIN = 8;
+
+  let bestPos: StructurePosition | null = null;
+  let bestHeight = -Infinity;
+
+  // Step every 2 cells: good coverage without O(N²) cost at TERRAIN_SEGMENTS=120
+  const STEP = 2;
+  for (let j = 0; j < N; j += STEP) {
+    for (let i = 0; i < N; i += STEP) {
+      const x = -halfSize + i * cellSize;
+      const z = -halfSize + j * cellSize;
+
+      // World-boundary margin
+      if (Math.abs(x) > halfSize - BOUNDARY_MARGIN || Math.abs(z) > halfSize - BOUNDARY_MARGIN) continue;
+
+      const dist = Math.sqrt(x * x + z * z);
+      if (dist < minDist || dist > maxDist) continue;
+
+      const h = heightGrid[j * N + i];
+      if (h < minHeight) continue;
+
+      // Simple slope guard: compare with right and down neighbours
+      if (i + STEP < N) {
+        const hRight = heightGrid[j * N + (i + STEP)];
+        if (Math.abs(hRight - h) > maxSlopeDelta) continue;
+      }
+      if (j + STEP < N) {
+        const hDown = heightGrid[(j + STEP) * N + i];
+        if (Math.abs(hDown - h) > maxSlopeDelta) continue;
+      }
+
+      if (h > bestHeight) {
+        bestHeight = h;
+        bestPos = { x, z, y: h };
+      }
+    }
+  }
+
+  return bestPos;
+}
+
+/**
+ * Divide the map into `count` equal angular sectors and return one land
+ * position per sector — all guaranteed to be above `minHeight` and within the
+ * distance ring [minDist, maxDist] from the world centre.
+ *
+ * "Best" inside each sector is the position with the highest combined score of
+ * distance-from-centre + 0.5 × elevation, which naturally picks strategic,
+ * slightly elevated spots over flat coastal tiles.
+ *
+ * Any sector that contains no valid tile falls back to the nearest occupied
+ * sector, so the returned array always has at most `count` entries (it may
+ * have fewer only if the whole ring is ocean).
+ *
+ * Must be called after initNoise() so the height grid is populated.
+ */
+export function findPositionsInSectors(
+  count: number,
+  minDist: number,
+  maxDist: number,
+  minHeight = WATER_LEVEL + 0.5,
+  maxSlopeDelta = 5.0,
+): StructurePosition[] {
+  if (!heightGrid || count <= 0) return [];
+
+  const N = TERRAIN_SEGMENTS + 1;
+  const halfSize = WORLD_SIZE / 2;
+  const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+  const BOUNDARY_MARGIN = 8;
+  const sectorAngle = (2 * Math.PI) / count;
+
+  // One best candidate per sector
+  const buckets: Array<{ pos: StructurePosition; score: number } | null> = Array(count).fill(null);
+
+  const STEP = 2;
+  for (let j = 0; j < N; j += STEP) {
+    for (let i = 0; i < N; i += STEP) {
+      const x = -halfSize + i * cellSize;
+      const z = -halfSize + j * cellSize;
+
+      if (Math.abs(x) > halfSize - BOUNDARY_MARGIN || Math.abs(z) > halfSize - BOUNDARY_MARGIN) continue;
+
+      const dist = Math.sqrt(x * x + z * z);
+      if (dist < minDist || dist > maxDist) continue;
+
+      const h = heightGrid[j * N + i];
+      if (h < minHeight) continue;
+
+      if (i + STEP < N) {
+        const hRight = heightGrid[j * N + (i + STEP)];
+        if (Math.abs(hRight - h) > maxSlopeDelta) continue;
+      }
+      if (j + STEP < N) {
+        const hDown = heightGrid[(j + STEP) * N + i];
+        if (Math.abs(hDown - h) > maxSlopeDelta) continue;
+      }
+
+      // Map atan2 result from [-π, π] to [0, 2π]
+      const angle = Math.atan2(z, x);
+      const normalizedAngle = angle < 0 ? angle + 2 * Math.PI : angle;
+      const sectorIndex = Math.min(count - 1, Math.floor(normalizedAngle / sectorAngle));
+
+      // Score: prefer farther + slightly elevated positions
+      const score = dist + h * 0.5;
+
+      if (!buckets[sectorIndex] || score > buckets[sectorIndex]!.score) {
+        buckets[sectorIndex] = { pos: { x, z, y: h }, score };
+      }
+    }
+  }
+
+  // Collect, filling empty sectors from the nearest occupied neighbour
+  const results: StructurePosition[] = [];
+  for (let i = 0; i < count; i++) {
+    if (buckets[i]) {
+      results.push(buckets[i]!.pos);
+    } else {
+      // Walk outward in both directions to find a fallback
+      for (let offset = 1; offset < count; offset++) {
+        const adjRight = (i + offset) % count;
+        if (buckets[adjRight]) { results.push(buckets[adjRight]!.pos); break; }
+        const adjLeft = (i - offset + count) % count;
+        if (buckets[adjLeft]) { results.push(buckets[adjLeft]!.pos); break; }
+      }
+    }
+  }
+
+  return results;
+}
+
 export function generateSpawnPoints(
   count: number,
   minDist: number,

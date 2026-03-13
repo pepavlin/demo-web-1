@@ -1,4 +1,4 @@
-import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, findBestElevatedPosition, findPositionsInSectors, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -372,6 +372,153 @@ describe("terrainUtils", () => {
       // This just ensures the function handles the null-guard gracefully.
       // Since initNoise() has already been called, this test verifies it runs without error.
       expect(() => modifyTerrainHeight(0, 0, 1, 5)).not.toThrow();
+    });
+  });
+
+  describe("findBestElevatedPosition", () => {
+    beforeAll(() => {
+      initNoise(42);
+    });
+
+    it("returns a StructurePosition object with x, z, y", () => {
+      const pos = findBestElevatedPosition(60, 120, 3.0);
+      expect(pos).not.toBeNull();
+      if (pos) {
+        expect(typeof pos.x).toBe("number");
+        expect(typeof pos.z).toBe("number");
+        expect(typeof pos.y).toBe("number");
+      }
+    });
+
+    it("returned position is above the requested minHeight", () => {
+      const minH = 3.0;
+      const pos = findBestElevatedPosition(60, 120, minH);
+      expect(pos).not.toBeNull();
+      if (pos) {
+        expect(pos.y).toBeGreaterThanOrEqual(minH);
+      }
+    });
+
+    it("returned position is within the requested distance range", () => {
+      const minDist = 60;
+      const maxDist = 120;
+      const pos = findBestElevatedPosition(minDist, maxDist, 3.0);
+      expect(pos).not.toBeNull();
+      if (pos) {
+        const dist = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+        expect(dist).toBeGreaterThanOrEqual(minDist - 1);
+        expect(dist).toBeLessThanOrEqual(maxDist + 1);
+      }
+    });
+
+    it("returned position is within world bounds", () => {
+      const pos = findBestElevatedPosition(60, 120, 3.0);
+      if (pos) {
+        expect(Math.abs(pos.x)).toBeLessThan(WORLD_SIZE / 2);
+        expect(Math.abs(pos.z)).toBeLessThan(WORLD_SIZE / 2);
+      }
+    });
+
+    it("returns null for impossible constraints (minHeight too high)", () => {
+      // No natural terrain reaches 9999 units
+      const pos = findBestElevatedPosition(60, 120, 9999);
+      expect(pos).toBeNull();
+    });
+
+    it("returns a consistent result for the same seed", () => {
+      initNoise(42);
+      const pos1 = findBestElevatedPosition(60, 120, 3.0);
+      initNoise(42);
+      const pos2 = findBestElevatedPosition(60, 120, 3.0);
+      expect(pos1).toEqual(pos2);
+    });
+
+    it("position y matches terrain height at those coordinates", () => {
+      const pos = findBestElevatedPosition(60, 120, 3.0);
+      if (pos) {
+        const terrainH = getTerrainHeightSampled(pos.x, pos.z);
+        // y comes directly from heightGrid, so within bilinear interpolation error
+        expect(Math.abs(pos.y - terrainH)).toBeLessThan(1.0);
+      }
+    });
+  });
+
+  describe("findPositionsInSectors", () => {
+    beforeAll(() => {
+      initNoise(42);
+    });
+
+    it("returns an array", () => {
+      const positions = findPositionsInSectors(6, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      expect(Array.isArray(positions)).toBe(true);
+    });
+
+    it("returns at most `count` positions", () => {
+      const count = 6;
+      const positions = findPositionsInSectors(count, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      expect(positions.length).toBeLessThanOrEqual(count);
+    });
+
+    it("returns positions spread over at least 2 distinct quadrants for count=4", () => {
+      const positions = findPositionsInSectors(4, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      // Expect at least 2 unique angle quadrants present
+      const quadrants = new Set(positions.map((p) => {
+        const a = Math.atan2(p.z, p.x);
+        return Math.floor(((a < 0 ? a + 2 * Math.PI : a) / (Math.PI / 2)));
+      }));
+      expect(quadrants.size).toBeGreaterThanOrEqual(2);
+    });
+
+    it("all positions are above minHeight (land check)", () => {
+      const minH = WATER_LEVEL + 0.5;
+      const positions = findPositionsInSectors(6, 35, 95, minH, 5.0);
+      positions.forEach((p) => {
+        expect(p.y).toBeGreaterThanOrEqual(minH - 0.01);
+      });
+    });
+
+    it("all positions are within the requested distance range", () => {
+      const minDist = 35;
+      const maxDist = 95;
+      const positions = findPositionsInSectors(6, minDist, maxDist, WATER_LEVEL + 0.5, 5.0);
+      positions.forEach((p) => {
+        const dist = Math.sqrt(p.x * p.x + p.z * p.z);
+        expect(dist).toBeGreaterThanOrEqual(minDist - 1);
+        expect(dist).toBeLessThanOrEqual(maxDist + 1);
+      });
+    });
+
+    it("all positions are within world bounds", () => {
+      const positions = findPositionsInSectors(6, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      positions.forEach((p) => {
+        expect(Math.abs(p.x)).toBeLessThan(WORLD_SIZE / 2);
+        expect(Math.abs(p.z)).toBeLessThan(WORLD_SIZE / 2);
+      });
+    });
+
+    it("returns empty array for count=0", () => {
+      const positions = findPositionsInSectors(0, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      expect(positions.length).toBe(0);
+    });
+
+    it("returns consistent results for the same seed", () => {
+      initNoise(42);
+      const pos1 = findPositionsInSectors(6, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      initNoise(42);
+      const pos2 = findPositionsInSectors(6, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      expect(pos1).toEqual(pos2);
+    });
+
+    it("positions have x, z, y numeric properties", () => {
+      const positions = findPositionsInSectors(4, 35, 95, WATER_LEVEL + 0.5, 5.0);
+      positions.forEach((p) => {
+        expect(typeof p.x).toBe("number");
+        expect(typeof p.z).toBe("number");
+        expect(typeof p.y).toBe("number");
+        expect(isNaN(p.x)).toBe(false);
+        expect(isNaN(p.z)).toBe(false);
+        expect(isNaN(p.y)).toBe(false);
+      });
     });
   });
 });
