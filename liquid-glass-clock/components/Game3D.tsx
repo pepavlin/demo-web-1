@@ -2042,10 +2042,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     muzzleFlashRef.current = muzzleFlash;
 
     // ── Headlamp spotlight (parented to camera, points forward) ─────────────
-    // Cone angle: ~22.5° half-angle (PI/8), penumbra 0.25 for crisp cone edge,
+    // Cone angle: ~36° half-angle (PI/5), penumbra 0.25 for crisp cone edge,
     // range 60 units, linear decay (1.0) so the beam actually reaches far ahead.
     // The spotlight target must also be a child of camera so it moves with it.
-    const headlampLight = new THREE.SpotLight(0xffe8a0, 0, 60, Math.PI / 8, 0.25, 1.0);
+    const headlampLight = new THREE.SpotLight(0xffe8a0, 0, 60, Math.PI / 5, 0.25, 1.0);
     headlampLight.position.set(0, 0, 0); // at camera origin
     camera.add(headlampLight);
     const headlampTarget = new THREE.Object3D();
@@ -2259,7 +2259,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uHeadlampDir:       { value: new THREE.Vector3(0, 0, -1) },
         uHeadlampIntensity: { value: 0.0 },
         uHeadlampColor:     { value: new THREE.Color(0xffe8a0) },
-        uHeadlampAngle:     { value: Math.cos(Math.PI / 8) },  // cosine of half-angle
+        uHeadlampAngle:     { value: Math.cos(Math.PI / 5) },  // cosine of half-angle
         uHeadlampPenumbra:  { value: 0.25 },
         uHeadlampRange:     { value: 60.0 },
       },
@@ -2619,7 +2619,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uHeadlampDir:       { value: new THREE.Vector3(0, 0, -1) },
         uHeadlampIntensity: { value: 0.0 },
         uHeadlampColor:     { value: new THREE.Color(0xffe8a0) },
-        uHeadlampAngle:     { value: Math.cos(Math.PI / 8) },
+        uHeadlampAngle:     { value: Math.cos(Math.PI / 5) },
         uHeadlampPenumbra:  { value: 0.25 },
         uHeadlampRange:     { value: 60.0 },
       },

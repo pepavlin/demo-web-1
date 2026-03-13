@@ -289,11 +289,11 @@ describe("Headlamp smooth fade – lerp formula", () => {
 });
 
 describe("Headlamp SpotLight parameters", () => {
-  it("creates a SpotLight with correct cone angle (~22.5 degrees = PI/8 rad)", () => {
-    // Verify PI/8 is approximately 22.5 degrees (headlamp half-angle)
-    const halfAngle = Math.PI / 8;
+  it("creates a SpotLight with correct cone angle (~36 degrees = PI/5 rad)", () => {
+    // Verify PI/5 is approximately 36 degrees (headlamp half-angle)
+    const halfAngle = Math.PI / 5;
     const degrees = (halfAngle * 180) / Math.PI;
-    expect(degrees).toBeCloseTo(22.5, 0);
+    expect(degrees).toBeCloseTo(36, 0);
   });
 
   it("SpotLight range of 60 units provides strong reach in station corridors", () => {
@@ -313,7 +313,7 @@ describe("Headlamp SpotLight parameters", () => {
 });
 
 // ── Constants for shader uniform tests ────────────────────────────────────────
-const HEADLAMP_ANGLE = Math.cos(Math.PI / 8); // cosine of half-angle stored as uniform
+const HEADLAMP_ANGLE = Math.cos(Math.PI / 5); // cosine of half-angle stored as uniform
 const HEADLAMP_PENUMBRA = 0.25;
 const HEADLAMP_RANGE = 60.0;
 
@@ -358,10 +358,10 @@ function computeAttenuation(dist: number, range = HEADLAMP_RANGE): number {
 }
 
 describe("Headlamp shader uniform initial values", () => {
-  it("uHeadlampAngle is the cosine of PI/8 (half-cone angle)", () => {
-    expect(HEADLAMP_ANGLE).toBeCloseTo(Math.cos(Math.PI / 8), 6);
-    // cos(22.5°) ≈ 0.924
-    expect(HEADLAMP_ANGLE).toBeGreaterThan(0.9);
+  it("uHeadlampAngle is the cosine of PI/5 (half-cone angle)", () => {
+    expect(HEADLAMP_ANGLE).toBeCloseTo(Math.cos(Math.PI / 5), 6);
+    // cos(36°) ≈ 0.809
+    expect(HEADLAMP_ANGLE).toBeGreaterThan(0.7);
   });
 
   it("uHeadlampPenumbra matches the SpotLight penumbra value (0.25)", () => {
@@ -403,7 +403,7 @@ describe("Headlamp shader spotlight formula – ground illumination", () => {
   });
 
   it("ground far outside cone angle receives zero illumination", () => {
-    // 90° off-axis should be outside the ~22.5° half-angle cone
+    // 90° off-axis should be outside the ~36° half-angle cone
     const factor = computeSpotFactor({ x: 10, y: 1.7, z: 0 }, lampPos, lampDir);
     expect(factor).toBe(0);
   });
@@ -420,15 +420,15 @@ describe("Headlamp shader spotlight formula – ground illumination", () => {
   });
 
   it("ground at 10 units forward is inside the beam (cone centre)", () => {
-    // At 10 units forward the lamp-to-frag angle is arctan(1.7/10) ≈ 9.6°, well within 22.5°
+    // At 10 units forward the lamp-to-frag angle is arctan(1.7/10) ≈ 9.6°, well within 36°
     const groundAhead = { x: 0, y: 0, z: -10 };
     const factor = computeSpotFactor(groundAhead, lampPos, lampDir);
     expect(factor).toBeGreaterThan(0.5);
   });
 
-  it("ground close (3 units) is outside the narrow cone due to vertical offset", () => {
-    // At 3 units forward the angle is arctan(1.7/3) ≈ 29.6°, which exceeds the 22.5° half-angle
-    const groundClose = { x: 0, y: 0, z: -3 };
+  it("ground very close (1.5 units) is outside the wider cone due to vertical offset", () => {
+    // At 1.5 units forward the angle is arctan(1.7/1.5) ≈ 48.6°, which exceeds the 36° half-angle
+    const groundClose = { x: 0, y: 0, z: -1.5 };
     const factor = computeSpotFactor(groundClose, lampPos, lampDir);
     expect(factor).toBe(0);
   });
