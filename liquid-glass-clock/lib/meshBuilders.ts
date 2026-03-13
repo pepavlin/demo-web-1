@@ -3438,122 +3438,393 @@ export function buildSpiderMesh(): THREE.Group {
 // ─── Cave ─────────────────────────────────────────────────────────────────────
 
 /**
- * Builds a cave entrance + interior chamber.
+ * Builds an organic cave entrance embedded in a rocky hillside, resembling a
+ * real hole in the ground.  The design avoids box-shaped openings — instead an
+ * irregular oval mouth is carved into a rocky mound using many overlapping stone
+ * chunks at varied angles.
+ *
  * The group origin is at the center of the cave entrance at ground level (y = 0).
  * Interior depth runs along -Z axis (into the cave).
  */
 export function buildCaveMesh(): THREE.Group {
   const group = new THREE.Group();
 
-  const stoneMat  = new THREE.MeshLambertMaterial({ color: 0x5a5055 });  // dark grey-purple stone
-  const darkMat   = new THREE.MeshLambertMaterial({ color: 0x2a2530 });  // deep shadow interior
-  const floorMat  = new THREE.MeshLambertMaterial({ color: 0x484048 });  // cave floor
+  // ── Materials ──────────────────────────────────────────────────────────────
+  const stoneMat   = new THREE.MeshLambertMaterial({ color: 0x5a5055 });  // dark grey-purple stone
+  const stoneMat2  = new THREE.MeshLambertMaterial({ color: 0x4a4050 });  // slightly darker stone variant
+  const stoneMat3  = new THREE.MeshLambertMaterial({ color: 0x6a6060 });  // lighter stone face
+  const earthMat   = new THREE.MeshLambertMaterial({ color: 0x4a3018 });  // dark earthy soil
+  const earthMat2  = new THREE.MeshLambertMaterial({ color: 0x3a2510 });  // darker soil
+  const darkMat    = new THREE.MeshLambertMaterial({ color: 0x141018 });  // near-black cave void
+  const voidMat    = new THREE.MeshLambertMaterial({ color: 0x080808, side: THREE.BackSide }); // inner void walls
+  const floorMat   = new THREE.MeshLambertMaterial({ color: 0x3c3838 });  // damp cave floor
+  const stalMat    = new THREE.MeshLambertMaterial({ color: 0x4a4450 });  // stalactite stone
+  const rootMat    = new THREE.MeshLambertMaterial({ color: 0x2a1a08 });  // dark root / vine
+  const webMat     = new THREE.MeshLambertMaterial({
+    color: 0xddccaa,
+    transparent: true,
+    opacity: 0.45,
+  });
+  const mossMat    = new THREE.MeshLambertMaterial({ color: 0x2a3a18 });  // dark moss on rocks
 
-  // ── Entrance arch (several large stone blocks forming a jagged opening) ─────
-  const archPositions: Array<[number, number, number, number, number, number]> = [
-    // [x, y, z, sx, sy, sz]  — box extents for each stone block of the arch
-    [-4.5, 2.5,  0,   1.2, 3.5, 2.0], // left pillar
-    [ 4.5, 2.5,  0,   1.2, 3.5, 2.0], // right pillar
-    [ 0,   6.2,  0,  10.0, 1.8, 2.2], // top lintel
-    [-3.0, 5.0,  0,   2.8, 1.2, 1.8], // top-left fill
-    [ 3.0, 5.0,  0,   2.8, 1.2, 1.8], // top-right fill
-    [-5.2, 0.8,  0,   1.0, 2.2, 1.8], // base left bump
-    [ 5.2, 0.8,  0,   1.0, 2.2, 1.8], // base right bump
+  const stoneMats = [stoneMat, stoneMat2, stoneMat3, earthMat];
+
+  // ── Interior dimensions ────────────────────────────────────────────────────
+  const interiorDepth  = 22;
+  const interiorWidth  = 9;
+  const interiorHeight = 5.5;
+
+  // ── 1. Rocky hillside mound around the cave entrance ──────────────────────
+  // Large earth/rock masses on left and right forming the hillside the cave is
+  // carved into.  Multiple overlapping blobs give an organic silhouette.
+
+  // Left hillside mass
+  const leftMoundPositions: Array<[number, number, number, number, number, number, number, number, number]> = [
+    // [x, y, z,  rx, ry, rz,  sx, sy, sz]
+    [-5.5,  3.5,  -2.0,   0.10, 0.05, 0.08,   4.5, 5.5, 5.5],
+    [-6.8,  1.5,   0.5,   0.08, 0.10, 0.05,   3.8, 4.0, 4.5],
+    [-5.0,  6.5,  -3.0,   0.12, 0.08, 0.06,   4.0, 3.5, 5.0],
+    [-7.5,  4.5,  -5.0,   0.05, 0.07, 0.09,   3.5, 6.0, 4.0],
+    [-4.2,  0.8,   1.5,   0.15, 0.04, 0.10,   3.2, 2.5, 4.0],
+  ];
+  // Right hillside mass
+  const rightMoundPositions: Array<[number, number, number, number, number, number, number, number, number]> = [
+    [ 5.5,  3.5,  -2.0,  -0.10, 0.05, -0.08,  4.5, 5.5, 5.5],
+    [ 6.8,  1.5,   0.5,  -0.08, 0.10, -0.05,  3.8, 4.0, 4.5],
+    [ 5.0,  6.5,  -3.0,  -0.12, 0.08, -0.06,  4.0, 3.5, 5.0],
+    [ 7.5,  4.5,  -5.0,  -0.05, 0.07, -0.09,  3.5, 6.0, 4.0],
+    [ 4.2,  0.8,   1.5,  -0.15, 0.04, -0.10,  3.2, 2.5, 4.0],
+  ];
+  // Top hill cap (bridges left and right above opening)
+  const topMoundPositions: Array<[number, number, number, number, number, number, number, number, number]> = [
+    [ 0.0,  7.8,  -1.5,   0.06, 0.04, 0.08,  11.0, 4.5, 5.5],
+    [-1.5,  9.5,  -3.0,   0.10, 0.06, 0.05,   8.0, 3.5, 5.0],
+    [ 1.5, 10.2,  -4.5,   0.07, 0.09, 0.04,   7.0, 3.0, 4.5],
+    [ 0.0,  6.0,   0.5,   0.04, 0.08, 0.06,   9.5, 2.5, 3.5],
   ];
 
-  archPositions.forEach(([x, y, z, sx, sy, sz]) => {
-    const geo = new THREE.BoxGeometry(sx, sy, sz);
-    const mesh = new THREE.Mesh(geo, stoneMat);
-    mesh.position.set(x, y, z);
-    // Add slight random rotation for jagged natural look
-    mesh.rotation.z = (Math.random() - 0.5) * 0.12;
+  [...leftMoundPositions, ...rightMoundPositions, ...topMoundPositions].forEach(
+    ([x, y, z, rx, ry, rz, sx, sy, sz], i) => {
+      // Alternate between SphereGeometry (organic) and BoxGeometry (rocky) for variety
+      const geo = i % 3 === 0
+        ? new THREE.SphereGeometry(1.0, 7, 6)
+        : new THREE.BoxGeometry(1.0, 1.0, 1.0);
+      const mat = i % 4 < 2 ? earthMat : (i % 2 === 0 ? stoneMat : earthMat2);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.scale.set(sx, sy, sz);
+      mesh.position.set(x, y, z);
+      mesh.rotation.set(rx, ry, rz);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  );
+
+  // ── 2. Organic jagged rock rim around the oval cave opening ───────────────
+  // Rocks are positioned around an ellipse (halfW=4.5, halfH=3.2) at the
+  // entrance plane (z≈0).  Each rock is tilted inward/outward for a natural look.
+  //
+  // We use many small-to-medium rocks at varied angles — no perfect rectangle.
+
+  // Rim rocks: [angle_deg, radius_x, radius_y, rock_scale, z_offset, mat_index]
+  const rimRocks: Array<[number, number, number, number, number, number]> = [
+    [  0,   5.0, 2.8,  1.35, -0.3, 0],   // right
+    [ 20,   5.2, 2.4,  1.10, -0.2, 1],
+    [ 40,   4.8, 3.0,  1.25, -0.1, 2],
+    [ 55,   4.0, 3.8,  0.95, -0.3, 0],
+    [ 70,   3.4, 4.4,  1.05, -0.2, 3],
+    [ 85,   2.8, 5.0,  1.30, -0.4, 1],
+    [100,   2.2, 5.5,  1.15, -0.3, 2],
+    [115,   1.8, 5.8,  0.90, -0.5, 0],
+    [130,   1.5, 5.8,  1.20, -0.4, 1],
+    [148,   1.8, 5.5,  1.10, -0.3, 3],
+    [162,   2.6, 5.0,  1.35, -0.2, 0],
+    [175,   3.4, 4.2,  1.00, -0.4, 2],
+    [190,   4.0, 3.5,  1.20, -0.3, 1],
+    [205,   4.5, 3.0,  0.95, -0.2, 0],
+    [220,   4.8, 2.6,  1.15, -0.3, 3],
+    [235,   5.0, 2.2,  1.30, -0.4, 2],
+    [250,   5.1, 2.0,  1.05, -0.2, 0],
+    [270,   5.1, 2.0,  1.20, -0.3, 1],
+    [290,   5.0, 2.3,  0.90, -0.2, 3],
+    [310,   4.8, 2.8,  1.25, -0.4, 0],
+    [330,   4.8, 2.6,  1.10, -0.3, 2],
+    [350,   5.0, 2.8,  1.35, -0.2, 1],
+  ];
+
+  rimRocks.forEach(([angleDeg, rx, ry, scale, zOff, matIdx], i) => {
+    const rad = (angleDeg * Math.PI) / 180;
+    const x   = Math.cos(rad) * rx;
+    const y   = Math.sin(rad) * ry + 3.2; // 3.2 = vertical centre of oval
+
+    // Alternate rock shapes: octahedron for angular, box for blocky
+    const geo = i % 3 === 0
+      ? new THREE.OctahedronGeometry(0.9, 0)
+      : (i % 3 === 1
+          ? new THREE.BoxGeometry(1.0, 1.1, 0.9)
+          : new THREE.DodecahedronGeometry(0.85, 0));
+
+    const mat = stoneMats[matIdx % stoneMats.length];
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.setScalar(scale);
+    mesh.position.set(x, y, zOff);
+    // Tilt inward toward center of opening
+    mesh.rotation.set(
+      (Math.sin(rad) * 0.3) + (i % 2 === 0 ? 0.1 : -0.1),
+      (Math.cos(rad) * 0.25),
+      rad + Math.PI * 0.5 + (i % 2 === 0 ? 0.15 : -0.15),
+    );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
   });
 
-  // ── Interior walls (left, right, ceiling) ──────────────────────────────────
-  const interiorDepth = 22;
-  const interiorWidth = 9;
-  const interiorHeight = 5.5;
+  // ── 3. Depth layers — "the void" that creates the illusion of a deep hole ──
+  // Concentric dark planes/rings shrink as they go deeper, giving parallax depth.
 
-  // Left wall
+  const depthLayers: Array<[number, number, number]> = [
+    // [z,  half-width,  half-height]
+    [ -0.6,  4.0,  2.8],
+    [ -1.8,  3.4,  2.4],
+    [ -3.5,  2.8,  2.0],
+    [ -5.5,  2.2,  1.6],
+    [ -8.0,  1.8,  1.3],
+    [-11.0,  1.4,  1.0],
+  ];
+  depthLayers.forEach(([z, hw, hh]) => {
+    const geo = new THREE.BoxGeometry(hw * 2, hh * 2, 0.18);
+    const mesh = new THREE.Mesh(geo, darkMat);
+    mesh.position.set(0, hh + 0.2, z); // vertically offset so bottom aligns with floor
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // ── 4. Interior tunnel (functional walls, ceiling, floor) ─────────────────
+  // These provide collision/torch anchor geometry.  Made rougher by overlapping
+  // extra rock chunks rather than being pure flat planes.
+
+  // Base box walls
   const leftWall = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, interiorHeight + 2, interiorDepth),
-    stoneMat
+    new THREE.BoxGeometry(1.8, interiorHeight + 2, interiorDepth),
+    stoneMat2
   );
-  leftWall.position.set(-interiorWidth / 2 - 0.75, interiorHeight / 2, -interiorDepth / 2);
+  leftWall.position.set(-interiorWidth / 2 - 0.9, interiorHeight / 2, -interiorDepth / 2);
   leftWall.castShadow = true;
   leftWall.receiveShadow = true;
   group.add(leftWall);
 
-  // Right wall
   const rightWall = new THREE.Mesh(
-    new THREE.BoxGeometry(1.5, interiorHeight + 2, interiorDepth),
-    stoneMat
+    new THREE.BoxGeometry(1.8, interiorHeight + 2, interiorDepth),
+    stoneMat2
   );
-  rightWall.position.set(interiorWidth / 2 + 0.75, interiorHeight / 2, -interiorDepth / 2);
+  rightWall.position.set(interiorWidth / 2 + 0.9, interiorHeight / 2, -interiorDepth / 2);
   rightWall.castShadow = true;
   rightWall.receiveShadow = true;
   group.add(rightWall);
 
-  // Ceiling
   const ceiling = new THREE.Mesh(
-    new THREE.BoxGeometry(interiorWidth + 3, 1.8, interiorDepth),
+    new THREE.BoxGeometry(interiorWidth + 4, 2.0, interiorDepth),
     darkMat
   );
-  ceiling.position.set(0, interiorHeight + 0.9, -interiorDepth / 2);
+  ceiling.position.set(0, interiorHeight + 1.0, -interiorDepth / 2);
   ceiling.castShadow = true;
   ceiling.receiveShadow = true;
   group.add(ceiling);
 
-  // Back wall
   const backWall = new THREE.Mesh(
-    new THREE.BoxGeometry(interiorWidth + 3, interiorHeight + 3, 2.0),
+    new THREE.BoxGeometry(interiorWidth + 4, interiorHeight + 4, 2.5),
     stoneMat
   );
-  backWall.position.set(0, interiorHeight / 2, -interiorDepth - 1);
+  backWall.position.set(0, interiorHeight / 2, -interiorDepth - 1.2);
   backWall.castShadow = true;
   backWall.receiveShadow = true;
   group.add(backWall);
 
-  // Floor
   const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(interiorWidth + 3, 0.5, interiorDepth + 2),
+    new THREE.BoxGeometry(interiorWidth + 4, 0.6, interiorDepth + 3),
     floorMat
   );
-  floor.position.set(0, -0.25, -interiorDepth / 2);
+  floor.position.set(0, -0.3, -interiorDepth / 2);
   floor.receiveShadow = true;
   group.add(floor);
 
-  // ── Stalactites hanging from ceiling ──────────────────────────────────────
-  const stalMat = new THREE.MeshLambertMaterial({ color: 0x504a55 });
-  const stalPositions: Array<[number, number]> = [
-    [-2.5, -5], [-1.0, -8], [1.5, -6], [3.0, -10],
-    [-3.5, -13], [0.5, -15], [2.5, -18], [-1.8, -20],
+  // Rough wall protrusions on left and right (overlapping rock slabs)
+  const wallProtrusions: Array<[number, number, number, number, number, number]> = [
+    [-4.8,  1.5,  -4.0,   0.8, 1.8, 1.4],
+    [-4.6,  3.2,  -8.5,   0.7, 2.0, 1.6],
+    [-4.9,  2.0, -14.0,   0.9, 1.5, 1.3],
+    [-4.7,  4.0, -18.5,   0.8, 2.2, 1.5],
+    [ 4.8,  1.5,  -5.5,   0.8, 1.8, 1.4],
+    [ 4.6,  3.5,  -9.0,   0.7, 2.0, 1.6],
+    [ 4.9,  2.2, -13.5,   0.9, 1.5, 1.3],
+    [ 4.7,  4.5, -19.0,   0.8, 2.2, 1.5],
   ];
-  stalPositions.forEach(([sx, sz]) => {
-    const height = 0.6 + Math.random() * 1.2;
-    const stalGeo = new THREE.ConeGeometry(0.18, height, 6);
+  wallProtrusions.forEach(([x, y, z, sx, sy, sz]) => {
+    const geo = new THREE.BoxGeometry(sx, sy, sz);
+    const mesh = new THREE.Mesh(geo, stoneMat3);
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(
+      (Math.random() - 0.5) * 0.15,
+      (Math.random() - 0.5) * 0.10,
+      (Math.random() - 0.5) * 0.12,
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // ── 5. Stalactites (ceiling spikes, varied density near entrance) ──────────
+  const stalPositions: Array<[number, number, number, number]> = [
+    // [x, z,  radius,  height]
+    [-2.5,  -2.5,  0.14, 1.0],
+    [ 1.8,  -1.8,  0.17, 1.4],
+    [-0.8,  -4.0,  0.12, 0.9],
+    [ 3.2,  -3.5,  0.20, 1.8],
+    [-3.8,  -5.5,  0.15, 1.2],
+    [ 0.5,  -6.5,  0.11, 0.8],
+    [-1.5,  -7.5,  0.18, 1.5],
+    [ 2.8,  -7.0,  0.13, 1.1],
+    [-4.0,  -9.5,  0.16, 1.3],
+    [ 3.5,  -9.0,  0.21, 1.9],
+    [ 0.0, -11.0,  0.14, 1.0],
+    [-2.0, -12.5,  0.19, 1.6],
+    [ 1.8, -13.0,  0.12, 0.8],
+    [-3.5, -15.5,  0.17, 1.4],
+    [ 3.0, -15.0,  0.14, 1.1],
+    [ 0.5, -17.5,  0.22, 2.0],
+    [-1.0, -19.0,  0.13, 0.9],
+    [ 2.5, -19.5,  0.16, 1.3],
+    [-4.2, -21.0,  0.18, 1.5],
+  ];
+  stalPositions.forEach(([sx, sz, radius, height]) => {
+    // Double-cone stalactite: wide top, narrow tip
+    const stalGeo = new THREE.ConeGeometry(radius, height, 6);
     const stal = new THREE.Mesh(stalGeo, stalMat);
-    stal.position.set(sx, interiorHeight - 0.05, sz);
+    stal.position.set(sx, interiorHeight + 0.1 - height * 0.1, sz);
     stal.rotation.z = Math.PI; // point downward
+    stal.rotation.x = (Math.random() - 0.5) * 0.15; // slight lean
     stal.castShadow = true;
     group.add(stal);
   });
 
-  // ── Stalagmites on floor ──────────────────────────────────────────────────
-  const stagPositions: Array<[number, number]> = [
-    [-4.0, -4], [3.8, -7], [-3.5, -16], [4.2, -19],
+  // ── 6. Stalagmites (floor spikes) ─────────────────────────────────────────
+  const stagPositions: Array<[number, number, number, number]> = [
+    [-4.0,  -4.0, 0.12, 0.7],
+    [ 3.8,  -7.0, 0.16, 1.0],
+    [-0.5,  -9.5, 0.10, 0.6],
+    [ 2.0, -12.0, 0.14, 0.9],
+    [-3.5, -15.5, 0.18, 1.1],
+    [ 4.2, -17.0, 0.13, 0.7],
+    [-1.5, -20.0, 0.20, 1.3],
   ];
-  stagPositions.forEach(([sx, sz]) => {
-    const height = 0.4 + Math.random() * 0.8;
-    const stagGeo = new THREE.ConeGeometry(0.14, height, 6);
+  stagPositions.forEach(([sx, sz, radius, height]) => {
+    const stagGeo = new THREE.ConeGeometry(radius, height, 6);
     const stag = new THREE.Mesh(stagGeo, stalMat);
     stag.position.set(sx, height / 2, sz);
+    stag.rotation.x = (Math.random() - 0.5) * 0.1;
     stag.castShadow = true;
     group.add(stag);
   });
+
+  // ── 7. Hanging roots / vines from ceiling ──────────────────────────────────
+  const rootDefs: Array<[number, number, number, number]> = [
+    // [x, z, length, thickness]
+    [-2.0,  -1.5,  1.8, 0.05],
+    [ 1.5,  -2.0,  2.5, 0.04],
+    [-3.5,  -3.0,  1.5, 0.05],
+    [ 0.8,  -4.5,  2.2, 0.04],
+    [-1.2,  -6.0,  1.9, 0.06],
+    [ 3.0,  -6.5,  1.6, 0.04],
+    [-2.8,  -8.5,  2.8, 0.05],
+    [ 0.2, -10.0,  2.1, 0.04],
+    [-4.0, -11.5,  1.7, 0.05],
+    [ 2.5, -13.0,  2.4, 0.04],
+  ];
+  rootDefs.forEach(([x, z, length, thickness]) => {
+    const geo = new THREE.CylinderGeometry(thickness, thickness * 0.5, length, 4);
+    const mesh = new THREE.Mesh(geo, rootMat);
+    mesh.position.set(x, interiorHeight - length / 2 + 0.1, z);
+    // Slight lean to look natural
+    mesh.rotation.z = (Math.random() - 0.5) * 0.35;
+    mesh.rotation.x = (Math.random() - 0.5) * 0.20;
+    mesh.castShadow = true;
+    group.add(mesh);
+  });
+
+  // ── 8. Spider web strands across the entrance ──────────────────────────────
+  // Thin diagonal cylinders simulate web threads spanning the opening.
+  const webStrands: Array<[number, number, number, number, number, number]> = [
+    // [x1, y1,  x2, y2,  z,  thickness]
+    [-3.5, 5.8,   2.5, 1.5,  -0.3, 0.025],
+    [ 3.8, 5.5,  -2.0, 1.8,  -0.2, 0.020],
+    [-1.5, 6.5,   4.0, 3.0,  -0.4, 0.022],
+    [ 0.5, 6.8,  -3.8, 2.5,  -0.3, 0.018],
+    [-4.0, 3.5,   1.5, 6.2,  -0.5, 0.020],
+    [ 2.5, 2.2,  -1.0, 6.0,  -0.2, 0.025],
+  ];
+  webStrands.forEach(([x1, y1, x2, y2, z, thickness]) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const angle  = Math.atan2(dy, dx);
+
+    const geo  = new THREE.CylinderGeometry(thickness, thickness, length, 3);
+    const mesh = new THREE.Mesh(geo, webMat);
+    mesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, z);
+    // CylinderGeometry is vertical by default — rotate 90° on Z then orient by angle
+    mesh.rotation.z = angle + Math.PI / 2;
+    group.add(mesh);
+  });
+
+  // ── 9. Ground debris / rocks scattered outside entrance ───────────────────
+  const debrisRocks: Array<[number, number, number, number, number, number]> = [
+    // [x, z,  rx, ry, rz,  scale]
+    [-2.8,  1.5,  0.2, 0.5, 0.1, 0.45],
+    [ 2.2,  2.0,  0.5, 0.3, 0.2, 0.60],
+    [-4.5,  0.8,  0.1, 0.8, 0.3, 0.55],
+    [ 3.8,  1.2,  0.3, 0.4, 0.1, 0.40],
+    [ 0.8,  2.5,  0.4, 0.6, 0.2, 0.35],
+    [-1.5,  3.0,  0.2, 1.0, 0.4, 0.50],
+    [ 5.0,  2.2,  0.6, 0.2, 0.3, 0.45],
+    [-5.5,  1.8,  0.3, 0.7, 0.5, 0.65],
+    [ 1.5,  3.5,  0.1, 0.4, 0.2, 0.30],
+    [-3.5,  2.8,  0.5, 0.5, 0.1, 0.42],
+  ];
+  debrisRocks.forEach(([x, z, rx, ry, rz, scale]) => {
+    const geo = new THREE.OctahedronGeometry(0.5, 0);
+    const mat = rx > 0.3 ? stoneMat : earthMat;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.setScalar(scale);
+    mesh.position.set(x, scale * 0.3, z);
+    mesh.rotation.set(rx, ry, rz);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // Moss patches on rocks near base
+  const mossPatches: Array<[number, number, number]> = [
+    [-3.2, 0.15,  1.0],
+    [ 2.5, 0.12,  1.8],
+    [-5.0, 0.10,  0.5],
+  ];
+  mossPatches.forEach(([x, y, z]) => {
+    const geo = new THREE.SphereGeometry(0.5, 5, 4);
+    const mesh = new THREE.Mesh(geo, mossMat);
+    mesh.scale.set(1.2, 0.25, 1.0);
+    mesh.position.set(x, y, z);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+
+  // ── 10. Inner void sphere — prevents seeing the sky through the entrance ───
+  // Large dark sphere centred deep inside the cave swallows any leaked light.
+  const voidSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(8, 8, 6),
+    voidMat
+  );
+  voidSphere.position.set(0, 3.5, -14);
+  group.add(voidSphere);
 
   return group;
 }

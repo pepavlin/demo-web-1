@@ -1312,9 +1312,10 @@ describe("buildCaveMesh", () => {
     expect(group).toBeInstanceOf(THREE.Group);
   });
 
-  it("has multiple children (arch + walls + floor + ceiling + stalactites)", () => {
+  it("has many children — organic mound, rim rocks, interior, stalactites, roots, webs, debris", () => {
     const group = buildCaveMesh();
-    expect(group.children.length).toBeGreaterThan(8);
+    // New organic design has significantly more geometry than the old 8-piece arch
+    expect(group.children.length).toBeGreaterThan(30);
   });
 
   it("all meshes have materials", () => {
@@ -1327,7 +1328,33 @@ describe("buildCaveMesh", () => {
         meshCount++;
       }
     });
-    expect(meshCount).toBeGreaterThan(8);
+    // Organic design: earth mounds + rim rocks + depth layers + walls + stalactites
+    // + roots + webs + debris + void sphere
+    expect(meshCount).toBeGreaterThan(30);
+  });
+
+  it("contains a void sphere (darkest inner layer) with BackSide material", () => {
+    const group = buildCaveMesh();
+    let foundBackSide = false;
+    group.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = m.material as THREE.MeshLambertMaterial;
+      if (mat && mat.side === THREE.BackSide) foundBackSide = true;
+    });
+    expect(foundBackSide).toBe(true);
+  });
+
+  it("all mesh geometries have valid bounding sphere (no NaN positions)", () => {
+    const group = buildCaveMesh();
+    group.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry.computeBoundingSphere();
+      const bs = m.geometry.boundingSphere!;
+      expect(isNaN(bs.radius)).toBe(false);
+      expect(bs.radius).toBeGreaterThanOrEqual(0);
+    });
   });
 });
 
