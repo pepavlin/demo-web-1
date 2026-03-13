@@ -790,6 +790,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     spidersDefeated: 0,
     attackReady: true,
     woodCollected: 0,
+    cooldownProgress: 0,
   });
   const [nearCatapultHp, setNearCatapultHp] = useState<{ hp: number; maxHp: number } | null>(null);
   const [catapultWarning, setCatapultWarning] = useState(false);
@@ -7404,6 +7405,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           spidersDefeated: spidersDefeatedRef.current,
           attackReady: playerAttackCooldownRef.current <= 0,
           woodCollected: woodCollectedRef.current,
+          cooldownProgress: Math.max(0, Math.min(1, playerAttackCooldownRef.current / WEAPON_CONFIGS[selectedWeaponRef.current].cooldown)),
         }));
       }
 
@@ -7602,9 +7604,78 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }}
       />
 
-      {/* Crosshair */}
+      {/* Crosshair + sniper reload ring */}
       {gameState.isLocked && (
         <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+          {/* Sniper cooldown ring — shown when sniper is equipped */}
+          {selectedWeapon === "sniper" && (
+            <div className="absolute" style={{ width: 72, height: 72 }}>
+              <svg width="72" height="72" viewBox="0 0 72 72" style={{ position: "absolute", top: 0, left: 0 }}>
+                {/* Background track ring — always visible (subtle) */}
+                <circle
+                  cx="36" cy="36" r="28"
+                  fill="none"
+                  stroke="rgba(167,139,250,0.18)"
+                  strokeWidth="2.5"
+                />
+                {/* Cooldown progress arc — sweeps away as weapon reloads */}
+                {gameState.cooldownProgress > 0 && (
+                  <circle
+                    cx="36" cy="36" r="28"
+                    fill="none"
+                    stroke={
+                      gameState.cooldownProgress > 0.55
+                        ? "#ef4444"
+                        : gameState.cooldownProgress > 0.25
+                        ? "#f97316"
+                        : "#a78bfa"
+                    }
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 28}`}
+                    strokeDashoffset={`${2 * Math.PI * 28 * (1 - gameState.cooldownProgress)}`}
+                    transform="rotate(-90 36 36)"
+                    style={{
+                      transition: "stroke-dashoffset 0.1s linear, stroke 0.3s ease",
+                      opacity: 0.9,
+                    }}
+                  />
+                )}
+                {/* Ready indicator — green dot burst when fully reloaded */}
+                {gameState.cooldownProgress === 0 && (
+                  <circle
+                    cx="36" cy="36" r="28"
+                    fill="none"
+                    stroke="#22c55e"
+                    strokeWidth="1.5"
+                    className="sniper-ready-flash"
+                    style={{ opacity: 0 }}
+                  />
+                )}
+              </svg>
+              {/* Text label: remaining reload time in seconds */}
+              {gameState.cooldownProgress > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginTop: 28,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    color: "rgba(255,255,255,0.55)",
+                    letterSpacing: "0.05em",
+                    pointerEvents: "none",
+                    userSelect: "none",
+                  }}
+                >
+                  {(gameState.cooldownProgress * WEAPON_CONFIGS["sniper"].cooldown).toFixed(1)}s
+                </div>
+              )}
+            </div>
+          )}
           <div className="relative w-6 h-6">
             <div className="absolute top-1/2 left-0 w-full h-px bg-white opacity-80" />
             <div className="absolute left-1/2 top-0 h-full w-px bg-white opacity-80" />
@@ -7902,11 +7973,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — all 3 weapons, active one highlighted */}
+          {/* Weapon slots HUD — all 4 weapons, active one highlighted */}
           {(["sword", "bow", "crossbow", "sniper"] as WeaponType[]).map((w, idx) => {
             const cfg = WEAPON_CONFIGS[w];
             const isActive = selectedWeapon === w;
             const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : "🎯";
+            const onCooldown = isActive && !gameState.attackReady;
+            const RING_R = 10;
+            const ringCircumference = 2 * Math.PI * RING_R;
             return (
               <div
                 key={w}
@@ -7922,10 +7996,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   color: isActive ? cfg.color : "rgba(255,255,255,0.30)",
                   boxShadow: isActive ? `0 0 12px ${cfg.color}33` : "none",
                   transition: "all 0.15s ease",
+                  position: "relative",
                 }}
               >
                 <span style={{ opacity: isActive ? 0.8 : 0.4, fontSize: 10 }}>[{idx + 1}]</span>
-                <span>{emoji}</span>
+                {/* Weapon icon with cooldown ring overlay */}
+                <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22 }}>
+                  <span style={{ position: "relative", zIndex: 1 }}>{emoji}</span>
+                  {isActive && (
+                    <svg
+                      width="26" height="26"
+                      viewBox="0 0 26 26"
+                      style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}
+                    >
+                      {/* Track ring */}
+                      <circle cx="13" cy="13" r={RING_R} fill="none" stroke={`${cfg.color}28`} strokeWidth="2" />
+                      {/* Cooldown progress arc */}
+                      {onCooldown && (
+                        <circle
+                          cx="13" cy="13" r={RING_R}
+                          fill="none"
+                          stroke={cfg.color}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeDasharray={ringCircumference}
+                          strokeDashoffset={ringCircumference * (1 - gameState.cooldownProgress)}
+                          transform="rotate(-90 13 13)"
+                          style={{ transition: "stroke-dashoffset 0.1s linear", opacity: 0.85 }}
+                        />
+                      )}
+                    </svg>
+                  )}
+                </span>
                 <span>{cfg.label}</span>
                 {isActive && (
                   <span style={{ marginLeft: "auto", fontSize: 8, opacity: 0.6 }}>◀</span>

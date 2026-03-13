@@ -293,6 +293,8 @@ export interface GameState {
   spidersDefeated: number;
   attackReady: boolean;
   woodCollected: number;
+  /** Remaining cooldown fraction 0–1 (0 = ready to fire, 1 = just fired). Only meaningful when a ranged weapon is selected. */
+  cooldownProgress: number;
 }
 
 // ─── Tree chopping system ──────────────────────────────────────────────────────
