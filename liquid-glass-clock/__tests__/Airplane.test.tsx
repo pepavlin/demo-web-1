@@ -93,6 +93,15 @@ describe("Airplane component", () => {
     expect(svg?.getAttribute("viewBox")).toBeTruthy();
   });
 
+  it("SVG viewBox is extended to accommodate flame mesh", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const svg = container.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 140 54");
+  });
+
   it("SVG contains window ellipses (passenger windows)", () => {
     const { container } = render(<Airplane />);
     act(() => {
@@ -101,6 +110,94 @@ describe("Airplane component", () => {
     const ellipses = container.querySelectorAll("svg ellipse");
     // 6 windows + 2 engine pods = 8 ellipses
     expect(ellipses.length).toBeGreaterThanOrEqual(6);
+  });
+
+  // ── Flame mesh tests ──────────────────────────────────────────────────
+
+  it("renders flame outer layer group when flying", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const outerLayers = container.querySelectorAll(".flame-outer-layer");
+    expect(outerLayers.length).toBeGreaterThanOrEqual(2); // one per engine
+  });
+
+  it("renders flame mid layer group when flying", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const midLayers = container.querySelectorAll(".flame-mid-layer");
+    expect(midLayers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders flame core layer group when flying", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const coreLayers = container.querySelectorAll(".flame-core-layer");
+    expect(coreLayers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders flame turbulence filter in SVG defs", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const filter = container.querySelector("#flame-distort");
+    expect(filter).not.toBeNull();
+  });
+
+  it("renders flame glow filter in SVG defs", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const filter = container.querySelector("#flame-glow");
+    expect(filter).not.toBeNull();
+  });
+
+  it("renders at least 8 flame tongue polygon/path elements", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    // Flame tongues are polygon and path elements within .flame-outer-layer/.flame-mid-layer
+    const flamePolygons = container.querySelectorAll(
+      ".flame-outer-layer polygon, .flame-outer-layer path, .flame-mid-layer polygon, .flame-mid-layer path"
+    );
+    expect(flamePolygons.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("renders flame core polygons for both engines", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    const corePolygons = container.querySelectorAll(".flame-core-layer polygon");
+    expect(corePolygons.length).toBeGreaterThanOrEqual(4); // min 2 per engine
+  });
+
+  it("renders flame gradient defs with engine-specific IDs", () => {
+    const { container } = render(<Airplane />);
+    act(() => {
+      jest.advanceTimersByTime(5_000 + 40_000);
+    });
+    expect(container.querySelector("#flame-outer-1")).not.toBeNull();
+    expect(container.querySelector("#flame-mid-1")).not.toBeNull();
+    expect(container.querySelector("#flame-core-1")).not.toBeNull();
+    expect(container.querySelector("#flame-outer-2")).not.toBeNull();
+    expect(container.querySelector("#flame-mid-2")).not.toBeNull();
+    expect(container.querySelector("#flame-core-2")).not.toBeNull();
+  });
+
+  it("flame elements do not appear when airplane is not flying", () => {
+    const { container } = render(<Airplane />);
+    // No timers advanced — airplane is idle and returns null
+    const flames = container.querySelectorAll(".flame-core-layer");
+    expect(flames.length).toBe(0);
   });
 
   it("does not throw on unmount while flying", () => {
