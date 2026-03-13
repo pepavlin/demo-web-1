@@ -404,6 +404,82 @@ const cornerOffsets: readonly [number, number, number][] = [
 
 let _noise3D: ReturnType<typeof createNoise3D> | null = null;
 
+// ─── Density overrides (shovel digging) ───────────────────────────────────────
+//
+// Sparse map from voxel-grid key → additional positive density to add.
+// Adding a positive value to a negative density pushes it toward 0 (and
+// beyond) — effectively carving air into solid rock, just like cave noise does.
+//
+// Key format: "<gx>,<gy>,<gz>" using integer global voxel grid indices where:
+//   gx = round((wx + WORLD_SIZE/2) / VOXEL_SIZE)
+//   gy = round((wy - VOXEL_Y_MIN)  / VOXEL_SIZE)
+//   gz = round((wz + WORLD_SIZE/2) / VOXEL_SIZE)
+const _densityOverrides = new Map<string, number>();
+
+/** Strength added to every voxel grid point within the dig sphere. */
+const DIG_STRENGTH = 40.0;
+
+/** Convert world position to voxel grid key. */
+function _densityKey(wx: number, wy: number, wz: number): string {
+  const gx = Math.round((wx + WORLD_SIZE * 0.5) / VOXEL_SIZE);
+  const gy = Math.round((wy - VOXEL_Y_MIN)      / VOXEL_SIZE);
+  const gz = Math.round((wz + WORLD_SIZE * 0.5) / VOXEL_SIZE);
+  return `${gx},${gy},${gz}`;
+}
+
+/**
+ * Excavate a spherical volume of terrain centred on (cx, cy, cz).
+ *
+ * All voxel grid points within `radius` world units of the centre receive a
+ * large positive density override that turns them from solid (negative density)
+ * to air (positive density).  Call {@link refreshChunksAt} afterwards to
+ * regenerate the affected chunk meshes.
+ *
+ * @param cx      World X of the dig centre (e.g. a raycast hit point).
+ * @param cy      World Y of the dig centre.
+ * @param cz      World Z of the dig centre.
+ * @param radius  Radius of the excavated sphere in world units.
+ */
+export function digVoxelSphere(cx: number, cy: number, cz: number, radius: number): void {
+  const halfW = WORLD_SIZE * 0.5;
+  const VS    = VOXEL_SIZE;
+
+  // Centre voxel grid indices
+  const cgx = Math.round((cx + halfW)      / VS);
+  const cgy = Math.round((cy - VOXEL_Y_MIN) / VS);
+  const cgz = Math.round((cz + halfW)      / VS);
+
+  const r = Math.ceil(radius / VS) + 1;
+
+  for (let dz = -r; dz <= r; dz++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) * VS;
+        if (dist > radius) continue;
+
+        // World position of this grid point
+        const wx = -halfW      + (cgx + dx) * VS;
+        const wy =  VOXEL_Y_MIN + (cgy + dy) * VS;
+        const wz = -halfW      + (cgz + dz) * VS;
+
+        const key     = _densityKey(wx, wy, wz);
+        const current = _densityOverrides.get(key) ?? 0;
+        if (current < DIG_STRENGTH) {
+          _densityOverrides.set(key, DIG_STRENGTH);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Clear all shovel-dug density overrides.
+ * Useful for testing or world resets.
+ */
+export function resetDensityOverrides(): void {
+  _densityOverrides.clear();
+}
+
 /**
  * Initialise the 3D noise generator used for cave carving.
  * Uses a different seed from the 2D terrain noise to keep caves independent
@@ -447,6 +523,15 @@ export function getVoxelDensity(x: number, y: number, z: number, surfaceY?: numb
   //   y < surfaceY (underground) → density < 0 → solid (inside)
   //   y > surfaceY (above ground) → density > 0 → air  (outside)
   let density = y - sY;
+
+  // Shovel dig overrides — check before cave noise so player digs always win
+  if (_densityOverrides.size > 0) {
+    const key      = _densityKey(x, y, z);
+    const override = _densityOverrides.get(key);
+    if (override !== undefined) {
+      density += override;
+    }
+  }
 
   // Cave carving — only applies below the surface with a safety margin so that
   // we never accidentally remove the terrain surface itself.

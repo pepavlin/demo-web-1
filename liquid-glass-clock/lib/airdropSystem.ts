@@ -68,6 +68,7 @@ const LOOT_TABLE: LootEntry[] = [
   { weight: 4,  type: "weapon", weaponType: "machinegun", label: "Kulomet" },
   { weight: 3,  type: "weapon", weaponType: "sniper",     label: "Odstřelovačka" },
   { weight: 1,  type: "weapon", weaponType: "axe",        label: "Sekera" },
+  { weight: 3,  type: "weapon", weaponType: "shovel",     label: "Lopata" },
 ];
 
 /** Total weight sum — computed once for O(1) roll. */

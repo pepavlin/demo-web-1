@@ -1751,6 +1751,113 @@ export function buildBurningEffect(): THREE.Group {
   return group;
 }
 
+// ─── Shovel (Lopata) ──────────────────────────────────────────────────────────
+/**
+ * First-person shovel mesh: a wooden D-grip handle with a flat steel blade.
+ * Held at the bottom-right of the viewport like the axe, tilted forward.
+ */
+export function buildShovelMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const woodMat    = new THREE.MeshLambertMaterial({ color: 0x8b5e2a }); // brown wood
+  const woodDark   = new THREE.MeshLambertMaterial({ color: 0x5c3a14 }); // dark grip bands
+  const steelMat   = new THREE.MeshLambertMaterial({ color: 0x8a8f96, emissive: 0x202428, emissiveIntensity: 0.15 }); // brushed steel
+  const steelEdge  = new THREE.MeshLambertMaterial({ color: 0xb8c0c8, emissive: 0x3a4048, emissiveIntensity: 0.2  }); // polished edge
+  const collarMat  = new THREE.MeshLambertMaterial({ color: 0x555d66 }); // metal collar
+
+  // ── Long handle shaft ─────────────────────────────────────────────────────
+  const shaftGeo = new THREE.CylinderGeometry(0.018, 0.020, 0.72, 8);
+  const shaft    = new THREE.Mesh(shaftGeo, woodMat);
+  shaft.position.set(0, 0, 0);
+  group.add(shaft);
+
+  // Grip bands along the shaft
+  const bandPositions = [-0.22, -0.08, 0.08, 0.22];
+  for (const yPos of bandPositions) {
+    const bandGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.012, 8);
+    const band    = new THREE.Mesh(bandGeo, woodDark);
+    band.position.y = yPos;
+    group.add(band);
+  }
+
+  // ── D-grip at the top ─────────────────────────────────────────────────────
+  // Cross-bar
+  const crossGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.12, 8);
+  const cross    = new THREE.Mesh(crossGeo, woodMat);
+  cross.rotation.z = Math.PI / 2;
+  cross.position.set(0, 0.38, 0);
+  group.add(cross);
+
+  // D-loop: two short vertical arms + arc connector
+  const armGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.07, 6);
+  const armL   = new THREE.Mesh(armGeo, woodMat);
+  armL.position.set(-0.045, 0.415, 0);
+  group.add(armL);
+
+  const armR = new THREE.Mesh(armGeo, woodMat);
+  armR.position.set(0.045, 0.415, 0);
+  group.add(armR);
+
+  // Curved top of the D
+  const arcGeo = new THREE.TorusGeometry(0.045, 0.012, 6, 10, Math.PI);
+  const arc    = new THREE.Mesh(arcGeo, woodMat);
+  arc.rotation.z = Math.PI / 2;
+  arc.position.set(0, 0.452, 0);
+  group.add(arc);
+
+  // ── Metal collar (transition from shaft to blade socket) ──────────────────
+  const collarGeo = new THREE.CylinderGeometry(0.028, 0.024, 0.05, 8);
+  const collar    = new THREE.Mesh(collarGeo, collarMat);
+  collar.position.set(0, -0.37, 0);
+  group.add(collar);
+
+  // ── Shovel blade (flat elongated rectangle, slightly dish-shaped) ─────────
+  // Main blade face
+  const bladeGeo = new THREE.BoxGeometry(0.20, 0.005, 0.22);
+  const blade    = new THREE.Mesh(bladeGeo, steelMat);
+  blade.position.set(0, -0.50, 0.01);
+  // Tilt the blade slightly forward (like a real spade)
+  blade.rotation.x = 0.18;
+  group.add(blade);
+
+  // Blade sides (depth)
+  const sideGeo = new THREE.BoxGeometry(0.005, 0.025, 0.22);
+  const sideL   = new THREE.Mesh(sideGeo, steelMat);
+  sideL.position.set(-0.0975, -0.497, 0.01);
+  sideL.rotation.x = 0.18;
+  group.add(sideL);
+
+  const sideR = new THREE.Mesh(sideGeo, steelMat);
+  sideR.position.set(0.0975, -0.497, 0.01);
+  sideR.rotation.x = 0.18;
+  group.add(sideR);
+
+  // Blade back ridge (structural rib)
+  const ridgeGeo = new THREE.BoxGeometry(0.18, 0.018, 0.012);
+  const ridge    = new THREE.Mesh(ridgeGeo, collarMat);
+  ridge.position.set(0, -0.488, -0.097);
+  ridge.rotation.x = 0.18;
+  group.add(ridge);
+
+  // Sharpened cutting edge at bottom of blade
+  const edgeGeo = new THREE.BoxGeometry(0.205, 0.004, 0.010);
+  const edge    = new THREE.Mesh(edgeGeo, steelEdge);
+  edge.position.set(0, -0.510, 0.115);
+  edge.rotation.x = 0.18;
+  group.add(edge);
+
+  // ── Rivet detail on collar ────────────────────────────────────────────────
+  for (let i = 0; i < 4; i++) {
+    const angle     = (i / 4) * Math.PI * 2;
+    const rivetGeo  = new THREE.SphereGeometry(0.005, 4, 4);
+    const rivet     = new THREE.Mesh(rivetGeo, steelMat);
+    rivet.position.set(Math.cos(angle) * 0.028, -0.37, Math.sin(angle) * 0.028);
+    group.add(rivet);
+  }
+
+  return group;
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();

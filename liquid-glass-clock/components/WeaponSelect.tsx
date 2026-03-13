@@ -574,6 +574,73 @@ function FlameThrowerSVG({ selected }: { selected: boolean }) {
   );
 }
 
+function ShovelSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 60 100"
+      width="60"
+      height="100"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #a3a3a3)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "shovel-idle 4s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes shovel-idle {
+          0%, 100% { transform: rotate(-2deg) translateY(0px); }
+          30%  { transform: rotate(2deg) translateY(-5px); }
+          60%  { transform: rotate(-1deg) translateY(-3px); }
+          80%  { transform: rotate(3deg) translateY(-6px); }
+        }
+        @keyframes shovel-dig {
+          0%, 60%, 100% { transform: rotate(0deg) translateY(0px); transform-origin: 30px 10px; }
+          70% { transform: rotate(20deg) translateY(4px); transform-origin: 30px 10px; }
+          82% { transform: rotate(-5deg) translateY(-2px); transform-origin: 30px 10px; }
+          90% { transform: rotate(8deg) translateY(1px); transform-origin: 30px 10px; }
+        }
+        @keyframes blade-glint {
+          0%, 100% { opacity: 0.15; }
+          50%       { opacity: 0.45; }
+        }
+      `}</style>
+
+      <g style={{ animation: "shovel-dig 3.5s ease-in-out infinite" }}>
+        {/* D-grip cross-bar */}
+        <rect x="18" y="4" width="24" height="5" rx="2.5" fill="#7a4a1a" />
+        {/* D-grip arms */}
+        <rect x="18" y="4" width="5" height="11" rx="2.5" fill="#7a4a1a" />
+        <rect x="37" y="4" width="5" height="11" rx="2.5" fill="#7a4a1a" />
+        {/* D-grip arc (top curve) */}
+        <path d="M18,4 Q30,-4 42,4" fill="none" stroke="#7a4a1a" strokeWidth="5" strokeLinecap="round" />
+
+        {/* Shaft */}
+        <rect x="27.5" y="9" width="5" height="62" rx="2.5" fill="#8b5e2a" />
+        {/* Grip bands */}
+        <rect x="27" y="18" width="6" height="3" rx="1" fill="#5c3a14" />
+        <rect x="27" y="30" width="6" height="3" rx="1" fill="#5c3a14" />
+        <rect x="27" y="42" width="6" height="3" rx="1" fill="#5c3a14" />
+        <rect x="27" y="54" width="6" height="3" rx="1" fill="#5c3a14" />
+
+        {/* Metal collar */}
+        <rect x="25" y="68" width="10" height="7" rx="2" fill="#606870" />
+
+        {/* Blade body */}
+        <path d="M14,75 L46,75 L44,97 L16,97 Z" fill="#8a8f96" />
+        {/* Blade shine highlight */}
+        <path d="M16,75 L44,75 L42,83 L18,83 Z" fill="#b8c0c8" opacity="0.55" />
+        {/* Blade glint — animated */}
+        <rect x="18" y="76" width="5" height="18" rx="1" fill="white"
+          style={{ animation: "blade-glint 2.5s ease-in-out infinite" }} />
+        {/* Cutting edge */}
+        <line x1="14" y1="97" x2="46" y2="97" stroke="#d8e0e8" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Blade side lips */}
+        <line x1="14" y1="75" x2="14" y2="97" stroke="#606870" strokeWidth="3" strokeLinecap="round" />
+        <line x1="46" y1="75" x2="46" y2="97" stroke="#606870" strokeWidth="3" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
 // ─── Weapon card ──────────────────────────────────────────────────────────────
 interface WeaponCardProps {
   type: WeaponType;
@@ -659,6 +726,16 @@ const WEAPON_META: Record<
     ],
     description: "Plamenomet s palivovou nádrží. Proud spalující ohně na krátkou vzdálenost — drž levé tlačítko pro nepřetržitý žár.",
     key: "7",
+  },
+  shovel: {
+    icon: null,
+    stats: [
+      { label: "Kopání terénu", value: 100, max: 100 },
+      { label: "Poškození", value: 20, max: 100 },
+      { label: "Rychlost kopání", value: 65, max: 100 },
+    ],
+    description: "Ocelová lopata pro kopání tunelů. Mier na terén a klikni — vyhrabej si cestu skrz marching cubes svět.",
+    key: "8",
   },
 };
 
@@ -753,6 +830,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         {type === "axe" && <AxeSVG selected={selected} />}
         {type === "machinegun" && <MachineGunSVG selected={selected} />}
         {type === "flamethrower" && <FlameThrowerSVG selected={selected} />}
+        {type === "shovel" && <ShovelSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -842,6 +920,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
       if (e.key === "5") setSelected("axe");
       if (e.key === "6") setSelected("machinegun");
       if (e.key === "7") setSelected("flamethrower");
+      if (e.key === "8") setSelected("shovel");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -892,12 +971,12 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(7, 1fr)",
+            gridTemplateColumns: "repeat(8, 1fr)",
             gap: 12,
             marginBottom: 24,
           }}
         >
-          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>
@@ -939,7 +1018,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             color: "rgba(255,255,255,0.2)",
           }}
         >
-          Klávesy [1] [2] [3] [4] [5] [6] [7] pro výběr · [Enter] pro potvrzení
+          Klávesy [1] [2] [3] [4] [5] [6] [7] [8] pro výběr · [Enter] pro potvrzení
         </p>
       </div>
     </div>

@@ -506,9 +506,48 @@ class SoundManager {
       this._playMachineGunShot();
     } else if (weaponType === "flamethrower") {
       this._playFlamethrowerShot();
+    } else if (weaponType === "shovel") {
+      this._playShovelDig();
     } else {
       this._playBowShot();
     }
+  }
+
+  /** Shovel dig: earthy thud + gritty soil scrape. */
+  private _playShovelDig(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t   = ctx.currentTime;
+
+    // Low thud — impact of blade hitting earth
+    const thudOsc = ctx.createOscillator();
+    thudOsc.type  = "sine";
+    thudOsc.frequency.setValueAtTime(90, t);
+    thudOsc.frequency.exponentialRampToValueAtTime(30, t + 0.12);
+    const thudEnv = ctx.createGain();
+    thudEnv.gain.setValueAtTime(0.55, t);
+    thudEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    thudOsc.connect(thudEnv);
+    thudEnv.connect(this.sfxGain);
+    thudOsc.start(t);
+    thudOsc.stop(t + 0.18);
+
+    // Gritty scrape — filtered noise, mid-frequency
+    const scrapeNoise = ctx.createBufferSource();
+    scrapeNoise.buffer = this._noiseBuffer(0.22);
+    const scrapeFlt   = ctx.createBiquadFilter();
+    scrapeFlt.type    = "bandpass";
+    scrapeFlt.frequency.value = 600 + Math.random() * 300;
+    scrapeFlt.Q.value = 1.5;
+    const scrapeEnv = ctx.createGain();
+    scrapeEnv.gain.setValueAtTime(0, t + 0.03);
+    scrapeEnv.gain.linearRampToValueAtTime(0.25, t + 0.07);
+    scrapeEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    scrapeNoise.connect(scrapeFlt);
+    scrapeFlt.connect(scrapeEnv);
+    scrapeEnv.connect(this.sfxGain);
+    scrapeNoise.start(t + 0.03);
+    scrapeNoise.stop(t + 0.28);
   }
 
   /** Sword swing: sharp air-cutting swish + brief metallic ring. */
