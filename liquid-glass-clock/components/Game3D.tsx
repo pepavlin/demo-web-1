@@ -1706,9 +1706,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     muzzleFlashRef.current = muzzleFlash;
 
     // ── Headlamp spotlight (parented to camera, points forward) ─────────────
-    // Cone angle: 20° half-angle, penumbra 0.35 for soft edges, range 20 units.
+    // Cone angle: ~22.5° half-angle (PI/8), penumbra 0.25 for crisp cone edge,
+    // range 60 units, linear decay (1.0) so the beam actually reaches far ahead.
     // The spotlight target must also be a child of camera so it moves with it.
-    const headlampLight = new THREE.SpotLight(0xffe8a0, 0, 20, Math.PI / 9, 0.35, 1.5);
+    const headlampLight = new THREE.SpotLight(0xffe8a0, 0, 60, Math.PI / 8, 0.25, 1.0);
     headlampLight.position.set(0, 0, 0); // at camera origin
     camera.add(headlampLight);
     const headlampTarget = new THREE.Object3D();
@@ -4474,9 +4475,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // The headlamp smoothly fades in/out via lerp so there is no jarring jump.
       {
         const headlampOn = nightFactor > 0.3 || _inStation;
-        // Max intensity: 2.8 at full night, proportional during dusk/dawn
+        // Station: strong cone beam (8.0). Night: up to 4.0 (proportional to dusk/dawn).
         const targetIntensity = headlampOn
-          ? (_inStation ? 2.8 : nightFactor * 2.8)
+          ? (_inStation ? 8.0 : nightFactor * 4.0)
           : 0;
         if (headlampLightRef.current) {
           headlampLightRef.current.intensity +=
@@ -4486,7 +4487,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (headlampBodyMeshRef.current) {
           const hlMat = headlampBodyMeshRef.current.material as THREE.MeshLambertMaterial;
           const targetEmissive = headlampOn
-            ? (_inStation ? 3.5 : nightFactor * 3.5)
+            ? (_inStation ? 5.0 : nightFactor * 4.0)
             : 0;
           hlMat.emissiveIntensity +=
             (targetEmissive - hlMat.emissiveIntensity) * Math.min(1, dt * 4);
@@ -4494,7 +4495,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Remote players' headlamp emissive (instant – no ref tracking per remote player needed)
         if (remotePlayersRef.current.size > 0) {
           const remoteEmissive = headlampOn
-            ? (_inStation ? 3.5 : nightFactor * 3.5)
+            ? (_inStation ? 5.0 : nightFactor * 4.0)
             : 0;
           remotePlayersRef.current.forEach((data) => {
             const hlMesh = data.mesh.getObjectByName("headlamp") as THREE.Mesh | undefined;
