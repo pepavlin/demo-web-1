@@ -515,42 +515,44 @@ describe("buildBowMesh", () => {
     expect(bow).toBeInstanceOf(THREE.Group);
   });
 
-  it("has at least 7 direct children (grip + risers + 2 tube limbs + 2 string pivots + nockPoint)", () => {
+  it("has at least 8 direct children (grip + 6 limb segments + bowstring group)", () => {
     const bow = buildBowMesh();
-    // grip, upperRiser, lowerRiser, upperLimb, lowerLimb, upperStringPivot, lowerStringPivot, nockPoint
-    expect(bow.children.length).toBeGreaterThanOrEqual(7);
+    // grip + bowUpperSeg1/2/3 + bowLowerSeg1/2/3 + bowstring Group = 8
+    expect(bow.children.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("has named 'upperStringPivot' and 'lowerStringPivot' groups for V-string animation", () => {
+  it("has named 'bowStringUpper' and 'bowStringLower' meshes for V-string animation", () => {
     const bow = buildBowMesh();
-    const upperPivot = bow.getObjectByName("upperStringPivot");
-    const lowerPivot = bow.getObjectByName("lowerStringPivot");
-    expect(upperPivot).toBeDefined();
-    expect(upperPivot).toBeInstanceOf(THREE.Group);
-    expect(lowerPivot).toBeDefined();
-    expect(lowerPivot).toBeInstanceOf(THREE.Group);
+    const strUpper = bow.getObjectByName("bowStringUpper");
+    const strLower = bow.getObjectByName("bowStringLower");
+    expect(strUpper).toBeDefined();
+    expect(strUpper).toBeInstanceOf(THREE.Mesh);
+    expect(strLower).toBeDefined();
+    expect(strLower).toBeInstanceOf(THREE.Mesh);
   });
 
-  it("has a named 'nockPoint' group that contains the nocked arrow", () => {
+  it("has a 'bowstring' group containing string halves and a 'nockedArrow' group", () => {
     const bow = buildBowMesh();
-    const nockPoint = bow.getObjectByName("nockPoint");
-    expect(nockPoint).toBeDefined();
-    expect(nockPoint).toBeInstanceOf(THREE.Group);
+    const bowstringGroup = bow.getObjectByName("bowstring");
+    expect(bowstringGroup).toBeDefined();
+    expect(bowstringGroup).toBeInstanceOf(THREE.Group);
     const nockedArrow = bow.getObjectByName("nockedArrow");
     expect(nockedArrow).toBeDefined();
     expect(nockedArrow).toBeInstanceOf(THREE.Group);
   });
 
-  it("limb tubes use TubeGeometry (smooth, no per-segment rotation issues)", () => {
+  it("limb segments use CylinderGeometry and are named bowUpperSeg1-3 / bowLowerSeg1-3", () => {
     const bow = buildBowMesh();
-    let hasTubeGeometry = false;
-    bow.traverse((child) => {
-      const mesh = child as THREE.Mesh;
-      if (mesh.isMesh && mesh.geometry instanceof THREE.TubeGeometry) {
-        hasTubeGeometry = true;
-      }
-    });
-    expect(hasTubeGeometry).toBe(true);
+    const segNames = [
+      "bowUpperSeg1", "bowUpperSeg2", "bowUpperSeg3",
+      "bowLowerSeg1", "bowLowerSeg2", "bowLowerSeg3",
+    ];
+    for (const name of segNames) {
+      const seg = bow.getObjectByName(name) as THREE.Mesh;
+      expect(seg).toBeDefined();
+      expect(seg).toBeInstanceOf(THREE.Mesh);
+      expect(seg.geometry).toBeInstanceOf(THREE.CylinderGeometry);
+    }
   });
 
   it("uses wood-like brown colors for limbs (found via traverse)", () => {
@@ -567,12 +569,25 @@ describe("buildBowMesh", () => {
     expect(hasBrownish).toBe(true);
   });
 
-  it("string pivots are positioned symmetrically (upper Y = -lower Y)", () => {
+  it("bowStringUpper and bowStringLower are positioned symmetrically (upper Y = -lower Y)", () => {
     const bow = buildBowMesh();
-    const upperPivot = bow.getObjectByName("upperStringPivot") as THREE.Group;
-    const lowerPivot = bow.getObjectByName("lowerStringPivot") as THREE.Group;
-    expect(upperPivot.position.y).toBeCloseTo(-lowerPivot.position.y, 3);
-    expect(upperPivot.position.x).toBeCloseTo(lowerPivot.position.x, 3);
+    const strUpper = bow.getObjectByName("bowStringUpper") as THREE.Mesh;
+    const strLower = bow.getObjectByName("bowStringLower") as THREE.Mesh;
+    expect(strUpper.position.y).toBeCloseTo(-strLower.position.y, 3);
+    expect(strUpper.position.x).toBeCloseTo(strLower.position.x, 3);
+  });
+
+  it("all named limb segments store baseRotZ and basePosZ in userData for flex animation", () => {
+    const bow = buildBowMesh();
+    const flexSegNames = [
+      "bowUpperSeg1", "bowUpperSeg2", "bowUpperSeg3",
+      "bowLowerSeg1", "bowLowerSeg2", "bowLowerSeg3",
+    ];
+    for (const name of flexSegNames) {
+      const seg = bow.getObjectByName(name) as THREE.Mesh;
+      expect(typeof seg.userData.baseRotZ).toBe("number");
+      expect(typeof seg.userData.basePosZ).toBe("number");
+    }
   });
 });
 

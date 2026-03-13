@@ -6268,33 +6268,73 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             drawProgress *= 0.15; // partially visible tension at rest
           }
 
-          const bowstringGroup = wep.getObjectByName("bowstring");
-          if (bowstringGroup) {
-            // Pull string back toward the archer (+Z in bow-local space)
-            const pullZ = drawProgress * 0.034;
-            bowstringGroup.position.z = pullZ;
-            // Slightly pull string away from limb tips when drawn
-            bowstringGroup.position.x = drawProgress * -0.008;
+          // How far the nock (string center) is pulled toward the archer at full draw.
+          // Larger value = more dramatic V shape and stronger limb flex.
+          const MAX_PULL_Z = 0.080;
+          const STR_X = 0.092;
+          const TIP_Y = 0.306; // bow limb tip Y coordinate (from meshBuilders keypoints)
+          const pullZ = drawProgress * MAX_PULL_Z;
+
+          // ── Geometric V-string animation ────────────────────────────────────
+          // Each half is re-oriented every frame so its endpoints land exactly on
+          // the limb tip (fixed) and the nock point (moves with pullZ).
+          // Math: unit Y-axis of the mesh follows the half-string direction.
+          //   Upper half: tip=(STR_X, TIP_Y, 0), nock=(STR_X, 0, pullZ)
+          //   Lower half: tip=(STR_X,-TIP_Y, 0), nock=(STR_X, 0, pullZ)
+          const strLen = Math.sqrt(TIP_Y * TIP_Y + pullZ * pullZ);
+          const strScale = strLen / TIP_Y; // scale.y relative to rest length
+
+          const strUpper = wep.getObjectByName("bowStringUpper") as THREE.Mesh | undefined;
+          const strLower = wep.getObjectByName("bowStringLower") as THREE.Mesh | undefined;
+          if (strUpper) {
+            // Center = midpoint between nock and tip
+            strUpper.position.set(STR_X, TIP_Y / 2, pullZ / 2);
+            // rotation.x tilts top of box toward -Z (bow tip side)
+            strUpper.rotation.x = Math.atan2(-pullZ, TIP_Y);
+            strUpper.scale.y = strScale;
+          }
+          if (strLower) {
+            strLower.position.set(STR_X, -TIP_Y / 2, pullZ / 2);
+            // rotation.x tilts top of box toward +Z (nock side)
+            strLower.rotation.x = Math.atan2(pullZ, TIP_Y);
+            strLower.scale.y = strScale;
+          }
+
+          // ── Nocked arrow moves with the nock point ──────────────────────────
+          // The bowstringGroup stays at origin; only the arrow child translates in Z.
+          const nockedArrow = wep.getObjectByName("nockedArrow") as THREE.Object3D | undefined;
+          if (nockedArrow) {
+            nockedArrow.position.z = pullZ;
           }
 
           // ── Dynamic limb flex: bow limbs bend as string is drawn ──────────
-          // The outer limb segments rotate and shift in Z to simulate the bow
-          // storing energy. Mid segments flex at half the amplitude of tips.
+          // All three segment pairs are flexed for a convincing elastic arc.
+          // Seg1: innermost (subtle), Seg2: mid, Seg3: outermost (most dramatic).
+          const uSeg1 = wep.getObjectByName("bowUpperSeg1") as THREE.Mesh | undefined;
+          const lSeg1 = wep.getObjectByName("bowLowerSeg1") as THREE.Mesh | undefined;
           const uSeg2 = wep.getObjectByName("bowUpperSeg2") as THREE.Mesh | undefined;
           const uSeg3 = wep.getObjectByName("bowUpperSeg3") as THREE.Mesh | undefined;
           const lSeg2 = wep.getObjectByName("bowLowerSeg2") as THREE.Mesh | undefined;
           const lSeg3 = wep.getObjectByName("bowLowerSeg3") as THREE.Mesh | undefined;
+          if (uSeg1) {
+            uSeg1.position.z = uSeg1.userData.basePosZ + drawProgress * 0.012;
+            uSeg1.rotation.z = uSeg1.userData.baseRotZ - drawProgress * 0.06;
+          }
+          if (lSeg1) {
+            lSeg1.position.z = lSeg1.userData.basePosZ + drawProgress * 0.012;
+            lSeg1.rotation.z = lSeg1.userData.baseRotZ + drawProgress * 0.06;
+          }
           if (uSeg2 && uSeg3 && lSeg2 && lSeg3) {
-            // Mid segments: slight flex
-            uSeg2.position.z = uSeg2.userData.basePosZ + drawProgress * 0.008;
-            uSeg2.rotation.z = uSeg2.userData.baseRotZ - drawProgress * 0.05;
-            lSeg2.position.z = lSeg2.userData.basePosZ + drawProgress * 0.008;
-            lSeg2.rotation.z = lSeg2.userData.baseRotZ + drawProgress * 0.05;
-            // Tip segments: full flex — limb tips visibly curl toward the archer
-            uSeg3.position.z = uSeg3.userData.basePosZ + drawProgress * 0.016;
-            uSeg3.rotation.z = uSeg3.userData.baseRotZ - drawProgress * 0.12;
-            lSeg3.position.z = lSeg3.userData.basePosZ + drawProgress * 0.016;
-            lSeg3.rotation.z = lSeg3.userData.baseRotZ + drawProgress * 0.12;
+            // Mid segments: moderate flex
+            uSeg2.position.z = uSeg2.userData.basePosZ + drawProgress * 0.024;
+            uSeg2.rotation.z = uSeg2.userData.baseRotZ - drawProgress * 0.14;
+            lSeg2.position.z = lSeg2.userData.basePosZ + drawProgress * 0.024;
+            lSeg2.rotation.z = lSeg2.userData.baseRotZ + drawProgress * 0.14;
+            // Tip segments: full flex — limb tips visibly arc toward the archer
+            uSeg3.position.z = uSeg3.userData.basePosZ + drawProgress * 0.042;
+            uSeg3.rotation.z = uSeg3.userData.baseRotZ - drawProgress * 0.28;
+            lSeg3.position.z = lSeg3.userData.basePosZ + drawProgress * 0.042;
+            lSeg3.rotation.z = lSeg3.userData.baseRotZ + drawProgress * 0.28;
           }
 
           // Tilt bow and pull weapon back slightly when fully drawn (aiming posture)

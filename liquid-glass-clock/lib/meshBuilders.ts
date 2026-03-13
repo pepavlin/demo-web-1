@@ -1084,8 +1084,11 @@ export function buildBowMesh(): THREE.Group {
   // ── Upper limb – segment 1 (K u0 → u1) ──────────────────────────────────
   const u1Len = Math.hypot(K.u1[0] - K.u0[0], K.u1[1] - K.u0[1]);
   const u1 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, u1Len, 7), woodMat);
+  u1.name = "bowUpperSeg1";
   u1.position.set((K.u0[0] + K.u1[0]) / 2, (K.u0[1] + K.u1[1]) / 2, 0);
   u1.rotation.z = bowLimbRotZ(K.u0[0], K.u0[1], K.u1[0], K.u1[1]);
+  u1.userData.baseRotZ = u1.rotation.z;
+  u1.userData.basePosZ = 0;
   group.add(u1);
 
   // ── Upper limb – segment 2 (K u1 → u2) ──────────────────────────────────
@@ -1114,8 +1117,11 @@ export function buildBowMesh(): THREE.Group {
   // rotation.z ≈ -(π - upper_angle) to correctly orient downward+rightward.
   const l1Len = Math.hypot(K.l1[0] - K.l0[0], K.l1[1] - K.l0[1]);
   const l1 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, l1Len, 7), woodMat);
+  l1.name = "bowLowerSeg1";
   l1.position.set((K.l0[0] + K.l1[0]) / 2, (K.l0[1] + K.l1[1]) / 2, 0);
   l1.rotation.z = bowLimbRotZ(K.l0[0], K.l0[1], K.l1[0], K.l1[1]);
+  l1.userData.baseRotZ = l1.rotation.z;
+  l1.userData.basePosZ = 0;
   group.add(l1);
 
   // ── Lower limb – segment 2 (K l1 → l2) ──────────────────────────────────
@@ -1138,20 +1144,41 @@ export function buildBowMesh(): THREE.Group {
   l3.userData.basePosZ = 0;
   group.add(l3);
 
-  // ── Bowstring group (animated – pulled back when drawing) ─────────────────
-  // Named "bowstring" so Game3D can find and animate it.
+  // ── Bowstring group (animated – the two string halves form a V when drawn) ─
+  // Named "bowstring" so Game3D can find it. The group itself is NOT translated;
+  // individual children are repositioned each frame by Game3D.
   const bowstringGroup = new THREE.Group();
   bowstringGroup.name = "bowstring";
 
-  // String runs from upper tip to lower tip; tips are at X=0.086, Y=±0.306.
-  // String positioned at X=0.092 (slightly in front of tips for visual clarity).
-  const stringHeight = K.u3[1] * 2 + 0.012; // ≈ 0.624
-  const stringGeo = new THREE.BoxGeometry(0.003, stringHeight, 0.002);
-  const stringMesh = new THREE.Mesh(stringGeo, stringMat);
-  stringMesh.position.set(0.092, 0, 0);
-  bowstringGroup.add(stringMesh);
+  // String X position (slightly in front of tips for visual clarity).
+  const STR_X = 0.092;
+  const TIP_Y = K.u3[1]; // 0.306 – Y coordinate of the limb tips
 
-  // ── Arrow nocked on the string (child of bowstringGroup so it pulls with it)
+  // ── Upper string half: nock (y=0) → upper tip (y=TIP_Y) at rest ──────────
+  // At rest the half goes straight up; when drawn it tilts into a V.
+  // Game3D animates position, rotation.x, and scale.y every frame.
+  const halfLen = TIP_Y; // rest length ≈ 0.306
+  const upperStringGeo = new THREE.BoxGeometry(0.003, halfLen, 0.002);
+  const upperString = new THREE.Mesh(upperStringGeo, stringMat);
+  upperString.name = "bowStringUpper";
+  upperString.position.set(STR_X, TIP_Y / 2, 0);
+  upperString.userData.restLength = halfLen;
+  upperString.userData.tipY = TIP_Y;
+  upperString.userData.tipX = STR_X;
+  bowstringGroup.add(upperString);
+
+  // ── Lower string half: nock (y=0) → lower tip (y=-TIP_Y) at rest ─────────
+  const lowerStringGeo = new THREE.BoxGeometry(0.003, halfLen, 0.002);
+  const lowerString = new THREE.Mesh(lowerStringGeo, stringMat);
+  lowerString.name = "bowStringLower";
+  lowerString.position.set(STR_X, -TIP_Y / 2, 0);
+  lowerString.userData.restLength = halfLen;
+  lowerString.userData.tipY = -TIP_Y;
+  lowerString.userData.tipX = STR_X;
+  bowstringGroup.add(lowerString);
+
+  // ── Arrow nocked on the string ────────────────────────────────────────────
+  // Child of bowstringGroup. Game3D animates arrowGroup.position.z to pullZ.
   const arrowGroup = new THREE.Group();
   arrowGroup.name = "nockedArrow";
   // Shaft – oriented along -Z (into screen = forward)
