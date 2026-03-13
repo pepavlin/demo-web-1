@@ -2,7 +2,9 @@
 
 ## Overview
 
-The terrain is a procedurally generated 267×267-unit heightmap rendered with a custom GLSL `ShaderMaterial`. It combines large-scale biome colour zoning, multi-scale noise variation, and (as of March 2026) per-biome surface textures applied via **triplanar projection**.
+The terrain is a procedurally generated 267×267-unit world rendered with a custom GLSL `ShaderMaterial`.  As of March 2026, the terrain uses a **Marching Cubes voxel technique** to produce a fully volumetric 3D mesh.  This enables true overhangs, arches, and underground cave networks — features impossible with the old flat `PlaneGeometry` heightmap.
+
+The surface shape is still driven by the same layered simplex-noise height function, but the mesh itself is generated from a 3D signed-density field that is sampled and triangulated on a regular voxel grid.
 
 ---
 
@@ -12,145 +14,176 @@ The terrain is a procedurally generated 267×267-unit heightmap rendered with a 
 
 | File | Purpose |
 |------|---------|
-| `lib/terrainUtils.ts` | Height generation (noise, biome sampling, height grid) |
+| `lib/terrainUtils.ts` | 2D height generation (noise, biome sampling, height grid, sculpt tools) |
+| `lib/voxelTerrain.ts` | Marching Cubes algorithm, 3D density field, cave noise, chunk generation |
 | `lib/terrainTextures.ts` | Procedural canvas texture generation for biomes |
-| `components/Game3D.tsx` | Three.js scene setup: terrain mesh, `ShaderMaterial`, grass, water |
+| `components/Game3D.tsx` | Three.js scene setup: voxel terrain group, `ShaderMaterial`, grass, water |
+| `__tests__/terrainUtils.test.ts` | Unit tests for 2D height utilities |
+| `__tests__/voxelTerrain.test.ts` | Unit tests for Marching Cubes and density field |
 | `__tests__/terrainTextures.test.ts` | Unit tests for texture generator |
 
-### Constants (`terrainUtils.ts`)
+---
+
+## Marching Cubes Voxel Terrain (`lib/voxelTerrain.ts`)
+
+### Density Field
+
+The core of the system is a **signed density function**:
+
+```
+density(x, y, z) = terrainHeight(x, z) − y  +  caveCarving(x, y, z)
+```
+
+| Sign | Meaning |
+|------|---------|
+| `density > 0` | Solid rock/ground |
+| `density < 0` | Air / void |
+| `density = 0` | **Surface** (the isosurface the MC algorithm triangulates) |
+
+The terrain surface is therefore identical to the existing 2D height-map, but the 3D noise adds cave tunnels underground.
+
+### Cave Carving
+
+Cave carving uses `createNoise3D` from `simplex-noise` with a **separate seed** from the surface noise (XOR'd with `0xdeadbeef`) so cave layout is independent of the landscape shape.
+
+Two cave networks are layered:
+
+| Layer | Frequency (H/V) | Effect |
+|-------|-----------------|--------|
+| Primary | 0.038 / 0.055 | Large winding tunnels |
+| Secondary | 0.087 / 0.116 | Smaller branching passages |
+
+Carving only applies when the current point is **at least 4 units below the terrain surface** (`CAVE_MIN_DEPTH = 4.0`).  This prevents accidental removal of the landscape surface.
+
+```ts
+// Pseudo-code
+if (depth > CAVE_MIN_DEPTH) {
+  n = noise3D(x * H, y * V, z * H)  // range [0, 1]
+  if (n > CAVE_THRESHOLD)             // 0.60 = ~40% of underground carved
+    density -= (n - threshold) / (1 - threshold) * CARVE_STRENGTH
+}
+```
+
+### Chunk System
+
+The world volume is divided into **axis-aligned chunks** of `CHUNK_SIZE × CHUNK_SIZE × CHUNK_SIZE` voxels:
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
-| `WORLD_SIZE` | 267 | Side length of the terrain in world units |
-| `TERRAIN_SEGMENTS` | 120 | Vertex resolution per axis of the PlaneGeometry |
+| `VOXEL_SIZE` | 2.0 | World units per voxel |
+| `CHUNK_SIZE` | 16 | Voxels per chunk side |
+| `CHUNK_WORLD` | 32 | World units per chunk (= 16 × 2) |
+| `VOXEL_Y_MIN` | -32 | Bottom of the voxel volume |
+| `VOXEL_Y_MAX` | 64 | Top of the voxel volume |
+
+Chunks are generated **once at startup** in `generateVoxelTerrain()`.  Chunks that are **entirely solid** or **entirely air** are discarded without running the full algorithm, which makes generation fast.
+
+### Marching Cubes Algorithm
+
+Standard Paul Bourke implementation with the full 256-case look-up tables:
+
+1. Sample density at all `(CHUNK_SIZE+1)³` grid points → `Float32Array`
+2. Early-exit if all values are same sign (solid or air chunk)
+3. For each of the `CHUNK_SIZE³` voxel cubes:
+   a. Build an 8-bit `cubeIndex` from which corners are below the isosurface
+   b. Look up `edgeTable[cubeIndex]` → bitmask of intersected edges
+   c. Linearly interpolate vertex positions on each intersected edge
+   d. Look up `triTable[cubeIndex]` → triangle connectivity
+4. Accumulate `Float32Array` of positions and colours
+5. Build `THREE.BufferGeometry` with `position`, `color`, `normal` attributes
+
+### Vertex Colours
+
+Vertex colours are written directly into the `BufferGeometry` using the same biome palette as the old terrain:
+
+| Biome | Colour |
+|-------|--------|
+| Deep water | `rgb(0.12, 0.22, 0.50)` |
+| Shallow water | `rgb(0.22, 0.44, 0.68)` |
+| Sand | `rgb(0.74, 0.68, 0.44)` |
+| Bright grass | `rgb(0.40, 0.68, 0.22)` |
+| Mid grass | `rgb(0.30, 0.54, 0.17)` |
+| Dark grass | `rgb(0.23, 0.43, 0.13)` |
+| Rock brown | `rgb(0.50, 0.42, 0.30)` |
+| Rock gray | `rgb(0.62, 0.59, 0.56)` |
+| **Cave** | `rgb(0.28, 0.24, 0.20)` (dark rock) |
+
+Cave vertices are identified at colour-assignment time:
+`isCave = worldY < surfaceHeight - 3`
+
+### Terrain Shader
+
+The terrain `ShaderMaterial` is the same as before with two key changes:
+
+1. **`vertexColors = true`** — enables the `color` attribute in GLSL
+2. **Fragment shader uses `vColor`** instead of computing the biome from `vHeight`.  This allows cave walls (which have negative `y` values that would otherwise read as "deep water") to show the correct dark-rock colour.
+
+The triplanar texture system and Lambert/headlamp lighting are **unchanged**.
+
+---
+
+## 2D Height Utilities (`lib/terrainUtils.ts`)
+
+These are unchanged and still drive the density field, entity placement, and terrain sculpting.
+
+### Constants
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `WORLD_SIZE` | 267 | Side length in world units |
+| `TERRAIN_SEGMENTS` | 120 | Grid resolution for the height grid |
 | `WATER_LEVEL` | -0.5 | Y threshold below which terrain is considered water |
-| `WAVE_MAX_AMPLITUDE` | 0.86 | Sum of all Gerstner wave amplitudes in the water shader (0.26+0.20+0.28+0.065+0.050). The visual water surface can peak at `WATER_LEVEL + WAVE_MAX_AMPLITUDE ≈ 0.36`. |
-| `LAND_SPAWN_MARGIN` | 1.0 | Minimum terrain-height clearance required for a dry-land object. Any placement below `WATER_LEVEL + LAND_SPAWN_MARGIN = 0.5` may have waves visually washing over it. **All spawners must respect this threshold.** |
+| `WAVE_MAX_AMPLITUDE` | 0.86 | Sum of all Gerstner wave amplitudes |
+| `LAND_SPAWN_MARGIN` | 1.0 | Minimum clearance above water for entity placement |
+
+### Height Grid
+
+A `Float32Array` of `(TERRAIN_SEGMENTS+1)²` values is computed once after `initNoise()`.  It is used for bilinear-interpolated height queries (`getTerrainHeightSampled`) which match the visual mesh surface exactly.
+
+The MC density field reads `getTerrainHeight(x, z)` directly (exact noise, not the grid) for accuracy.
 
 ---
 
 ## Water-Safety Placement Rule
 
-**Rule:** Any land-based object (tree, bush, sheep, fence post, building, …) must only be
-placed where `terrainHeight >= WATER_LEVEL + LAND_SPAWN_MARGIN` (≥ 0.5).
-
-This is stricter than merely checking `terrainHeight > WATER_LEVEL` because Gerstner waves
-can peak up to 0.86 units *above* the base water plane, visually submerging objects that sit
-in the shore/beach transition zone (heights between −0.5 and 0.36).
-
-### Enforced by
-
-| Mechanism | Where |
-|-----------|-------|
-| `generateSpawnPoints()` | rejects positions with `y < WATER_LEVEL + LAND_SPAWN_MARGIN` |
-| `findPositionsInSectors()` | default `minHeight = WATER_LEVEL + LAND_SPAWN_MARGIN` |
-| Fence/pen posts | each post skipped if its terrain y < safe threshold |
-| `assertSafeLand(label, x, z)` | dev-only warning for fixed-position structures |
-| Wildflowers | inline check `wy >= 0.5` (equals the threshold) |
-
-### Fixed-structure placement
-
-Structures with hardcoded world coordinates are guarded by `assertSafeLand()`, which logs a
-console warning in development if the position falls below the safe threshold.
-
-Ruins and Lighthouse are dynamically placed with `findPositionsInSectors(2, 75, 115, …)` to
-ensure they always land on dry elevated terrain, even if the terrain generation changes.
-
-**Root cause fixed (2026-03):** The former Ruins position (180, −120) was outside the world
-boundary (`halfWorld = 133.5`) and sat deep underwater (h ≈ −6.4). The Lighthouse position
-(−95, 85) was also underwater with the current simplex-noise seed. Both are now resolved by
-dynamic placement.
+All land-based object placement still follows the same rule — terrain height must be ≥ `WATER_LEVEL + LAND_SPAWN_MARGIN = 0.5`.  Enforced by `generateSpawnPoints`, `findPositionsInSectors`, and `assertSafeLand`.
 
 ---
 
-## Terrain Mesh
+## Terrain Deformation (Bomb Craters, Sculpting)
 
-A `THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS)` is created, rotated −90° on X, then each vertex Y position is set by `getTerrainHeight(x, z)`.  Vertex normals are recomputed after deformation.
+After `modifyTerrainHeight()` updates the `heightGrid`, the voxel terrain is **regenerated** for the affected chunks via:
 
----
+```ts
+voxelTerrainRef.current.refreshChunksAt(worldX, worldZ, radius, material);
+```
 
-## Terrain Shader
-
-The terrain uses `THREE.ShaderMaterial` with a fully custom vertex + fragment shader, so no MeshStandard/Phong lighting model is used.
-
-### Uniforms
-
-| Uniform | Type | Purpose |
-|---------|------|---------|
-| `uSunDir` | `vec3` | Normalised sun direction |
-| `uSunColor` | `vec3` | Sun tint (warm yellow-white) |
-| `uSunIntensity` | `float` | 0–1 intensity multiplier |
-| `uAmbientColor` | `vec3` | Sky ambient fill colour |
-| `uTexGrass` | `sampler2D` | Procedural grass surface texture |
-| `uTexRock` | `sampler2D` | Procedural rock/stone surface texture |
-| `uTexSand` | `sampler2D` | Procedural sand surface texture |
-| `uTexSnow` | `sampler2D` | Procedural snow surface texture |
-| `uTexDirt` | `sampler2D` | Procedural dirt/soil surface texture |
-| `uTexScale` | `float` | Tiling frequency (default `1/8` → 8-unit tile) |
-| `uTexStrength` | `float` | Texture blend strength 0–1 (default 0.40) |
-
-### Fragment Shader Stages
-
-1. **Multi-scale FBM noise** – `macro` (~40 u), `meso` (~10 u), `micro` (~2 u), `crack` patterns.
-2. **Biome classification** – height-wobbled by macro/meso noise to produce organic borders.  Biomes: deep water → shallow water → sand → dry grass → bright grass → mid/dark grass → rock → snow.
-3. **Slope rock overlay** – `smoothstep(0.38, 0.65, slope)` on the dot(normal, up) to push cliffs towards rock colour.
-4. **Triplanar texture sampling** – each biome texture is sampled in three planes (XZ, XY, ZY) and blended by the surface normal to avoid stretching on vertical cliffs.  Weights for each biome are tracked during the biome pass and normalised before sampling.  A coarse second sample (4× lower frequency) is mixed in at 35 % for depth.
-5. **Texture detail factor** – `col *= 1 + strength*(luminance(detail) - 0.5)*2`.  This is a multiplicative approach that preserves the average biome brightness while adding ±contrast.
-6. **Micro-shading** – `col *= 0.90 + micro * 0.18` for subtle per-pixel brightness jitter.
-7. **Lambert lighting** – `col * (ambient + sun * diffuse * intensity)`.
-
----
-
-## Procedural Textures (`lib/terrainTextures.ts`)
-
-### `generateTerrainTextureData(type, size)`
-
-Pure function (no DOM dependency) that returns a `Uint8ClampedArray` of `size×size×4` RGBA pixels.
-
-**Algorithm**:
-1. Seeded LCG RNG initialised per biome type → deterministic, no external randomness.
-2. 2D value noise grid (bilinear-interpolated) sampled at 8 frequency bands.
-3. Fractal Brownian Motion (4 octaves) stacked at three spatial frequencies.
-4. Per-biome pixel formula:
-
-| Biome | Key visual feature |
-|-------|--------------------|
-| `grass` | Bright green, blade-like high-freq detail |
-| `rock` | Gray-brown with crack-dark lines |
-| `sand` | Warm beige with sin-wave ripple |
-| `snow` | Bright white, blue crystal sparkle |
-| `dirt` | Dark loamy brown, earthy grain |
-
-### `createTerrainTexture(type, size)` (browser only)
-
-Wraps the above in a `THREE.CanvasTexture` with `RepeatWrapping` and mipmap generation.
+`refreshChunksAt` uses an AABB–circle overlap test to select only the chunks that overlap the deformation radius, then calls `generateChunkGeometry()` for each.
 
 ---
 
 ## Grass Layer
 
-Grass is a separate `THREE.Points` geometry with per-blade procedural colour (5 archetypes: straw, rust, olive, bright green, lush dark green, blue-green).  It has its own `ShaderMaterial` with wind animation, subsurface scattering, and camera-based LOD fade.  Not part of the terrain shader.
+Separate `THREE.Points` geometry above the voxel terrain — unchanged.
 
 ---
 
-## Runtime Updates
+## Water Layer
 
-Each animation frame updates terrain shader uniforms to match the day/night cycle:
-
-```ts
-terrainMatRef.current.uniforms.uSunDir.value.copy(sunPos).normalize();
-terrainMatRef.current.uniforms.uSunIntensity.value = getSunIntensity(dayFraction);
-// ambient colour shifts between day-blue and night-purple
-```
+Flat `PlaneGeometry` with Gerstner wave animation — unchanged.
 
 ---
 
 ## Testing
 
-`__tests__/terrainTextures.test.ts` covers:
-- Output format (type, length, alpha)
-- All channels in [0, 255]
-- Biome colour characteristics (green dominant for grass, bright for snow, etc.)
-- Determinism (same seed → same pixels)
-- Multiple texture sizes
-- All five biome types produce distinct data
+`__tests__/voxelTerrain.test.ts` covers:
+- Constant validity (VOXEL_SIZE, CHUNK_SIZE, CHUNK_WORLD, Y range)
+- Density field: underground = positive, sky = negative, surface ≈ zero
+- Density decreases monotonically from underground to sky
+- Cave noise carves at least some underground regions to negative density
+- `generateChunkGeometry`: null for all-air and all-solid chunks
+- Generated geometry has `position`, `color`, `normal` attributes
+- Vertex positions lie within the expected chunk bounds
+- `generateVoxelTerrain` returns group + refreshChunksAt
+- `getVoxelChunkMeshes` filters correctly
+- `refreshChunksAt` does not throw
