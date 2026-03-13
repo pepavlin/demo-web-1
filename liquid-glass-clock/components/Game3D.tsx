@@ -11,15 +11,19 @@ import {
   generateSpawnPoints,
   initNoise,
   modifyTerrainHeight,
-  updateTerrainGeometry,
   findBestElevatedPosition,
   findPositionsInSectors,
   WORLD_SIZE,
-  TERRAIN_SEGMENTS,
   WATER_LEVEL,
   LAND_SPAWN_MARGIN,
   assertSafeLand,
 } from "@/lib/terrainUtils";
+import {
+  initVoxelNoise,
+  generateVoxelTerrain,
+  getVoxelChunkMeshes,
+  type VoxelTerrainResult,
+} from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
 import {
   BlockMaterial,
@@ -652,7 +656,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const placedBlockMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
   const placedBlocksDataRef = useRef<PlacedBlockData[]>([]);
   const ghostMeshRef = useRef<THREE.Mesh | null>(null);
-  const terrainMeshRef = useRef<THREE.Mesh | null>(null);
+  /** Group containing all voxel terrain chunk meshes. */
+  const terrainMeshRef = useRef<THREE.Group | null>(null);
+  /** Voxel terrain result — provides chunk refresh after deformation. */
+  const voxelTerrainRef = useRef<VoxelTerrainResult | null>(null);
   const terrainMatRef = useRef<THREE.ShaderMaterial | null>(null);
   const buildRaycasterRef = useRef(new THREE.Raycaster());
 
@@ -1322,10 +1329,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── 5. Terrain crater deformation ──────────────────────────────────────
-    const terrain = terrainMeshRef.current;
-    if (terrain) {
+    if (voxelTerrainRef.current && terrainMatRef.current) {
       modifyTerrainHeight(pos.x, pos.z, BOMB_CRATER_DEPTH, BOMB_CRATER_RADIUS);
-      updateTerrainGeometry(terrain);
+      voxelTerrainRef.current.refreshChunksAt(
+        pos.x, pos.z, BOMB_CRATER_RADIUS, terrainMatRef.current,
+      );
     }
 
     // ── 6. Damage entities in blast radius ─────────────────────────────────
@@ -1768,6 +1776,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const mountNode = mountRef.current;
     if (!mountNode) return;
     initNoise(42);
+    initVoxelNoise(42); // initialise 3D cave noise (different RNG from surface noise)
 
     // ── Terrain pre-analysis ──────────────────────────────────────────────────
     // The height grid is now fully populated.  Query it BEFORE any mesh or
@@ -2048,22 +2057,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const terrainTexSnow  = createTerrainTexture("snow");
     const terrainTexDirt  = createTerrainTexture("dirt");
 
-    // ── Terrain ─────────────────────────────────────────────────────────────
-    const terrainGeo = new THREE.PlaneGeometry(
-      WORLD_SIZE,
-      WORLD_SIZE,
-      TERRAIN_SEGMENTS,
-      TERRAIN_SEGMENTS
-    );
-    terrainGeo.rotateX(-Math.PI / 2);
-
-    const positions = terrainGeo.attributes.position;
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const z = positions.getZ(i);
-      positions.setY(i, getTerrainHeight(x, z));
-    }
-    terrainGeo.computeVertexNormals();
+    // ── Terrain (Marching Cubes voxel terrain) ────────────────────────────────
+    // The terrain is now generated via the Marching Cubes algorithm on a 3D
+    // density field.  This replaces the flat PlaneGeometry and allows true
+    // overhangs, arches, and underground cave networks.
+    //
+    // The ShaderMaterial below is identical to the old terrain shader; vertex
+    // colours are embedded in the BufferGeometry by voxelTerrain.ts and read
+    // via the `vColor` varying in the vertex shader.
 
     const terrainMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -2091,14 +2092,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uHeadlampRange:     { value: 60.0 },
       },
       vertexShader: /* glsl */`
+        attribute vec3 color;   // biome / cave colour set by voxelTerrain.ts
         varying vec3 vWorldPos;
         varying vec3 vNormal;
         varying float vHeight;
+        varying vec3 vColor;
         void main() {
           vec4 worldPos = modelMatrix * vec4(position, 1.0);
           vWorldPos = worldPos.xyz;
           vNormal   = normalize(normalMatrix * normal);
           vHeight   = position.y;
+          vColor    = color;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
@@ -2129,6 +2133,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         varying vec3  vWorldPos;
         varying vec3  vNormal;
         varying float vHeight;
+        varying vec3  vColor;
 
         // ── Noise ────────────────────────────────────────────────────────────────
         vec2 hash2(vec2 p) {
@@ -2171,19 +2176,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           return tXZ * blendW.y + tXY * blendW.z + tZY * blendW.x;
         }
 
-        // ── Biome palette ─────────────────────────────────────────────────────────
-        const vec3 cDeepWater    = vec3(0.10, 0.18, 0.44);
-        const vec3 cShallowWater = vec3(0.20, 0.40, 0.65);
-        const vec3 cSand         = vec3(0.78, 0.72, 0.48);
-        const vec3 cSandDark     = vec3(0.62, 0.54, 0.32);
-        const vec3 cBrightGrass  = vec3(0.38, 0.65, 0.20);
-        const vec3 cMidGrass     = vec3(0.28, 0.52, 0.15);
-        const vec3 cDarkGrass    = vec3(0.21, 0.40, 0.11);
-        const vec3 cDryGrass     = vec3(0.55, 0.52, 0.28);
-        const vec3 cRockBrown    = vec3(0.48, 0.40, 0.28);
-        const vec3 cRockGray     = vec3(0.58, 0.55, 0.52);
-        const vec3 cRockLight    = vec3(0.70, 0.66, 0.60);
-        const vec3 cSnow         = vec3(0.90, 0.92, 0.96);
+        // ── Cliff / rock palette (used by slope overlay only) ────────────────────
+        const vec3 cRockBrown = vec3(0.48, 0.40, 0.28);
+        const vec3 cRockGray  = vec3(0.58, 0.55, 0.52);
 
         void main() {
           vec2 uv = vWorldPos.xz;
@@ -2194,67 +2189,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           float micro  = vnoise(uv * 0.55); // fine grain     (~ 2 unit scale)
           float crack  = fbm(uv * 0.40);    // rock / cliff cracks
 
-          // Noise-wobbled height for jagged biome borders
-          float hWobble = vHeight + (macro * 2.0 - 1.0) * 2.2
-                                  + (meso  * 2.0 - 1.0) * 0.7;
-
           // ── Biome color ────────────────────────────────────────────────────────
-          vec3 col;
+          // Primary biome colour comes directly from the vertex colour attribute
+          // embedded by voxelTerrain.ts.  This ensures caves (which have height
+          // values below the water line) are coloured as dark rock rather than
+          // "deep water" blue, which the old height-based palette would produce.
+          vec3 col = vColor;
 
-          // Biome texture weights (sum used for triplanar blending)
-          float wGrass = 0.0;
-          float wRock  = 0.0;
-          float wSand  = 0.0;
-          float wSnow  = 0.0;
-          float wDirt  = 0.0;
+          // Apply noise-based variation on top of vertex colour for surface detail.
+          col *= mix(0.88, 1.10, macro * 0.4 + meso * 0.3 + 0.3);
 
-          if (hWobble < -3.0) {
-            col = cDeepWater;
-            // Water: no texture blend (handled by water plane above)
-          } else if (hWobble < -0.5) {
-            float t = clamp((hWobble + 3.0) / 2.5, 0.0, 1.0);
-            col = mix(cDeepWater, cShallowWater, t);
-            wSand = t * 0.4;
-          } else if (hWobble < 0.4) {
-            float t = clamp((hWobble + 0.5) / 0.9, 0.0, 1.0);
-            // Sand variation: lighter/darker patches
-            vec3 sandVar = mix(cSandDark, cSand, vnoise(uv * 1.8));
-            col = mix(cShallowWater, sandVar, t);
-            wSand = t;
-          } else if (hWobble < 2.5) {
-            float t = clamp((hWobble - 0.4) / 2.1, 0.0, 1.0);
-            // Patchy transition from sand to grass (dry tufts)
-            vec3 grassVar = mix(cBrightGrass, cDryGrass, meso * 0.5);
-            col = mix(cSand, grassVar, t);
-            wSand  = 1.0 - t;
-            wGrass = t;
-          } else if (hWobble < 7.0) {
-            float t = clamp((hWobble - 2.5) / 4.5, 0.0, 1.0);
-            // Bright → mid grass: patchy colour variation from noise
-            vec3 g1 = mix(cBrightGrass, cDryGrass,   macro * 0.35);
-            vec3 g2 = mix(cMidGrass,    cBrightGrass, meso  * 0.40);
-            col = mix(g1, g2, t + (micro - 0.5) * 0.25);
-            wGrass = 1.0;
-          } else if (hWobble < 17.0) {
-            float t = clamp((hWobble - 7.0) / 10.0, 0.0, 1.0);
-            vec3 g1 = mix(cMidGrass,  cBrightGrass, micro * 0.25);
-            vec3 g2 = mix(cDarkGrass, cMidGrass,    meso  * 0.30);
-            col = mix(g1, g2, t + (macro - 0.5) * 0.20);
-            wGrass = 1.0 - t * 0.5;
-            wDirt  = t * 0.5;
-          } else if (hWobble < 28.0) {
-            float t = clamp((hWobble - 17.0) / 11.0, 0.0, 1.0);
-            vec3 rockVar = mix(cRockBrown, cRockGray, vnoise(uv * 1.2));
-            col = mix(cDarkGrass, rockVar, t);
-            wDirt = 1.0 - t;
-            wRock = t;
-          } else {
-            float t = clamp((hWobble - 28.0) / 12.0, 0.0, 1.0);
-            vec3 rockVar = mix(cRockBrown, cRockLight, vnoise(uv * 1.5));
-            col = mix(rockVar, cSnow, t);
-            wRock = 1.0 - t;
-            wSnow = t;
-          }
+          // ── Biome texture weights (derived from vertex colour heuristics) ───────
+          // Green channel excess → grass; warm neutral → sand; bright → snow; else rock.
+          float lum       = dot(vColor, vec3(0.299, 0.587, 0.114));
+          float greenExc  = max(0.0, vColor.g - max(vColor.r, vColor.b));
+          float warmExc   = max(0.0, (vColor.r + vColor.g) * 0.5 - vColor.b - 0.1);
+
+          float wGrass = clamp(greenExc * 9.0, 0.0, 1.0);
+          float wSand  = clamp(warmExc  * 4.0 * (1.0 - wGrass), 0.0, 1.0);
+          float wSnow  = clamp((lum - 0.78) * 8.0, 0.0, 1.0);
+          float wRock  = clamp((0.55 - wGrass - wSand) * lum * 3.0, 0.0, 1.0);
+          float wDirt  = clamp(1.0 - wGrass - wSand - wRock - wSnow, 0.0, 1.0);
 
           // ── Slope → cliff rock overlay ────────────────────────────────────────
           float slope     = 1.0 - vNormal.y;
@@ -2343,10 +2298,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       `,
     });
-    const terrain = new THREE.Mesh(terrainGeo, terrainMat);
-    terrain.receiveShadow = true;
-    scene.add(terrain);
-    terrainMeshRef.current = terrain;
+    // Generate the full voxel terrain (may take ~1-2 s on first load)
+    // generateVoxelTerrain sets material.vertexColors = true internally.
+    const voxelResult = generateVoxelTerrain(terrainMat);
+    scene.add(voxelResult.group);
+    terrainMeshRef.current = voxelResult.group;
+    voxelTerrainRef.current = voxelResult;
     terrainMatRef.current  = terrainMat;
 
     // ── Building system: ghost block ──────────────────────────────────────────
@@ -3611,7 +3568,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const raycaster = buildRaycasterRef.current;
       raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
       // Gather objects to intersect: terrain + placed blocks
-      const targets: THREE.Object3D[] = [terrainMeshRef.current, ...Array.from(placedBlockMeshesRef.current.values())];
+      const targets: THREE.Object3D[] = [
+        ...getVoxelChunkMeshes(terrainMeshRef.current),
+        ...Array.from(placedBlockMeshesRef.current.values()),
+      ];
       const hits = raycaster.intersectObjects(targets, false);
       if (hits.length > 0) {
         const hit = hits[0];
@@ -5630,7 +5590,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
         raycaster.far = BUILD_RANGE;
         const rayTargets: THREE.Object3D[] = terrainMeshRef.current
-          ? [terrainMeshRef.current, ...placedBlockMeshesRef.current.values()]
+          ? [...getVoxelChunkMeshes(terrainMeshRef.current), ...placedBlockMeshesRef.current.values()]
           : [...placedBlockMeshesRef.current.values()];
         const hits = raycaster.intersectObjects(rayTargets, false);
         if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
@@ -6831,7 +6791,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const cam = cameraRef.current;
             const raycaster = buildRaycasterRef.current;
             raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-            const targets: THREE.Object3D[] = [terrainMeshRef.current, ...Array.from(placedBlockMeshesRef.current.values())];
+            const targets: THREE.Object3D[] = [
+              ...getVoxelChunkMeshes(terrainMeshRef.current),
+              ...Array.from(placedBlockMeshesRef.current.values()),
+            ];
             const hits = raycaster.intersectObjects(targets, false);
             if (hits.length > 0 && hits[0].distance < BUILD_RANGE + 2) {
               const hp = hits[0].point;
