@@ -185,6 +185,35 @@ const ARROW_GRAVITY = -22;      // downward acceleration (units/s²) for bow arr
 // Default weapon position in camera-local space (sword)
 const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
+// ─── Weapon Anchor System ─────────────────────────────────────────────────────
+// Defines weapon transforms for each view mode.  Adding a new weapon type only
+// requires adding entries here; the attachment/swap logic is generic.
+type WeaponTransformConfig = {
+  /** Local-space position relative to anchor (camera in FP, handR in TP). */
+  pos: [number, number, number];
+  /** Euler angles [x, y, z] in radians. */
+  rot: [number, number, number];
+  /** Uniform scale. */
+  scale: number;
+};
+
+/** First-person: weapon positioned in camera-local space (bottom-right of screen). */
+const WEAPON_FP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
+  sword:    { pos: [0.25, -0.28, -0.48], rot: [-Math.PI / 2, -0.3,  0.3 ], scale: 1.0 },
+  bow:      { pos: [0.16, -0.16, -0.40], rot: [0,            -0.12, 0   ], scale: 1.0 },
+  crossbow: { pos: [0.18, -0.22, -0.52], rot: [0,            -0.08, 0   ], scale: 1.0 },
+  sniper:   { pos: [0.14, -0.18, -0.50], rot: [0,            -0.06, 0   ], scale: 1.4 },
+};
+
+/** Third-person: weapon positioned relative to the "handR" anchor on the player body.
+ *  The anchor is at the tip of armR so the weapon moves naturally with arm swing. */
+const WEAPON_TP_CONFIG: Record<WeaponType, WeaponTransformConfig> = {
+  sword:    { pos: [0.0,  0.0,  0.08], rot: [-Math.PI / 2, 0.0, -0.2], scale: 0.8 },
+  bow:      { pos: [0.0,  0.05, 0.08], rot: [-0.25,        0,    0  ], scale: 0.8 },
+  crossbow: { pos: [0.0,  0.02, 0.10], rot: [-0.15,        0,    0  ], scale: 0.8 },
+  sniper:   { pos: [0.0,  0.02, 0.12], rot: [-0.10,        0,    0  ], scale: 0.8 },
+};
+
 // ─── Bomb Constants ───────────────────────────────────────────────────────────
 /** Initial throw speed in world units/s. */
 const BOMB_THROW_SPEED = 14;
@@ -444,6 +473,13 @@ function buildRemotePlayerMesh(color: number): THREE.Group {
   armR.rotation.z = -0.3;
   group.add(armR);
 
+  // Hand anchor: child of armR at the tip of the arm (y = -halfLength = -0.21).
+  // Weapon mesh is parented here in third-person so it moves naturally with the arm.
+  const handR = new THREE.Object3D();
+  handR.name = "handR";
+  handR.position.set(0, -0.21, 0);
+  armR.add(handR);
+
   // Headlamp – glowing disc on the forehead, faces forward (+Z in local space)
   const headlampMat = new THREE.MeshLambertMaterial({
     color: 0xffeeaa,
@@ -461,6 +497,23 @@ function buildRemotePlayerMesh(color: number): THREE.Group {
   group.add(headlampMesh);
 
   return group;
+}
+
+// ─── Weapon Anchor Helpers ────────────────────────────────────────────────────
+/**
+ * Apply the canonical position / rotation / scale for a weapon mesh based on
+ * the current view mode.  Call this whenever the weapon is re-parented so the
+ * transform is always derived from the single source-of-truth configs above.
+ */
+function applyWeaponTransform(
+  mesh: THREE.Group,
+  type: WeaponType,
+  mode: "first" | "third",
+): void {
+  const cfg = mode === "first" ? WEAPON_FP_CONFIG[type] : WEAPON_TP_CONFIG[type];
+  mesh.position.set(...cfg.pos);
+  mesh.rotation.set(...cfg.rot);
+  mesh.scale.setScalar(cfg.scale);
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -554,6 +607,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // ─── Weapon / Bullet Refs ───────────────────────────────────────────────────
   const bulletsRef = useRef<BulletData[]>([]);
   const weaponMeshRef = useRef<THREE.Group | null>(null);
+  /** Object3D at the tip of the local player's armR used as weapon parent in TP. */
+  const tpWeaponAnchorRef = useRef<THREE.Object3D | null>(null);
   const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
   const swordSwingTimerRef = useRef(9999); // seconds since last sword swing; 9999 = idle (no swing)
   const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
@@ -905,38 +960,51 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
   }, []);
 
+  // ─── Attach / re-parent weapon to the correct anchor for the given mode ───────
+  // This is the single function that controls which object owns the weapon mesh.
+  // First-person → camera child (screen-space hold).
+  // Third-person  → handR Object3D child (character hand, moves with arm swing).
+  const attachWeaponToAnchor = useCallback((mode: "first" | "third") => {
+    const weapon = weaponMeshRef.current;
+    const cam = cameraRef.current;
+    if (!weapon || !cam) return;
+
+    // Detach from current parent (camera or handR)
+    if (weapon.parent) weapon.parent.remove(weapon);
+
+    const wType = selectedWeaponRef.current;
+    if (mode === "first") {
+      applyWeaponTransform(weapon, wType, "first");
+      cam.add(weapon);
+    } else {
+      const anchor = tpWeaponAnchorRef.current;
+      if (anchor) {
+        applyWeaponTransform(weapon, wType, "third");
+        anchor.add(weapon);
+      }
+      // If anchor isn't ready yet, weapon stays detached until next mode switch
+    }
+  }, []);
+
   // ─── Swap weapon mesh when player confirms weapon selection ──────────────────
   const swapWeaponMesh = useCallback((type: WeaponType) => {
-    const cam = cameraRef.current;
-    if (!cam || !weaponMeshRef.current) return;
-    // Remove old mesh
-    cam.remove(weaponMeshRef.current);
-    // Build new mesh
+    const oldMesh = weaponMeshRef.current;
+    if (!oldMesh) return;
+
+    // Detach old mesh from whatever parent it currently has
+    if (oldMesh.parent) oldMesh.parent.remove(oldMesh);
+
+    // Build replacement mesh
     const newMesh =
       type === "bow" ? buildBowMesh()
       : type === "crossbow" ? buildCrossbowMesh()
       : type === "sniper" ? buildSniperMesh()
-      : buildSwordMesh(); // sword
-    if (type === "sword") {
-      newMesh.position.set(0.25, -0.28, -0.48);
-      newMesh.rotation.x = -Math.PI / 2; // tip pointing up
-      newMesh.rotation.y = -0.3;          // angle so blade face shows toward center
-      newMesh.rotation.z = 0.3;           // tilt right – natural grip
-    } else if (type === "bow") {
-      newMesh.position.set(0.16, -0.16, -0.40);
-      newMesh.rotation.y = -0.12;
-    } else if (type === "sniper") {
-      newMesh.position.set(0.14, -0.18, -0.50);
-      newMesh.rotation.y = -0.06;
-      newMesh.scale.setScalar(1.4);
-    } else {
-      // crossbow
-      newMesh.position.set(0.18, -0.22, -0.52);
-      newMesh.rotation.y = -0.08;
-    }
-    cam.add(newMesh);
+      : buildSwordMesh();
+
     weaponMeshRef.current = newMesh;
-  }, []);
+    // Attach to correct anchor with canonical transform
+    attachWeaponToAnchor(cameraModeRef.current);
+  }, [attachWeaponToAnchor]);
 
   // ─── Flash fox mesh red on hit ───────────────────────────────────────────────
   function flashFoxMesh(mesh: THREE.Group) {
@@ -1079,8 +1147,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     heldItemRef.current = null;
     setHeldItemType(null);
 
-    // Restore weapon visibility in first-person mode
-    if (weaponMeshRef.current && cameraModeRef.current === "first") {
+    // Restore weapon visibility (valid in both FP and TP modes)
+    if (weaponMeshRef.current) {
       weaponMeshRef.current.visible = true;
     }
 
@@ -1149,8 +1217,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     heldItemRef.current = null;
     setHeldItemType(null);
 
-    // Restore weapon visibility in first-person
-    if (weaponMeshRef.current && cameraModeRef.current === "first") {
+    // Restore weapon visibility (valid in both FP and TP modes)
+    if (weaponMeshRef.current) {
       weaponMeshRef.current.visible = true;
     }
 
@@ -1429,7 +1497,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Spawn bullet projectile (ranged weapons only) ───────────────────────
     if (weaponCfg.bulletSpeed > 0) {
       const startPos = new THREE.Vector3();
-      cam.getWorldPosition(startPos);
+      // In third-person the camera is behind the player, so spawn from the
+      // player's body position (at eye level) instead of the camera position
+      // to avoid bullets passing through the character.
+      if (cameraModeRef.current === "third") {
+        startPos.copy(playerBodyPosRef.current);
+        startPos.y += PLAYER_HEIGHT - 0.3; // approximate eye / shoulder height
+      } else {
+        cam.getWorldPosition(startPos);
+      }
       const forward = new THREE.Vector3(0, 0, -1);
       forward.transformDirection(cam.matrixWorld);
       startPos.addScaledVector(forward, 1.2);
@@ -1462,7 +1538,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── Melee hit (sword only — ranged weapons deal damage through projectile collision) ───
-    const playerPos = cam.position;
+    // In third-person cam.position is behind the player; use body position for hit detection.
+    const playerPos = cameraModeRef.current === "third" ? playerBodyPosRef.current : cam.position;
     if (weaponCfg.type === "sword") {
       let closest: (typeof foxListRef.current)[0] | null = null;
       let closestDist = weaponCfg.range;
@@ -1744,32 +1821,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Grab the headlamp emissive mesh from the local player body for later animation
     const localHeadlampMesh = playerBody.getObjectByName("headlamp") as THREE.Mesh | undefined;
     if (localHeadlampMesh) headlampBodyMeshRef.current = localHeadlampMesh;
+    // Cache the hand anchor (child of armR) used to attach weapon in third-person
+    const handAnchor = playerBody.getObjectByName("handR") as THREE.Object3D | undefined;
+    tpWeaponAnchorRef.current = handAnchor ?? null;
 
-    // ── First-person weapon (attached to camera) ─────────────────────────────
+    // ── Weapon (initially first-person, attached to camera) ──────────────────
     const wType = selectedWeaponRef.current;
     const weaponGroup =
       wType === "bow" ? buildBowMesh()
       : wType === "crossbow" ? buildCrossbowMesh()
       : wType === "sniper" ? buildSniperMesh()
       : buildSwordMesh(); // sword
-    // Position each weapon in camera-local space
-    if (wType === "sword") {
-      weaponGroup.position.set(0.25, -0.28, -0.48);
-      weaponGroup.rotation.x = -Math.PI / 2; // tip pointing up
-      weaponGroup.rotation.y = -0.3;          // angle so blade face shows toward center
-      weaponGroup.rotation.z = 0.3;           // tilt right – natural grip
-    } else if (wType === "bow") {
-      weaponGroup.position.set(0.16, -0.16, -0.40);
-      weaponGroup.rotation.y = -0.12;
-    } else if (wType === "sniper") {
-      weaponGroup.position.set(0.14, -0.18, -0.50);
-      weaponGroup.rotation.y = -0.06;
-      weaponGroup.scale.setScalar(1.4);
-    } else {
-      // crossbow
-      weaponGroup.position.set(0.18, -0.22, -0.52);
-      weaponGroup.rotation.y = -0.08;
-    }
+    // Apply canonical first-person transform via the config system
+    applyWeaponTransform(weaponGroup, wType, "first");
     camera.add(weaponGroup);
     weaponMeshRef.current = weaponGroup;
     scene.add(camera); // camera must be in scene for its children to render
@@ -3566,7 +3630,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       } else if (e.button === 2) {
         if (buildModeRef.current !== "explore") {
           removeBlock();
-        } else if (selectedWeaponRef.current === "sniper" && buildModeRef.current === "explore") {
+        } else if (
+          selectedWeaponRef.current === "sniper" &&
+          buildModeRef.current === "explore" &&
+          // Scope only available in first-person — TP aiming is done with the normal view
+          cameraModeRef.current === "first"
+        ) {
           // Right-click = scope toggle for sniper
           isScopedRef.current = true;
           setIsScoped(true);
@@ -3597,7 +3666,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (isScopedRef.current) {
           isScopedRef.current = false;
           setIsScoped(false);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          // Restore weapon — valid in both FP and TP (scope was already blocked in TP)
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         }
       }
     };
@@ -3685,7 +3755,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             playerBodyPosRef.current.copy(cam.position);
             playerRef.current.velY = 0;
             playerRef.current.onGround = true;
-            if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
             // ── Scene switch: restore Earth world, hide station interior ───────
             if (earthSceneGroupRef.current) earthSceneGroupRef.current.visible = true;
             if (spaceStationGroupRef.current) spaceStationGroupRef.current.visible = false;
@@ -3713,7 +3783,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
           onAirplaneRef.current = false;
           setOnAirplane(false);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         } else if (nearAirplaneForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current && !onRocketRef.current) {
           // ── Board the airplane ──────────────────────────────────────────────
           const ad = airplaneDataRef.current;
@@ -3740,7 +3810,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           onRocketRef.current = false;
           setOnRocket(false);
           setRocketCountdown(null);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         } else if (nearRocketForBoardRef.current && !possessedSheepRef.current && !onBoatRef.current) {
           // ── Board the rocket ────────────────────────────────────────────────
           const rd = rocketDataRef.current;
@@ -3779,7 +3849,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ship.velocity = 0;
           activeHarborShipRef.current = null;
           setOnHarborShip(false);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         } else if (nearHarborShipRef.current && !possessedSheepRef.current && !onBoatRef.current) {
           // ── Board a harbor sailboat ────────────────────────────────────────
           const ship = nearHarborShipRef.current;
@@ -3812,7 +3882,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
           onBoatRef.current = false;
           setOnBoat(false);
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         } else if (nearBoatForBoardRef.current && !possessedSheepRef.current) {
           // ── Board the boat ─────────────────────────────────────────────────
           onBoatRef.current = true;
@@ -3853,7 +3923,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           possessedSheepRef.current = null;
           setIsPossessed(false);
           // Restore weapon visibility only in first-person mode
-          if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
         } else if (nearestSheepForPossessRef.current) {
           // Enter sheep body
           possessedSheepRef.current = nearestSheepForPossessRef.current;
@@ -3878,10 +3948,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const newMode = cameraModeRef.current === "first" ? "third" : "first";
         cameraModeRef.current = newMode;
         setCameraMode(newMode);
-        if (weaponMeshRef.current) {
-          // Weapon hidden while possessed or on rocket regardless of camera mode
-          weaponMeshRef.current.visible = newMode === "first" && !possessedSheepRef.current && !onRocketRef.current;
+
+        // Exit sniper scope when switching to third-person — scope is FP-only
+        if (newMode === "third" && isScopedRef.current) {
+          isScopedRef.current = false;
+          setIsScoped(false);
+          if (cameraRef.current) {
+            cameraRef.current.fov = DEFAULT_FOV;
+            cameraRef.current.updateProjectionMatrix();
+          }
         }
+
+        // Re-parent weapon to correct anchor; hides it while in a special state
+        const inSpecialState = possessedSheepRef.current || onRocketRef.current;
+        if (weaponMeshRef.current) {
+          if (inSpecialState) {
+            weaponMeshRef.current.visible = false;
+          } else {
+            attachWeaponToAnchor(newMode);
+          }
+        }
+
         if (playerBodyRef.current) {
           // Player body only shown in 3rd-person when NOT possessing a sheep and NOT on rocket
           playerBodyRef.current.visible = newMode === "third" && !possessedSheepRef.current && !onRocketRef.current;
@@ -3933,7 +4020,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             setSelectedWeapon(newWeapon);
             selectedWeaponRef.current = newWeapon;
             swapWeaponMesh(newWeapon);
-            if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
           }
         }
       }
@@ -4033,7 +4120,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setSelectedWeapon(newWeapon);
         selectedWeaponRef.current = newWeapon;
         swapWeaponMesh(newWeapon);
-        if (weaponMeshRef.current) weaponMeshRef.current.visible = cameraModeRef.current === "first";
+        if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
       }
     };
     // passive: false would suppress default scrolling, but we keep passive:true
@@ -5778,11 +5865,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // ── Weapon sway & recoil animation ─────────────────────────────────────
-      if (weaponMeshRef.current) {
+      // ── Weapon sway & recoil animation (first-person only) ─────────────────
+      // In third-person the weapon is attached to the handR anchor and moves
+      // naturally with the arm animation — no manual position overrides needed.
+      weaponRecoilRef.current = Math.max(0, weaponRecoilRef.current - dt * 8);
+
+      // Always advance sword swing timer so it doesn't freeze when switching modes
+      if (selectedWeaponRef.current === "sword") {
+        const SWORD_SWING_DURATION = 0.30;
+        if (swordSwingTimerRef.current < SWORD_SWING_DURATION) {
+          swordSwingTimerRef.current += dt;
+        }
+      }
+
+      if (weaponMeshRef.current && cameraModeRef.current === "first") {
         const wep = weaponMeshRef.current;
-        // Recoil: kick back in z then spring forward
-        weaponRecoilRef.current = Math.max(0, weaponRecoilRef.current - dt * 8);
         const recoil = weaponRecoilRef.current;
 
         // Idle sway: gentle bob while moving
@@ -5794,16 +5891,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const swaySpeed = isMoving ? 7 : 3;
 
         const wType = selectedWeaponRef.current;
-        const baseX = wType === "bow" ? 0.16 : wType === "crossbow" ? 0.18 : wType === "sniper" ? 0.14 : 0.25;
-        const baseY = wType === "bow" ? -0.16 : wType === "crossbow" ? -0.22 : wType === "sniper" ? -0.18 : -0.28;
-        const baseZ = wType === "bow" ? -0.40 : wType === "crossbow" ? -0.52 : wType === "sniper" ? -0.50 : -0.48;
+        const fpCfg = WEAPON_FP_CONFIG[wType];
+        const [baseX, baseY, baseZ] = fpCfg.pos;
 
         if (wType === "sword") {
           // ── Sword swing animation ─────────────────────────────────────────
-          const SWORD_SWING_DURATION = 0.30; // seconds for one full slash
-          if (swordSwingTimerRef.current < SWORD_SWING_DURATION) {
-            swordSwingTimerRef.current += dt;
-          }
+          const SWORD_SWING_DURATION = 0.30;
           const swingProgress = Math.min(1, swordSwingTimerRef.current / SWORD_SWING_DURATION);
           // Bell-curve: 0 → peak at 0.5 → 0. Gives a smooth out-and-back slash.
           const swingAngle = Math.sin(swingProgress * Math.PI);
