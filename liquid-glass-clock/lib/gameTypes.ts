@@ -139,6 +139,16 @@ export interface SheepData {
   deathTimer: number;
   /** Accumulated Y rotation during death spin. */
   deathRotationY: number;
+
+  // ── Burning (flamethrower ignition) ────────────────────────────────────────
+  /** True while the entity is on fire. */
+  isBurning: boolean;
+  /** Seconds of burning remaining (counts down to 0). */
+  burnTimer: number;
+  /** Countdown to next damage-over-time tick. */
+  burnDamageTimer: number;
+  /** Attached fire visual group (child of mesh) — null when not burning. */
+  burnEffect: THREE.Group | null;
 }
 
 export interface FoxData {
@@ -165,6 +175,16 @@ export interface FoxData {
   cachedNearestSheep: SheepData | null;
   /** Countdown until next nearest-sheep search. */
   sheepSearchTimer: number;
+
+  // ── Burning (flamethrower ignition) ────────────────────────────────────────
+  /** True while the entity is on fire. */
+  isBurning: boolean;
+  /** Seconds of burning remaining (counts down to 0). */
+  burnTimer: number;
+  /** Countdown to next damage-over-time tick. */
+  burnDamageTimer: number;
+  /** Attached fire visual group (child of mesh) — null when not burning. */
+  burnEffect: THREE.Group | null;
 }
 
 // ─── Spider system ─────────────────────────────────────────────────────────────
@@ -375,6 +395,16 @@ export interface TreeData {
   hasCollision: boolean;
   /** Original trunk materials before hit-flash (for restoring colour). */
   trunkMeshes: THREE.Mesh[];
+
+  // ── Burning (flamethrower ignition) ────────────────────────────────────────
+  /** True while the tree is on fire. */
+  isBurning: boolean;
+  /** Seconds of burning remaining (counts down to 0). */
+  burnTimer: number;
+  /** Countdown to next damage-over-time tick. */
+  burnDamageTimer: number;
+  /** Attached fire visual group (child of mesh) — null when not burning. */
+  burnEffect: THREE.Group | null;
 }
 
 // ─── World Item (pickable / placeable objects) ─────────────────────────────

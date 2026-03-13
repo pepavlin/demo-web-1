@@ -1641,17 +1641,114 @@ export function buildFlamethrowerMesh(): THREE.Group {
 }
 
 /**
- * A single flame particle projectile — small emissive sphere that expands
- * as it travels away from the nozzle.  Spawned in bursts of 4 per shot.
+ * A single flame particle projectile — animated multi-layer fire group using
+ * additive blending for a realistic glowing fire look.  Spawned in bursts per
+ * shot and oriented toward the travel direction at birth.
+ *
+ * Layer stack (base → tip, along local +Y = travel direction):
+ *   1. Outer red glow  – widest, most transparent (AdditiveBlending)
+ *   2. Orange body     – medium opacity
+ *   3. Yellow core     – opaque, bright
+ *   4. White-hot base  – small sphere at origin (hottest point near nozzle)
+ *   5. Flame tongue    – thin cone pointing forward (tip of fire)
  */
-export function buildFlameParticleMesh(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(0.12, 7, 5);
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0xff6600,
-    emissive: new THREE.Color(0.45, 0.18, 0),
-    emissiveIntensity: 1,
-  });
-  return new THREE.Mesh(geo, mat);
+export function buildFlameParticleMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  // Helper: create an additive-blended material
+  const additiveMat = (hex: number, opacity: number) =>
+    new THREE.MeshBasicMaterial({
+      color: hex,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+  // ── Outer red glow (widest halo) ────────────────────────────────────────────
+  const outerGeo = new THREE.SphereGeometry(0.18, 8, 6);
+  const outer = new THREE.Mesh(outerGeo, additiveMat(0xff2200, 0.35));
+  group.add(outer);
+
+  // ── Orange body ─────────────────────────────────────────────────────────────
+  const midGeo = new THREE.SphereGeometry(0.12, 8, 6);
+  const mid = new THREE.Mesh(midGeo, additiveMat(0xff6600, 0.65));
+  group.add(mid);
+
+  // ── Yellow core ─────────────────────────────────────────────────────────────
+  const coreGeo = new THREE.SphereGeometry(0.07, 7, 5);
+  const core = new THREE.Mesh(coreGeo, additiveMat(0xffee00, 0.9));
+  group.add(core);
+
+  // ── White-hot nozzle point ──────────────────────────────────────────────────
+  const hotGeo = new THREE.SphereGeometry(0.035, 6, 4);
+  const hot = new THREE.Mesh(hotGeo, additiveMat(0xffffff, 1.0));
+  group.add(hot);
+
+  // ── Flame tongue — thin cone pointing in +Y (= travel direction at birth) ──
+  // ConeGeometry: tip at +Y, base at -Y (centered), height = 0.28
+  // We offset it so the base sits at group origin: position.y = +0.14
+  const tongueGeo = new THREE.ConeGeometry(0.04, 0.28, 7);
+  const tongue = new THREE.Mesh(tongueGeo, additiveMat(0xffcc00, 0.8));
+  tongue.position.y = 0.14;
+  group.add(tongue);
+
+  return group;
+}
+
+/**
+ * A small fire-effect group that can be attached to a burning entity as a
+ * child mesh.  Consists of several tiny additive-blended cones/spheres that
+ * animate (rotated each frame) to simulate attached flames.
+ *
+ * Attach to an entity mesh with `entity.mesh.add(buildBurningEffect())` and
+ * remove it when the burning state ends.
+ */
+export function buildBurningEffect(): THREE.Group {
+  const group = new THREE.Group();
+
+  const addMat = (hex: number, opacity: number) =>
+    new THREE.MeshBasicMaterial({
+      color: hex,
+      transparent: true,
+      opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+  // Several small flame tongues at different offsets & rotations
+  const positions: [number, number, number, number][] = [
+    // x,   y,    z,  rotZ
+    [0,    0.6,  0,   0],
+    [0.15, 0.5, -0.1, 0.4],
+    [-0.1, 0.55, 0.1, -0.3],
+    [0.05, 0.5,  0.2, 0.2],
+    [-0.15,0.45,-0.15,-0.5],
+  ];
+
+  for (const [x, y, z, rotZ] of positions) {
+    // Glow sphere
+    const sphereGeo = new THREE.SphereGeometry(0.07 + Math.abs(rotZ) * 0.03, 6, 4);
+    const sphere = new THREE.Mesh(sphereGeo, addMat(0xff6600, 0.5 + Math.abs(rotZ) * 0.2));
+    sphere.position.set(x, y, z);
+    group.add(sphere);
+
+    // Cone tongue
+    const coneGeo = new THREE.ConeGeometry(0.04, 0.22, 6);
+    const cone = new THREE.Mesh(coneGeo, addMat(0xffcc00, 0.75));
+    cone.position.set(x, y + 0.11, z);
+    cone.rotation.z = rotZ;
+    group.add(cone);
+  }
+
+  // Central base glow
+  const baseGeo = new THREE.SphereGeometry(0.12, 8, 6);
+  const base = new THREE.Mesh(baseGeo, addMat(0xff3300, 0.4));
+  base.position.y = 0.35;
+  group.add(base);
+
+  return group;
 }
 
 // ─── Lighthouse ───────────────────────────────────────────────────────────────

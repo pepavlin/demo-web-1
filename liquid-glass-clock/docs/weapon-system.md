@@ -67,17 +67,38 @@ The game features seven distinct weapons selectable before entering the world (o
 - **Combat style:** Short-range fire stream. Hold left mouse button to spray a continuous cone of flame particles — each burst spawns 4 particles with random spread.
 - **Range:** 15 units (very short — close-quarters weapon).
 - **Fire rate:** ~14.3 bursts/second (cooldown 0.07 s) — effectively continuous when held.
-- **DPS:** 4 particles × 10 damage × 14.3 bursts/s ≈ 571 damage/s (highest burst DPS but only at melee range).
+- **DPS:** 4 particles × 10 damage × 14.3 bursts/s ≈ 571 damage/s + burn DoT for ignited entities.
 - **3D model:** `buildFlamethrowerMesh()` — olive-green cylindrical fuel tank (with pressure gauge + valve), receiver body, heat shield, thin nozzle barrel with flared tip, orange emissive pilot flame sphere at muzzle, pistol grip with trigger guard, shoulder stock.
-- **Flame particles:** `buildFlameParticleMesh()` — emissive orange spheres that expand from scale 0.12 → 0.67 as they travel (hot gas dispersal). Particles drift slightly upward (hot gas rises). 4 particles are spawned per shot in a ±0.28 rad cone.
-- **Muzzle light:** On each shot the muzzle flash point light changes to orange-red (#ff5500) for 110 ms (longer than bullet weapons at 75 ms).
+- **Flame particles:** `buildFlameParticleMesh()` — animated `THREE.Group` with 5 additive-blended layers:
+  - Outer red glow sphere (opacity 0.35)
+  - Orange mid sphere (opacity 0.65)
+  - Yellow inner core sphere (opacity 0.9)
+  - White-hot origin sphere (opacity 1.0)
+  - Yellow cone flame tongue pointing in travel direction (opacity 0.8)
+  - All layers use `AdditiveBlending + depthWrite=false` for realistic fire glow.
+  - Each frame: group rotates randomly on all 3 axes (organic flicker), scales up (billowing), rises with buoyancy. Color green-channel fades as particle ages (yellow → orange → red).
+  - Oriented at spawn: `+Y` axis aligns with travel direction via `quaternion.setFromUnitVectors`.
+- **Ignition system (burning):** When a flame particle hits a sheep, fox, or tree it ignites them:
+  - Entity is marked `isBurning = true` for `BURN_DURATION = 6s`
+  - `buildBurningEffect()` group attached as child mesh — small multi-layer cones + spheres using AdditiveBlending
+  - Burning effect flickers (rotation + scale animation) every frame
+  - **Damage over time:** 5 HP every 0.5s (= 10 HP/s) — 60 HP total burn damage over full duration
+  - **Fire spread:** Every ~1.2s, a burning entity checks for nearby entities (≤ 3.5u) and has 55% chance to ignite them
+  - Trees burn faster (double DoT), fall when HP reaches 0
+  - When `burnTimer` reaches 0, fire is extinguished and the effect group is removed
+- **Muzzle light:** On each shot the muzzle flash point light changes to orange-red (#ff5500) for 110 ms.
 - **Sound:** `_playFlamethrowerShot()` — pressurised gas whoosh (bandpass 1.8–2.2 kHz, 0.18 s decay) + low sawtooth combustion rumble (55→30 Hz, lowpass 320 Hz, 0.14 s decay) + high-frequency crackle tail (>4 kHz noise, 0.08 s).
 - **Bullet speed:** 11 u/s — guarantees flame particles reach the full 15-unit range even at minimum spawn speed (0.75 × 11 × 1.9 s ≈ 15.7 units).
 - **Auto-fire:** Eligible for hold-to-fire (same as machine gun). Sniper and bow are excluded; flamethrower is not.
 - **Constants (Game3D.tsx):**
   - `FLAME_PARTICLE_COUNT = 4` — particles per burst
-  - `FLAME_PARTICLE_LIFETIME = 1.9` — seconds before particle despawns (range = 11 × 1.9 ≈ 20.9 units max)
+  - `FLAME_PARTICLE_LIFETIME = 1.9` — seconds before particle despawns
   - `FLAME_CONE_SPREAD = 0.28` — half-angle of dispersion cone (radians)
+  - `BURN_DURATION = 6.0` — seconds an ignited entity burns
+  - `BURN_DOT_INTERVAL = 0.5` — seconds between DoT damage ticks
+  - `BURN_DOT_DAMAGE = 5` — HP per tick
+  - `BURN_SPREAD_RADIUS = 3.5` — fire spread distance (world units)
+  - `BURN_SPREAD_CHANCE = 0.55` — probability of spread per check
 
 ## Architecture
 
