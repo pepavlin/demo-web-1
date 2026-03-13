@@ -80,8 +80,24 @@ The world volume is divided into **axis-aligned chunks** of `CHUNK_SIZE × CHUNK
 | `CHUNK_WORLD` | 32 | World units per chunk (= 16 × 2) |
 | `VOXEL_Y_MIN` | -32 | Bottom of the voxel volume |
 | `VOXEL_Y_MAX` | 64 | Top of the voxel volume |
+| `TERRAIN_LOD_DISTANCE` | 128 | World units beyond which the LOD-1 mesh is used |
 
 Chunks are generated **once at startup** in `generateVoxelTerrain()`.  Chunks that are **entirely solid** or **entirely air** are discarded without running the full algorithm, which makes generation fast.
+
+### Terrain LOD (Level of Detail)
+
+Each chunk is generated at **two quality levels** simultaneously:
+
+| LOD | `lodScale` | Voxel Size | Voxels/Side | Triangles (approx.) | Visibility |
+|-----|------------|-----------|-------------|---------------------|------------|
+| 0 (high) | 1 | 2.0 | 16 | ~4× | Distance < `TERRAIN_LOD_DISTANCE` |
+| 1 (low)  | 2 | 4.0 | 8  | ~1× | Distance ≥ `TERRAIN_LOD_DISTANCE` |
+
+`generateChunkGeometry` accepts a `lodScale` parameter (default `1`).  When `lodScale = 2` the effective voxel size doubles and the grid is halved in each axis, producing approximately **4–8× fewer triangles** while covering the same physical chunk volume.
+
+Both LOD meshes are added to the scene group at startup.  Every 30 frames (~0.5 s at 60 fps), `updateTerrainLOD(camX, camZ)` is called from the game loop to toggle `.visible` on each pair of LOD meshes depending on the 2D XZ distance from the camera to the chunk centre.
+
+The `chunkMeshes` array on `VoxelTerrainResult` contains **only LOD-0 (full quality) meshes**, as these are the ones used for raycasting (build/terraform).
 
 ### Marching Cubes Algorithm
 

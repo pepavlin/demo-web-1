@@ -90,6 +90,11 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
 
 export interface SheepData {
   mesh: THREE.Group;
+  /**
+   * Simplified low-poly mesh shown instead of `mesh` when the sheep is
+   * beyond the entity LOD distance threshold.  Null until created.
+   */
+  lodMesh: THREE.Group | null;
   velocity: THREE.Vector2;
   targetAngle: number;
   currentAngle: number; // smoothed angle used for movement & rotation
@@ -138,6 +143,11 @@ export interface SheepData {
 
 export interface FoxData {
   mesh: THREE.Group;
+  /**
+   * Simplified low-poly mesh shown instead of `mesh` when the fox is
+   * beyond the entity LOD distance threshold.  Null until created.
+   */
+  lodMesh: THREE.Group | null;
   wanderTimer: number;
   wanderAngle: number;
   hp: number;
