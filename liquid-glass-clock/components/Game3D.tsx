@@ -7860,12 +7860,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           ctx.fillStyle = `rgb(${mmR},${mmG},${mmB})`;
           ctx.fillRect(0, 0, W, W);
 
-          // Pen
-          ctx.strokeStyle = "#c8a050";
-          ctx.lineWidth = 2.5;
-          const penPx = 30 * scale * 2;
-          ctx.strokeRect(cx - penPx / 2, cy - penPx / 2, penPx, penPx);
-
           // Coins
           coinsRef.current.forEach((coin) => {
             if (coin.collected) return;
