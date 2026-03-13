@@ -7585,7 +7585,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — Underwater active banner ═══════════════ */}
       {isUnderwater && !onBoat && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7642,7 +7642,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — On-boat active banner ═══════════════ */}
       {onBoat && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7678,7 +7678,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — On harbor sailboat banner ═════════════ */}
       {onHarborShip && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7715,7 +7715,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — On-rocket active banner ═══════════════ */}
       {onRocket && !rocketLaunching && rocketCountdown === null && !rocketArrived && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7773,7 +7773,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER — Rocket launching banner ═══════════════ */}
       {rocketLaunching && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7817,7 +7817,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ TOP — Space station active banner ═══════════════ */}
       {inSpaceStation && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7929,7 +7929,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — Possession active banner ═══════════════ */}
       {isPossessed && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
@@ -7947,7 +7947,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — Fox warning ═══════════════ */}
       {foxWarning && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm animate-pulse"
             style={{
@@ -7965,7 +7965,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — Spider warning ═══════════════ */}
       {nearSpiderHp && !foxWarning && !catapultWarning && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm animate-pulse"
             style={{
@@ -7983,7 +7983,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — Catapult warning ═══════════════ */}
       {catapultWarning && !foxWarning && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 61 }}>
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 61 }}>
           <div
             className="rounded-xl text-white font-bold text-sm animate-pulse"
             style={{
@@ -8035,7 +8035,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER — Nearest fox HP ═══════════════ */}
       {nearFoxHp && gameState.isLocked && (
-        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed bottom-40 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-2xl text-white text-xs text-center"
             style={{
@@ -8079,7 +8079,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER — Nearest spider HP ═══════════════ */}
       {nearSpiderHp && !nearFoxHp && gameState.isLocked && (
-        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed bottom-40 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-2xl text-white text-xs text-center"
             style={{
@@ -8538,17 +8538,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           data-testid="mp-notification"
           className="fixed pointer-events-none select-none"
           style={{
-            bottom: 76,
+            bottom: 44,
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 70,
-            padding: "8px 18px",
+            padding: "7px 16px",
             borderRadius: 12,
             background: "rgba(5,8,20,0.82)",
             border: "1px solid rgba(74,158,255,0.35)",
             backdropFilter: "blur(12px)",
             color: "rgba(255,255,255,0.85)",
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 500,
             whiteSpace: "nowrap",
             boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
@@ -8558,14 +8558,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ─── Online players panel (bottom-left) ──────────────────────────────── */}
+      {/* ─── Online players panel (bottom-right, next to mute button) ──────────────────────────────── */}
       {gameStarted && onlinePlayers.length > 0 && (
         <div
           data-testid="online-players-panel"
           className="fixed pointer-events-none select-none"
           style={{
-            bottom: 20,
-            left: 20,
+            bottom: 72,
+            right: 20,
             zIndex: 60,
             padding: "8px 12px",
             borderRadius: 12,
@@ -8701,100 +8701,78 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           onClick={lockPointer}
         >
           <div
-            className="rounded-2xl text-center text-white max-w-lg w-full"
+            className="rounded-2xl text-center text-white max-w-md w-full mx-4"
             style={{
-              padding: "40px 40px 36px",
-              background: "rgba(8,16,36,0.93)",
+              padding: "28px 28px 24px",
+              background: "rgba(8,16,36,0.95)",
               border: "1px solid rgba(255,255,255,0.12)",
-              boxShadow: "0 8px 48px rgba(0,0,0,0.65)",
+              boxShadow: "0 8px 48px rgba(0,0,0,0.7)",
             }}
           >
-            <div className="text-5xl" style={{ marginBottom: 14 }}>🌍</div>
-            <h1 className="text-3xl font-bold" style={{ marginBottom: 8 }}>Open World</h1>
-            <p className="text-gray-400 text-sm" style={{ marginBottom: 24 }}>
-              Prozkoumej otevřený 3D svět s cyklem dne a noci
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 4 }}>
+              <span style={{ fontSize: 28 }}>🌍</span>
+              <h1 className="text-2xl font-bold">Open World</h1>
+            </div>
+            <p className="text-gray-500 text-xs" style={{ marginBottom: 18 }}>
+              Otevřený 3D svět · multiplayer · den/noc
             </p>
 
-            {/* Objectives grid */}
+            {/* Objectives — compact 2-col */}
             <div
               className="rounded-xl text-left"
               style={{
-                padding: "16px 20px",
-                marginBottom: 16,
+                padding: "12px 16px",
+                marginBottom: 14,
                 background: "rgba(255,255,255,0.04)",
                 border: "1px solid rgba(255,255,255,0.07)",
               }}
             >
-              <div className="grid grid-cols-2 text-sm text-gray-300" style={{ gap: "12px 28px" }}>
-                <div>🐑 Zažeň <strong className="text-white">{SHEEP_COUNT} ovcí</strong> do ohrady</div>
-                <div>🌅 Dynaminký <strong className="text-white">den/noc</strong></div>
-                <div>🌟 Sesbírej <strong className="text-yellow-300">{COIN_COUNT} mincí</strong></div>
-                <div>🏚 Prozkoumej <strong className="text-white">ruiny</strong> a vesnici</div>
-                <div>🦊 <strong className="text-orange-400">Bojuj s liškami</strong> [F] nebo drž klik</div>
-                <div>💣 Znič <strong className="text-yellow-400">{CATAPULT_COUNT} katapultů</strong> — střílí kule!</div>
-                <div>⚓ Najdi <strong className="text-white">maják</strong> na pobřeží</div>
-                <div>🧱 <strong className="text-green-300">Stav budovy</strong> stiskni [B]</div>
-                <div>⛏ <strong className="text-cyan-300">Tvaruj terén</strong> v stavění [T]</div>
-                <div>🐑 <strong className="text-blue-300">[E]</strong> vstoupit do těla ovce</div>
-                <div>📷 <strong className="text-yellow-300">[V]</strong> přepnout 1./3. osobu</div>
-                <div>🏊 <strong className="text-blue-400">Plav ve vodě</strong> — zpomaluje pohyb</div>
-                <div>⛵ Najdi <strong className="text-sky-300">loď</strong> na pobřeží [E] nastoupit</div>
-                <div>✈️ Najdi <strong className="text-green-300">letiště</strong> — nastoupit a létat [E]</div>
+              <div className="grid grid-cols-2 text-xs text-gray-400" style={{ gap: "8px 20px" }}>
+                <div>🐑 Zažeň <span className="text-white font-medium">{SHEEP_COUNT} ovcí</span> do ohrady</div>
+                <div>🌟 Sesbírej <span className="text-yellow-300 font-medium">{COIN_COUNT} mincí</span></div>
+                <div>🦊 <span className="text-orange-400 font-medium">Poraž lišky</span> — útok [F]</div>
+                <div>💣 Znič <span className="text-yellow-400 font-medium">{CATAPULT_COUNT} katapultů</span></div>
+                <div>⛵ <span className="text-sky-300 font-medium">Loď</span>, ✈️ <span className="text-green-300 font-medium">letadlo</span>, 🚀 <span className="text-orange-300 font-medium">raketa</span></div>
+                <div>🧱 <span className="text-green-300 font-medium">Stavění</span> [B] · 🐑 <span className="text-blue-300 font-medium">ovce</span> [E]</div>
               </div>
             </div>
 
-            {/* Controls */}
+            {/* Controls — single compact block */}
             <div
-              className="rounded-xl text-xs text-gray-500"
+              className="rounded-xl text-xs"
               style={{
-                padding: "14px 20px",
-                marginBottom: 24,
+                padding: "10px 16px",
+                marginBottom: 18,
                 background: "rgba(255,255,255,0.03)",
                 border: "1px solid rgba(255,255,255,0.06)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
+                color: "rgba(255,255,255,0.45)",
               }}
             >
               {IS_MOBILE ? (
-                <>
-                  <div className="flex gap-6 justify-center flex-wrap">
-                    <span>🕹 <strong className="text-gray-300">Joystick vlevo</strong> – pohyb</span>
-                    <span>👆 <strong className="text-gray-300">Táhni vpravo</strong> – pohled</span>
-                  </div>
-                  <div className="flex gap-6 justify-center flex-wrap">
-                    <span>↑ <strong className="text-green-300">Zelené</strong> – skok</span>
-                    <span>⚔ <strong className="text-red-400">Červené</strong> – útok</span>
-                    <span>E <strong className="text-blue-400">Modré</strong> – interakce</span>
-                    <span>💨 <strong className="text-yellow-400">Žluté</strong> – sprint</span>
-                  </div>
-                </>
+                <div className="flex gap-4 justify-center flex-wrap">
+                  <span>🕹 <strong className="text-gray-300">Joystick</strong> – pohyb</span>
+                  <span>👆 <strong className="text-gray-300">Táhni</strong> – pohled</span>
+                  <span>↑ <strong className="text-green-300">Zelené</strong> – skok</span>
+                  <span>⚔ <strong className="text-red-400">Červené</strong> – útok</span>
+                </div>
               ) : (
-                <>
-                  <div className="flex gap-6 justify-center flex-wrap">
-                    <span>🕹 <strong className="text-gray-300">WASD</strong> – pohyb</span>
-                    <span>🖱 <strong className="text-gray-300">Myš</strong> – pohled</span>
-                    <span>⬆ <strong className="text-gray-300">Mezerník</strong> – skok</span>
-                    <span>💨 <strong className="text-gray-300">Shift</strong> – sprint</span>
-                  </div>
-                  <div className="flex gap-6 justify-center flex-wrap">
-                    <span>⚔️ <strong className="text-gray-300">[F]/Drž klik</strong> – útok</span>
-                    <span>🐑 <strong className="text-blue-300">[E]</strong> – vstoupit do ovce</span>
-                    <span>⏸ <strong className="text-gray-300">Esc</strong> – pauza</span>
-                    <span>🧱 <strong className="text-green-400">[B]</strong> – stavění</span>
-                  </div>
-                  <div className="flex gap-6 justify-center flex-wrap">
-                    <span>⛏ <strong className="text-cyan-400">[T]</strong> – terén (v stavění)</span>
-                    <span>📷 <strong className="text-yellow-400">[V]</strong> – přepnout 1./3. osobu</span>
-                    <span>💡 napiš <strong className="text-purple-400">IMPLEMENT</strong> – návrh</span>
-                  </div>
-                </>
+                <div className="flex gap-4 justify-center flex-wrap">
+                  <span><strong className="text-gray-300">WASD</strong> pohyb</span>
+                  <span><strong className="text-gray-300">Myš</strong> pohled</span>
+                  <span><strong className="text-gray-300">Mezerník</strong> skok</span>
+                  <span><strong className="text-gray-300">Shift</strong> sprint</span>
+                  <span><strong className="text-red-400">[F]</strong> útok</span>
+                  <span><strong className="text-blue-300">[E]</strong> interakce</span>
+                  <span><strong className="text-green-400">[B]</strong> stavění</span>
+                  <span><strong className="text-gray-400">Esc</strong> pauza</span>
+                </div>
               )}
             </div>
 
             <button
-              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold rounded-xl text-lg w-full"
-              style={{ padding: "14px 32px" }}
+              className="bg-green-600 hover:bg-green-500 transition-colors text-white font-bold rounded-xl w-full"
+              style={{ padding: "12px 24px", fontSize: 16 }}
               onClick={(e) => {
                 e.stopPropagation();
                 setShowIntro(false);
@@ -8844,7 +8822,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* ═══════════════ CENTER TOP — On-airplane active banner ═══════════════ */}
       {onAirplane && gameState.isLocked && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm"
             style={{
