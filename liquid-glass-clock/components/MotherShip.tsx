@@ -209,38 +209,135 @@ function createShipLights(scene: THREE.Scene): { meshes: THREE.Mesh[]; lights: T
   const lights: THREE.PointLight[] = [];
 
   const positions = [
-    { x: 0, y: -8, z: 0, intensity: 12, color: 0xff8833 },       // central
-    { x: 45, y: -6, z: 20, intensity: 8, color: 0xff6622 },
-    { x: -50, y: -7, z: -15, intensity: 9, color: 0xffaa44 },
-    { x: 20, y: -5, z: -60, intensity: 7, color: 0xff7733 },
-    { x: -25, y: -6, z: 55, intensity: 8, color: 0xff5511 },
-    { x: 70, y: -5, z: -40, intensity: 6, color: 0xffbb55 },
-    { x: -65, y: -7, z: 45, intensity: 7, color: 0xff6633 },
-    { x: 30, y: -4, z: 80, intensity: 5, color: 0xff8844 },
-    { x: -80, y: -5, z: -30, intensity: 6, color: 0xff5522 },
-    { x: 55, y: -6, z: -70, intensity: 5, color: 0xffaa33 },
+    { x: 0, y: -8, z: 0, intensity: 20, color: 0xff8833 },       // central
+    { x: 45, y: -6, z: 20, intensity: 15, color: 0xff6622 },
+    { x: -50, y: -7, z: -15, intensity: 16, color: 0xffaa44 },
+    { x: 20, y: -5, z: -60, intensity: 14, color: 0xff7733 },
+    { x: -25, y: -6, z: 55, intensity: 15, color: 0xff5511 },
+    { x: 70, y: -5, z: -40, intensity: 13, color: 0xffbb55 },
+    { x: -65, y: -7, z: 45, intensity: 14, color: 0xff6633 },
+    { x: 30, y: -4, z: 80, intensity: 12, color: 0xff8844 },
+    { x: -80, y: -5, z: -30, intensity: 13, color: 0xff5522 },
+    { x: 55, y: -6, z: -70, intensity: 12, color: 0xffaa33 },
     // Smaller accent lights
-    { x: 12, y: -5, z: 35, intensity: 3, color: 0xff7722 },
-    { x: -35, y: -4, z: -50, intensity: 3, color: 0xff6611 },
-    { x: 80, y: -5, z: 10, intensity: 4, color: 0xffcc55 },
-    { x: -15, y: -6, z: -85, intensity: 4, color: 0xff8833 },
+    { x: 12, y: -5, z: 35, intensity: 8, color: 0xff7722 },
+    { x: -35, y: -4, z: -50, intensity: 8, color: 0xff6611 },
+    { x: 80, y: -5, z: 10, intensity: 10, color: 0xffcc55 },
+    { x: -15, y: -6, z: -85, intensity: 10, color: 0xff8833 },
   ];
 
   positions.forEach(({ x, y, z, intensity, color }) => {
     // Visible glow sphere
-    const geo = new THREE.SphereGeometry(1.5 + intensity * 0.15, 8, 8);
+    const geo = new THREE.SphereGeometry(1.5 + intensity * 0.12, 8, 8);
     const mat = new THREE.MeshBasicMaterial({ color });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
     meshes.push(mesh);
 
-    // Actual light source (limited range to avoid overdraw)
-    const light = new THREE.PointLight(color, intensity, 80, 2);
+    // Actual light source (increased range for better coverage)
+    const light = new THREE.PointLight(color, intensity, 120, 2);
     light.position.set(x, y, z);
     lights.push(light);
   });
 
   return { meshes, lights };
+}
+
+/** Porthole / window lights – rows of small glowing spheres along arms and hub */
+function createPortholeLights(scene: THREE.Scene): { meshes: THREE.Mesh[]; lights: THREE.PointLight[] } {
+  void scene;
+  const meshes: THREE.Mesh[] = [];
+  const lights: THREE.PointLight[] = [];
+
+  // Windows along the 7 radial arms
+  const armAngles = [0, 51, 103, 155, 205, 257, 308];
+  armAngles.forEach((angleDeg, armIdx) => {
+    const angle = (angleDeg * Math.PI) / 180;
+    const windowColors = [0xaaccff, 0x88bbff, 0xffffff, 0xbbddff];
+    // Place 5 windows per arm, spread across arm length
+    for (let w = 0; w < 5; w++) {
+      const dist = 28 + w * 12; // distance from center
+      const x = Math.cos(angle) * dist;
+      const z = Math.sin(angle) * dist;
+      const y = 2 + (w % 2 === 0 ? 1.5 : -1.5);
+      const color = windowColors[(armIdx + w) % windowColors.length];
+
+      const geo = new THREE.SphereGeometry(0.7, 6, 6);
+      const mat = new THREE.MeshBasicMaterial({ color });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      meshes.push(mesh);
+
+      // Every other window gets a small point light
+      if (w % 2 === 0) {
+        const light = new THREE.PointLight(color, 4, 30, 2);
+        light.position.set(x, y, z);
+        lights.push(light);
+      }
+    }
+  });
+
+  // Ring of windows around the central hub
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    const r = 21;
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    const y = 3;
+    const color = i % 4 === 0 ? 0xffffff : i % 4 === 1 ? 0xaaddff : i % 4 === 2 ? 0x88bbff : 0xccccff;
+
+    const geo = new THREE.SphereGeometry(0.6, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    meshes.push(mesh);
+
+    if (i % 4 === 0) {
+      const light = new THREE.PointLight(color, 5, 35, 2);
+      light.position.set(x, y, z);
+      lights.push(light);
+    }
+  }
+
+  // Outer ring accent lights (evenly spaced around the torus)
+  for (let i = 0; i < 24; i++) {
+    const angle = (i / 24) * Math.PI * 2;
+    const r = 95;
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+    const y = -2;
+    const warm = i % 3 === 0;
+    const color = warm ? 0xff9944 : 0x6699ff;
+
+    const geo = new THREE.SphereGeometry(0.8, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    meshes.push(mesh);
+
+    if (i % 3 === 0) {
+      const light = new THREE.PointLight(color, 6, 40, 2);
+      light.position.set(x, y, z);
+      lights.push(light);
+    }
+  }
+
+  return { meshes, lights };
+}
+
+/** Central reactor glow – blue-white light from the hub underside */
+function createReactorGlow(): { mesh: THREE.Mesh; light: THREE.PointLight } {
+  // Glowing core sphere
+  const geo = new THREE.SphereGeometry(4, 12, 12);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x66aaff });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(0, -14, 0);
+
+  // Strong blue-white point light
+  const light = new THREE.PointLight(0x4488ff, 30, 160, 1.8);
+  light.position.set(0, -14, 0);
+
+  return { mesh, light };
 }
 
 /** Floating debris particles around the ship */
@@ -318,7 +415,7 @@ export default function MotherShip() {
     renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.6;
+    renderer.toneMappingExposure = 1.0;
 
     // ── Scene & Fog ───────────────────────────────────────────────────────
     const scene = new THREE.Scene();
@@ -337,17 +434,17 @@ export default function MotherShip() {
     // Look up-and-slightly-forward so the ship dominates the upper frame
     camera.lookAt(0, 80, -20);
 
-    // ── Ambient & Directional Light (dim, oppressive) ─────────────────────
-    const ambient = new THREE.AmbientLight(0x1a2030, 0.8);
+    // ── Ambient & Directional Light ───────────────────────────────────────
+    const ambient = new THREE.AmbientLight(0x2a3050, 1.5);
     scene.add(ambient);
 
-    // Faint orange from the city fires below
-    const cityGlow = new THREE.DirectionalLight(0xff6633, 0.4);
+    // Orange glow from city fires below
+    const cityGlow = new THREE.DirectionalLight(0xff6633, 0.8);
     cityGlow.position.set(0, -1, 0);
     scene.add(cityGlow);
 
-    // Weak distant sun behind overcast – gives a cold edge
-    const edgeLight = new THREE.DirectionalLight(0x8899bb, 0.3);
+    // Cold edge light – distant overcast sun
+    const edgeLight = new THREE.DirectionalLight(0x8899bb, 0.6);
     edgeLight.position.set(-1, 0.2, 1);
     scene.add(edgeLight);
 
@@ -375,10 +472,20 @@ export default function MotherShip() {
     scene.remove(underpanels);
     shipGroup.add(underpanels);
 
-    // Lights attached to ship
+    // Orange/amber underside lights
     const { meshes: lightMeshes, lights: lightObjects } = createShipLights(scene);
     lightMeshes.forEach((m) => shipGroup.add(m));
     lightObjects.forEach((l) => shipGroup.add(l));
+
+    // Porthole / window lights
+    const { meshes: portholeMeshes, lights: portholeObjects } = createPortholeLights(scene);
+    portholeMeshes.forEach((m) => shipGroup.add(m));
+    portholeObjects.forEach((l) => shipGroup.add(l));
+
+    // Central reactor glow
+    const { mesh: reactorMesh, light: reactorLight } = createReactorGlow();
+    shipGroup.add(reactorMesh);
+    shipGroup.add(reactorLight);
 
     scene.add(shipGroup);
 
@@ -446,16 +553,30 @@ export default function MotherShip() {
       // Haze drift
       haze.position.x = Math.sin(t * 0.04) * 5;
 
-      // Flickering ship lights
+      // Flickering orange/amber lights
       lightObjects.forEach((l, i) => {
-        const flicker = 0.85 + Math.sin(t * (1.2 + i * 0.37) + i) * 0.15;
-        l.intensity = (lightObjects[i] as THREE.PointLight).intensity;
-        // Store original intensity on first frame
         if (!(l as { _base?: number })._base) {
           (l as { _base?: number })._base = l.intensity;
         }
+        const flicker = 0.85 + Math.sin(t * (1.2 + i * 0.37) + i) * 0.15;
         l.intensity = ((l as { _base?: number })._base ?? l.intensity) * flicker;
       });
+
+      // Gentle pulse on porthole lights
+      portholeObjects.forEach((l, i) => {
+        if (!(l as { _base?: number })._base) {
+          (l as { _base?: number })._base = l.intensity;
+        }
+        const pulse = 0.9 + Math.sin(t * (0.6 + i * 0.2) + i * 1.3) * 0.1;
+        l.intensity = ((l as { _base?: number })._base ?? l.intensity) * pulse;
+      });
+
+      // Reactor slow breathing
+      if (!(reactorLight as { _base?: number })._base) {
+        (reactorLight as { _base?: number })._base = reactorLight.intensity;
+      }
+      const reactorBreath = 0.8 + Math.sin(t * 0.4) * 0.2;
+      reactorLight.intensity = ((reactorLight as { _base?: number })._base ?? reactorLight.intensity) * reactorBreath;
 
       renderer.render(scene, camera);
 
