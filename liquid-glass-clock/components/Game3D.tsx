@@ -8256,6 +8256,106 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               💰 Všechny mince sesbírány!
             </div>
           )}
+
+          {/* ─── Nearby enemy HP cards ─── */}
+          {nearCatapultHp && (
+            <div
+              className="rounded-2xl text-white text-xs"
+              style={{
+                padding: "12px 16px 14px",
+                background: "rgba(5,8,20,0.72)",
+                backdropFilter: "blur(14px)",
+                border: "1px solid rgba(255,180,40,0.22)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+              }}
+            >
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <span className="font-bold text-sm" style={{ color: "#fbbf24" }}>⚔️ Katapult</span>
+                {catapultWarning && (
+                  <span className="text-xs font-semibold animate-pulse" style={{ color: "#f59e0b" }}>v blízkosti!</span>
+                )}
+              </div>
+              <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", marginBottom: 5 }}>
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{
+                    width: `${(nearCatapultHp.hp / nearCatapultHp.maxHp) * 100}%`,
+                    background: nearCatapultHp.hp > nearCatapultHp.maxHp * 0.5 ? "#f59e0b" : "#ef4444",
+                    boxShadow: "0 0 8px #f59e0b66",
+                  }}
+                />
+              </div>
+              <div className="tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>
+                {nearCatapultHp.hp} / {nearCatapultHp.maxHp}
+              </div>
+            </div>
+          )}
+
+          {nearFoxHp && (
+            <div
+              className="rounded-2xl text-white text-xs"
+              style={{
+                padding: "12px 16px 14px",
+                background: "rgba(5,8,20,0.72)",
+                backdropFilter: "blur(14px)",
+                border: "1px solid rgba(255,140,40,0.18)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+              }}
+            >
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <span className="font-bold text-sm" style={{ color: "#fb923c" }}>🦊 {nearFoxHp.name}</span>
+                {foxWarning && (
+                  <span className="text-xs font-semibold animate-pulse" style={{ color: "#f97316" }}>v blízkosti!</span>
+                )}
+              </div>
+              <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", marginBottom: 5 }}>
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{
+                    width: `${(nearFoxHp.hp / nearFoxHp.maxHp) * 100}%`,
+                    background: nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "#f97316" : "#ef4444",
+                    boxShadow: nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "0 0 8px #f9731666" : "0 0 8px #ef444466",
+                  }}
+                />
+              </div>
+              <div className="tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>
+                {nearFoxHp.hp} / {nearFoxHp.maxHp}
+              </div>
+            </div>
+          )}
+
+          {nearSpiderHp && !nearFoxHp && (
+            <div
+              className="rounded-2xl text-white text-xs"
+              style={{
+                padding: "12px 16px 14px",
+                background: "rgba(5,8,20,0.72)",
+                backdropFilter: "blur(14px)",
+                border: "1px solid rgba(200,30,30,0.22)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+              }}
+            >
+              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+                <span className="font-bold text-sm" style={{ color: "#dc2626" }}>🕷 {nearSpiderHp.name}</span>
+                {!foxWarning && !catapultWarning && (
+                  <span className="text-xs font-semibold animate-pulse" style={{ color: "#ef4444" }}>v blízkosti!</span>
+                )}
+              </div>
+              <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", marginBottom: 5 }}>
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{
+                    width: `${(nearSpiderHp.hp / nearSpiderHp.maxHp) * 100}%`,
+                    background: nearSpiderHp.hp > nearSpiderHp.maxHp * 0.5 ? "#b91c1c" : "#7f1d1d",
+                    boxShadow: "0 0 8px #b91c1c66",
+                  }}
+                />
+              </div>
+              <div className="tabular-nums" style={{ color: "rgba(255,255,255,0.40)" }}>
+                {nearSpiderHp.hp} / {nearSpiderHp.maxHp}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -8838,179 +8938,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🐑 Hraješ za ovci &nbsp;·&nbsp; <span style={{ color: "#86efac" }}>[E] Opustit tělo</span>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER TOP — Fox warning ═══════════════ */}
-      {foxWarning && gameState.isLocked && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-xl text-white font-bold text-sm animate-pulse"
-            style={{
-              padding: "10px 22px",
-              background: "rgba(160,30,0,0.80)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(255,80,30,0.25)",
-              boxShadow: "0 0 20px rgba(200,40,0,0.40)",
-            }}
-          >
-            🦊 Liška v blízkosti!
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER TOP — Spider warning ═══════════════ */}
-      {nearSpiderHp && !foxWarning && !catapultWarning && gameState.isLocked && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-xl text-white font-bold text-sm animate-pulse"
-            style={{
-              padding: "10px 22px",
-              background: "rgba(80,0,0,0.85)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(200,30,30,0.35)",
-              boxShadow: "0 0 20px rgba(160,0,0,0.45)",
-            }}
-          >
-            🕷 Pavouk v blízkosti!
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER TOP — Catapult warning ═══════════════ */}
-      {catapultWarning && !foxWarning && gameState.isLocked && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 61 }}>
-          <div
-            className="rounded-xl text-white font-bold text-sm animate-pulse"
-            style={{
-              padding: "10px 22px",
-              background: "rgba(100,50,0,0.88)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(255,180,30,0.35)",
-              boxShadow: "0 0 22px rgba(200,120,0,0.50)",
-            }}
-          >
-            ⚔️ Katapult v blízkosti!
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER — Nearest catapult HP ═══════════════ */}
-      {nearCatapultHp && gameState.isLocked && (
-        <div className="fixed bottom-52 left-1/2 -translate-x-1/2 pointer-events-none select-none" style={{ zIndex: 60 }}>
-          <div
-            className="rounded-2xl text-white text-xs text-center"
-            style={{
-              padding: "12px 22px 14px",
-              background: "rgba(5,8,20,0.72)",
-              backdropFilter: "blur(14px)",
-              border: "1px solid rgba(255,180,40,0.20)",
-              minWidth: 200,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div className="font-bold text-sm" style={{ color: "#fbbf24", marginBottom: 8 }}>
-              Katapult
-            </div>
-            <div className="h-3 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", marginBottom: 6 }}>
-              <div
-                className="h-full rounded-full transition-all duration-100"
-                style={{
-                  width: `${(nearCatapultHp.hp / nearCatapultHp.maxHp) * 100}%`,
-                  background: nearCatapultHp.hp > nearCatapultHp.maxHp * 0.5 ? "#f59e0b" : "#ef4444",
-                  boxShadow: "0 0 8px #f59e0b66",
-                }}
-              />
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
-              {nearCatapultHp.hp} / {nearCatapultHp.maxHp}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER — Nearest fox HP ═══════════════ */}
-      {nearFoxHp && gameState.isLocked && (
-        <div className="fixed bottom-40 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-2xl text-white text-xs text-center"
-            style={{
-              padding: "14px 22px 16px",
-              background: "rgba(5,8,20,0.72)",
-              backdropFilter: "blur(14px)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              minWidth: 210,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div
-              className="font-bold text-sm"
-              style={{ color: "#fb923c", marginBottom: 10 }}
-            >
-              {nearFoxHp.name}
-            </div>
-            <div
-              className="h-3 rounded-full overflow-hidden"
-              style={{ background: "rgba(255,255,255,0.08)", marginBottom: 8 }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-100"
-                style={{
-                  width: `${(nearFoxHp.hp / nearFoxHp.maxHp) * 100}%`,
-                  background:
-                    nearFoxHp.hp > nearFoxHp.maxHp * 0.5 ? "#f97316" : "#ef4444",
-                  boxShadow:
-                    nearFoxHp.hp > nearFoxHp.maxHp * 0.5
-                      ? "0 0 8px #f9731666"
-                      : "0 0 8px #ef444466",
-                }}
-              />
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
-              {nearFoxHp.hp} / {nearFoxHp.maxHp}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER — Nearest spider HP ═══════════════ */}
-      {nearSpiderHp && !nearFoxHp && gameState.isLocked && (
-        <div className="fixed bottom-40 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-2xl text-white text-xs text-center"
-            style={{
-              padding: "14px 22px 16px",
-              background: "rgba(5,8,20,0.72)",
-              backdropFilter: "blur(14px)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              minWidth: 210,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div
-              className="font-bold text-sm"
-              style={{ color: "#dc2626", marginBottom: 10 }}
-            >
-              {nearSpiderHp.name}
-            </div>
-            <div
-              className="h-3 rounded-full overflow-hidden"
-              style={{ background: "rgba(255,255,255,0.08)", marginBottom: 8 }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-100"
-                style={{
-                  width: `${(nearSpiderHp.hp / nearSpiderHp.maxHp) * 100}%`,
-                  background:
-                    nearSpiderHp.hp > nearSpiderHp.maxHp * 0.5 ? "#b91c1c" : "#7f1d1d",
-                  boxShadow: "0 0 8px #b91c1c66",
-                }}
-              />
-            </div>
-            <div style={{ color: "rgba(255,255,255,0.40)" }} className="text-xs tabular-nums">
-              {nearSpiderHp.hp} / {nearSpiderHp.maxHp}
-            </div>
           </div>
         </div>
       )}
