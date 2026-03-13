@@ -2321,9 +2321,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           // ── Micro-shading: subtle brightness variation ─────────────────────────
           col *= 0.90 + micro * 0.18;
 
-          // ── Lambert lighting ──────────────────────────────────────────────────
-          float diffuse  = max(0.0, dot(vNormal, normalize(uSunDir)));
-          vec3  litColor = col * (uAmbientColor + uSunColor * diffuse * uSunIntensity);
+          // ── Hemisphere ambient ────────────────────────────────────────────────
+          // Ambient varies with surface orientation: sky-facing surfaces get
+          // more light (1.3×), ground-facing get less (0.5×). Eliminates the
+          // flat-ambient "painted-on" look and fills in shadowed north faces.
+          float hemi = dot(vNormal, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5; // 0→1
+          vec3 hemiAmbient = mix(uAmbientColor * 0.50, uAmbientColor * 1.30, hemi);
+
+          // ── Wrap diffuse (soft Lambert) ───────────────────────────────────────
+          // Wraps light slightly around the terminator so north/shadow faces
+          // still get ~25 % of sun contribution instead of 0.  Front-facing
+          // surfaces are unchanged (diffuse still reaches 1.0).
+          // wrapFactor = 0.35 → surfaces 90° from sun receive 0.35/1.35 ≈ 0.26.
+          vec3  sunDirN     = normalize(uSunDir);
+          float wrapFactor  = 0.35;
+          float diffuse     = max(0.0, (dot(vNormal, sunDirN) + wrapFactor)
+                                       / (1.0 + wrapFactor));
+          vec3  litColor = col * (hemiAmbient + uSunColor * diffuse * uSunIntensity);
 
           // ── Headlamp spotlight ────────────────────────────────────────────────
           // Custom spotlight calculation since ShaderMaterial bypasses Three.js lights.
