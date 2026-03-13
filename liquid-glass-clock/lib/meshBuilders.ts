@@ -2804,6 +2804,20 @@ export function buildRocketMesh(): {
 // Space Station Interior
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** A single interactive sliding door inside the space station. */
+export interface StationDoor {
+  /** The two sliding panels (left/right or top/bottom depending on axis). */
+  panels: [THREE.Mesh, THREE.Mesh];
+  /** Panel world-group positions when door is fully closed. */
+  closedPos: [THREE.Vector3, THREE.Vector3];
+  /** Panel world-group positions when door is fully open. */
+  openPos: [THREE.Vector3, THREE.Vector3];
+  /** Center of this door in group-local space (used for proximity). */
+  localPos: THREE.Vector3;
+  /** Axis the player crosses when walking through this door. */
+  axis: 'x' | 'z';
+}
+
 export interface SpaceStationInteriorResult {
   group: THREE.Group;
   /** Walkable AABB boxes in group-local space (used for collision). */
@@ -2814,6 +2828,8 @@ export interface SpaceStationInteriorResult {
   lights: { light: THREE.PointLight; baseIntensity: number; phase: number }[];
   /** Animated holographic displays to rotate/pulse. */
   animatedMeshes: { mesh: THREE.Mesh; type: 'hologram' | 'reactor' | 'panel' }[];
+  /** Interactive sliding doors between rooms. */
+  doors: StationDoor[];
 }
 
 /**
@@ -2831,6 +2847,7 @@ export interface SpaceStationInteriorResult {
  */
 export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   const group = new THREE.Group();
+  const doors: StationDoor[] = [];
 
   // ── Shared materials ──────────────────────────────────────────────────────
   const hullMat = new THREE.MeshStandardMaterial({
@@ -2924,6 +2941,20 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     metalness: 0.9,
     emissive: new THREE.Color(0x0a1830),
     emissiveIntensity: 0.6,
+  });
+  const doorPanelMat = new THREE.MeshStandardMaterial({
+    color: 0x1a3a60,
+    roughness: 0.3,
+    metalness: 0.95,
+    emissive: new THREE.Color(0x0a2040),
+    emissiveIntensity: 0.8,
+  });
+  const doorButtonMat = new THREE.MeshStandardMaterial({
+    color: 0x00cc66,
+    emissive: new THREE.Color(0x00cc66),
+    emissiveIntensity: 2.0,
+    roughness: 0.3,
+    metalness: 0.1,
   });
 
   // ── Room definitions (walkable AABB) ────────────────────────────────────
@@ -3064,6 +3095,123 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     void beamGeo; // suppress unused warning
   };
 
+  /**
+   * Add a sliding two-panel door at position (cx, cz) along the given axis.
+   * The door sits inside the matching door frame created by addDoorFrame().
+   *
+   * axis='x': door perpendicular to X-axis; panels slide in Z direction.
+   * axis='z': door perpendicular to Z-axis; panels slide in X direction.
+   *
+   * A small glowing button panel is placed on the wall just to the side
+   * of the door so the player can visually identify the interaction point.
+   */
+  const addSlidingDoor = (cx: number, cz: number, axis: 'x' | 'z'): StationDoor => {
+    const panelHeight = 2.85;
+    const panelHalfWidth = 1.1; // half of total opening width
+    const panelThick = 0.12;
+    const panelY = panelHeight / 2 + 0.05; // floor offset
+
+    let panelGeoA: THREE.BoxGeometry;
+    let panelGeoB: THREE.BoxGeometry;
+    let closedA: THREE.Vector3;
+    let closedB: THREE.Vector3;
+    let openA: THREE.Vector3;
+    let openB: THREE.Vector3;
+
+    if (axis === 'x') {
+      // Panels slide in Z; door face is perpendicular to X
+      panelGeoA = new THREE.BoxGeometry(panelThick, panelHeight, panelHalfWidth);
+      panelGeoB = new THREE.BoxGeometry(panelThick, panelHeight, panelHalfWidth);
+      // Closed: centred in opening (panels cover Z = -1.1 .. 0 and 0 .. 1.1)
+      closedA = new THREE.Vector3(cx, panelY, cz - panelHalfWidth / 2);
+      closedB = new THREE.Vector3(cx, panelY, cz + panelHalfWidth / 2);
+      // Open: tucked into the frame pillars (Z ≈ ±1.3)
+      openA = new THREE.Vector3(cx, panelY, cz - 1.25);
+      openB = new THREE.Vector3(cx, panelY, cz + 1.25);
+    } else {
+      // Panels slide in X; door face is perpendicular to Z
+      panelGeoA = new THREE.BoxGeometry(panelHalfWidth, panelHeight, panelThick);
+      panelGeoB = new THREE.BoxGeometry(panelHalfWidth, panelHeight, panelThick);
+      // Closed: centred in opening (panels cover X = cx-1.1 .. cx and cx .. cx+1.1)
+      closedA = new THREE.Vector3(cx - panelHalfWidth / 2, panelY, cz);
+      closedB = new THREE.Vector3(cx + panelHalfWidth / 2, panelY, cz);
+      // Open: tucked into the frame pillars (X ≈ cx ± 1.3)
+      openA = new THREE.Vector3(cx - 1.25, panelY, cz);
+      openB = new THREE.Vector3(cx + 1.25, panelY, cz);
+    }
+
+    const panelA = new THREE.Mesh(panelGeoA, doorPanelMat.clone());
+    panelA.position.copy(closedA);
+    group.add(panelA);
+
+    const panelB = new THREE.Mesh(panelGeoB, doorPanelMat.clone());
+    panelB.position.copy(closedB);
+    group.add(panelB);
+
+    // Glowing edge stripe on each panel (thin emissive line on the inside edge)
+    const stripeMatA = new THREE.MeshStandardMaterial({
+      color: 0x0066ff, emissive: new THREE.Color(0x0044cc), emissiveIntensity: 3.0,
+      roughness: 0.1, metalness: 0.1,
+    });
+    const stripeMatB = stripeMatA.clone();
+
+    if (axis === 'x') {
+      const stripeGeoA = new THREE.BoxGeometry(panelThick + 0.02, panelHeight * 0.9, 0.06);
+      const stripeA = new THREE.Mesh(stripeGeoA, stripeMatA);
+      stripeA.position.set(0, 0, panelHalfWidth / 2); // inner edge of panel A (facing centre)
+      panelA.add(stripeA);
+      const stripeB = new THREE.Mesh(stripeGeoA.clone(), stripeMatB);
+      stripeB.position.set(0, 0, -panelHalfWidth / 2);
+      panelB.add(stripeB);
+    } else {
+      const stripeGeoA = new THREE.BoxGeometry(0.06, panelHeight * 0.9, panelThick + 0.02);
+      const stripeA = new THREE.Mesh(stripeGeoA, stripeMatA);
+      stripeA.position.set(panelHalfWidth / 2, 0, 0);
+      panelA.add(stripeA);
+      const stripeB = new THREE.Mesh(stripeGeoA.clone(), stripeMatB);
+      stripeB.position.set(-panelHalfWidth / 2, 0, 0);
+      panelB.add(stripeB);
+    }
+
+    // Wall-mounted interaction button (small glowing panel on the wall beside the door)
+    const btnBaseGeo = new THREE.BoxGeometry(0.08, 0.4, 0.25);
+    const btnBase = new THREE.Mesh(btnBaseGeo, doorPanelMat.clone());
+    const btnGeo = new THREE.BoxGeometry(0.08, 0.14, 0.14);
+    const btn = new THREE.Mesh(btnGeo, doorButtonMat.clone());
+    animatedMeshes.push({ mesh: btn, type: 'panel' });
+
+    if (axis === 'x') {
+      // Button on the wall at Z = +1.6 (right side when walking in +X direction)
+      btnBase.position.set(cx + (cx <= 5 ? -0.1 : 0.1), 1.2, cz + 1.65);
+      btn.position.set(cx + (cx <= 5 ? -0.1 : 0.1), 1.25, cz + 1.65);
+    } else {
+      // Button on the wall at X = cx + 1.65
+      const sign = cz >= 0 ? 1 : -1;
+      btnBase.position.set(cx + 1.65, 1.2, cz + sign * 0.0);
+      btn.position.set(cx + 1.65, 1.25, cz + sign * 0.0);
+    }
+
+    group.add(btnBase);
+    group.add(btn);
+
+    // Small point light to highlight the button
+    const btnLight = new THREE.PointLight(0x00cc66, 1.8, 2.5);
+    btnLight.position.copy(btn.position);
+    btnLight.position.y += 0.3;
+    group.add(btnLight);
+    lights.push({ light: btnLight, baseIntensity: 1.8, phase: Math.random() * Math.PI * 2 });
+
+    const door: StationDoor = {
+      panels: [panelA, panelB],
+      closedPos: [closedA.clone(), closedB.clone()],
+      openPos: [openA.clone(), openB.clone()],
+      localPos: new THREE.Vector3(cx, panelY, cz),
+      axis,
+    };
+    doors.push(door);
+    return door;
+  };
+
   // Helper: add a console desk with screen
   const addConsole = (x: number, y: number, z: number, rotY: number) => {
     const deskGeo = new THREE.BoxGeometry(2.0, 0.8, 0.8);
@@ -3152,10 +3300,12 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   // ──────────────────────────────────────────────────────────────────────────
   addRoom(5, 0, -3, 35, 4.5, 3, 'Main Corridor');
 
-  // Door frames connecting airlock → corridor
+  // Door frames connecting airlock → corridor (with interactive sliding door)
   addDoorFrame(5, 0.5, 0, 'x');
-  // Door frame at corridor → bridge
+  addSlidingDoor(5, 0, 'x');
+  // Door frame at corridor → bridge (with interactive sliding door)
   addDoorFrame(35, 0.5, 0, 'x');
+  addSlidingDoor(35, 0, 'x');
 
   // Ceiling pipes along corridor
   addPipe(5, 4.0, 1.5, 35, 4.0, 1.5, 0.07);
@@ -3380,8 +3530,9 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   // ──────────────────────────────────────────────────────────────────────────
   addRoom(10, 0, 3, 28, 4.5, 20, 'Crew Quarters');
 
-  // Door frame connecting corridor → crew quarters
+  // Door frame connecting corridor → crew quarters (with interactive sliding door)
   addDoorFrame(19, 0.5, 3, 'z');
+  addSlidingDoor(19, 3, 'z');
 
   // Four bunk beds
   const bunkPositions = [[13, 6], [13, 16], [22, 6], [22, 16]] as [number, number][];
@@ -3460,8 +3611,9 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
   // ──────────────────────────────────────────────────────────────────────────
   addRoom(8, 0, -22, 32, 5.5, -3, 'Engineering Bay');
 
-  // Door frame connecting corridor → engineering
+  // Door frame connecting corridor → engineering (with interactive sliding door)
   addDoorFrame(19, 0.5, -3, 'z');
+  addSlidingDoor(19, -3, 'z');
 
   // Central reactor column
   const reactorColGeo = new THREE.CylinderGeometry(1.0, 1.2, 4.5, 16);
@@ -3571,6 +3723,7 @@ export function buildSpaceStationInterior(): SpaceStationInteriorResult {
     spawnPosition: new THREE.Vector3(0, 1.8, 0), // inside airlock, standing height
     lights,
     animatedMeshes,
+    doors,
   };
 }
 

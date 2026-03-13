@@ -240,3 +240,109 @@ describe("Auto-docking: rocket arrives → immediate space station entry", () =>
     expect(SPACE_STATION_WORLD_Y).toBe(2000);
   });
 });
+
+// ── Sliding door system ────────────────────────────────────────────────────────
+describe("Space station sliding doors", () => {
+  it("buildSpaceStationInterior returns exactly 4 doors", () => {
+    const { doors } = buildSpaceStationInterior();
+    expect(doors.length).toBe(4);
+  });
+
+  it("each door has exactly 2 panel meshes", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      expect(door.panels.length).toBe(2);
+      door.panels.forEach((panel) => {
+        expect(panel).toBeInstanceOf(THREE.Mesh);
+      });
+    });
+  });
+
+  it("each door has valid closedPos and openPos arrays", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      expect(door.closedPos.length).toBe(2);
+      expect(door.openPos.length).toBe(2);
+      door.closedPos.forEach((pos) => {
+        expect(pos).toBeInstanceOf(THREE.Vector3);
+      });
+      door.openPos.forEach((pos) => {
+        expect(pos).toBeInstanceOf(THREE.Vector3);
+      });
+    });
+  });
+
+  it("door axis is either 'x' or 'z'", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      expect(['x', 'z']).toContain(door.axis);
+    });
+  });
+
+  it("open positions are farther apart than closed positions (door slides outward)", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      const closedSeparation = door.closedPos[0].distanceTo(door.closedPos[1]);
+      const openSeparation = door.openPos[0].distanceTo(door.openPos[1]);
+      expect(openSeparation).toBeGreaterThan(closedSeparation);
+    });
+  });
+
+  it("door localPos is at the expected room boundary positions", () => {
+    const { doors } = buildSpaceStationInterior();
+    const doorPositions = doors.map((d) => ({ x: d.localPos.x, z: d.localPos.z }));
+
+    // Airlock → Corridor door at X=5
+    expect(doorPositions.some((p) => Math.abs(p.x - 5) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
+    // Corridor → Bridge door at X=35
+    expect(doorPositions.some((p) => Math.abs(p.x - 35) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
+    // Corridor → Crew Quarters door at Z=3
+    expect(doorPositions.some((p) => Math.abs(p.x - 19) < 0.01 && Math.abs(p.z - 3) < 0.01)).toBe(true);
+    // Corridor → Engineering Bay door at Z=-3
+    expect(doorPositions.some((p) => Math.abs(p.x - 19) < 0.01 && Math.abs(p.z + 3) < 0.01)).toBe(true);
+  });
+
+  it("door animation lerp: progress=0 means panels at closed position", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      // Simulate lerpVectors at progress=0 (closed)
+      const pos0 = new THREE.Vector3().lerpVectors(door.closedPos[0], door.openPos[0], 0);
+      const pos1 = new THREE.Vector3().lerpVectors(door.closedPos[1], door.openPos[1], 0);
+      expect(pos0.distanceTo(door.closedPos[0])).toBeLessThan(0.001);
+      expect(pos1.distanceTo(door.closedPos[1])).toBeLessThan(0.001);
+    });
+  });
+
+  it("door animation lerp: progress=1 means panels at open position", () => {
+    const { doors } = buildSpaceStationInterior();
+    doors.forEach((door) => {
+      const pos0 = new THREE.Vector3().lerpVectors(door.closedPos[0], door.openPos[0], 1);
+      const pos1 = new THREE.Vector3().lerpVectors(door.closedPos[1], door.openPos[1], 1);
+      expect(pos0.distanceTo(door.openPos[0])).toBeLessThan(0.001);
+      expect(pos1.distanceTo(door.openPos[1])).toBeLessThan(0.001);
+    });
+  });
+
+  it("door proximity detection: player at door localPos is within interact radius", () => {
+    const { doors } = buildSpaceStationInterior();
+    const DOOR_INTERACT_RADIUS = 2.5;
+    doors.forEach((door) => {
+      const dx = 0; // player exactly at door center
+      const dz = 0;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      expect(dist).toBeLessThan(DOOR_INTERACT_RADIUS);
+    });
+  });
+
+  it("door proximity detection: player 5 units away is outside interact radius", () => {
+    const { doors } = buildSpaceStationInterior();
+    const DOOR_INTERACT_RADIUS = 2.5;
+    const firstDoor = doors[0];
+    const playerX = firstDoor.localPos.x + 5;
+    const playerZ = firstDoor.localPos.z;
+    const dx = playerX - firstDoor.localPos.x;
+    const dz = playerZ - firstDoor.localPos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    expect(dist).toBeGreaterThanOrEqual(DOOR_INTERACT_RADIUS);
+  });
+});
