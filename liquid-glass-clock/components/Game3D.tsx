@@ -219,11 +219,11 @@ const WEAPON_POS = new THREE.Vector3(0.24, -0.21, -0.48);
 
 // ─── Flamethrower Constants ───────────────────────────────────────────────────
 /** Number of flame particles spawned per attack tick. */
-const FLAME_PARTICLE_COUNT = 4;
+const FLAME_PARTICLE_COUNT = 8;
 /** Lifetime of each flame particle (range = speed × lifetime ≈ 15 units). */
 const FLAME_PARTICLE_LIFETIME = 1.9;
 /** Half-angle of the flame cone spread (radians). */
-const FLAME_CONE_SPREAD = 0.28;
+const FLAME_CONE_SPREAD = 0.32;
 
 // ─── Burning / Ignition Constants ────────────────────────────────────────────
 /** How long an entity burns after being ignited (seconds). */
@@ -684,6 +684,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const weaponRecoilRef = useRef(0); // 1 = just fired, decays to 0
   const swordSwingTimerRef = useRef(9999); // seconds since last sword swing; 9999 = idle (no swing)
   const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
+  /** The "nozzleFlameStream" sub-group of the flamethrower weapon mesh. */
+  const nozzleFlameRef = useRef<THREE.Group | null>(null);
+  /** Countdown timer; while > 0 the nozzle flame stream is shown. */
+  const nozzleFlameTimerRef = useRef(0);
 
   // ─── Catapult / Cannonball Refs ──────────────────────────────────────────────
   const catapultListRef = useRef<CatapultData[]>([]);
@@ -1225,6 +1229,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       : buildSwordMesh();
 
     weaponMeshRef.current = newMesh;
+    // Update nozzle flame ref for flamethrower (null for all other weapons)
+    nozzleFlameRef.current = (newMesh.getObjectByName("nozzleFlameStream") as THREE.Group) ?? null;
+    nozzleFlameTimerRef.current = 0;
     // Attach to correct anchor with canonical transform
     attachWeaponToAnchor(cameraModeRef.current);
   }, [attachWeaponToAnchor]);
@@ -1748,13 +1755,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (muzzleFlashRef.current && weaponCfg.bulletSpeed > 0) {
       if (weaponCfg.type === "flamethrower") {
         muzzleFlashRef.current.color.setHex(0xff5500);
-        muzzleFlashRef.current.intensity = 3;
+        muzzleFlashRef.current.intensity = 4;
         setTimeout(() => {
           if (muzzleFlashRef.current) {
             muzzleFlashRef.current.intensity = 0;
             muzzleFlashRef.current.color.setHex(0xffaa22);
           }
         }, 110);
+        // ── Activate nozzle flame stream on the weapon mesh ────────────────
+        // Timer is reset each shot; while > 0 the stream stays visible.
+        // Cooldown = 70ms, timer = 160ms → seamlessly continuous when held.
+        nozzleFlameTimerRef.current = 0.16;
+        if (nozzleFlameRef.current) {
+          nozzleFlameRef.current.visible = true;
+          // Boost nozzle light intensity on each shot
+          const nozzleLight = nozzleFlameRef.current.getObjectByName("nozzleLight") as THREE.PointLight | undefined;
+          if (nozzleLight) nozzleLight.intensity = 3.5;
+        }
       } else {
         muzzleFlashRef.current.intensity = 4;
         setTimeout(() => {
@@ -2162,6 +2179,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     applyWeaponTransform(weaponGroup, wType, "first");
     camera.add(weaponGroup);
     weaponMeshRef.current = weaponGroup;
+    // Cache the nozzle flame stream sub-group for flamethrower
+    nozzleFlameRef.current = (weaponGroup.getObjectByName("nozzleFlameStream") as THREE.Group) ?? null;
     scene.add(camera); // camera must be in scene for its children to render
 
     // Muzzle flash point light (parented to camera, at barrel tip)
@@ -6697,6 +6716,30 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
+      // ── Nozzle flame stream animation / timeout ─────────────────────────────
+      if (nozzleFlameTimerRef.current > 0) {
+        nozzleFlameTimerRef.current -= dt;
+        const nf = nozzleFlameRef.current;
+        if (nf) {
+          if (nozzleFlameTimerRef.current <= 0) {
+            // Timer expired — hide flame and dim nozzle light
+            nf.visible = false;
+            const nl = nf.getObjectByName("nozzleLight") as THREE.PointLight | undefined;
+            if (nl) nl.intensity = 0;
+          } else {
+            // Organic flicker: scale pulses slightly every frame
+            const flicker = 0.88 + Math.sin(elapsed * 38) * 0.07 + (Math.random() - 0.5) * 0.10;
+            nf.scale.setScalar(flicker);
+            // Gentle roll of the stream around the barrel axis for turbulence feel
+            nf.rotation.z += (Math.random() - 0.5) * 0.18;
+            nf.rotation.x += (Math.random() - 0.5) * 0.06;
+            // Flicker nozzle light intensity
+            const nl = nf.getObjectByName("nozzleLight") as THREE.PointLight | undefined;
+            if (nl) nl.intensity = 2.8 + Math.random() * 1.4;
+          }
+        }
+      }
+
       // ── Bullet update ──────────────────────────────────────────────────────
       const toRemove: BulletData[] = [];
       bulletsRef.current.forEach((bullet) => {
@@ -6729,16 +6772,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         if (bullet.weaponType === "flamethrower") {
           const progress = 1 - bullet.lifetime / FLAME_PARTICLE_LIFETIME;
 
-          // Expand as particle ages (billowing fire)
-          bullet.mesh.scale.setScalar(0.12 + progress * 0.62);
+          // Expand as particle ages: start large and billow outward
+          bullet.mesh.scale.setScalar(0.32 + progress * 0.88);
 
-          // Buoyancy: fire rises
-          bullet.mesh.position.y += 0.9 * dt * (0.3 + progress * 0.7);
+          // Buoyancy: fire rises more aggressively as it ages
+          bullet.mesh.position.y += 1.1 * dt * (0.4 + progress * 0.9);
 
           // Organic wobble — rotate around all axes for realistic flicker
-          bullet.mesh.rotation.y += (Math.random() - 0.5) * 7 * dt;
-          bullet.mesh.rotation.x += (Math.random() - 0.5) * 4 * dt;
-          bullet.mesh.rotation.z += (Math.random() - 0.5) * 4 * dt;
+          bullet.mesh.rotation.y += (Math.random() - 0.5) * 8 * dt;
+          bullet.mesh.rotation.x += (Math.random() - 0.5) * 5 * dt;
+          bullet.mesh.rotation.z += (Math.random() - 0.5) * 5 * dt;
 
           // Color shift: young = bright yellow/orange, old = dark red/fading
           // Decrease green channel of children as particle ages
