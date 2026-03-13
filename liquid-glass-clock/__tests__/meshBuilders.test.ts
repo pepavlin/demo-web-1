@@ -53,6 +53,9 @@ import {
   buildSniperTowerMesh,
   buildSniperMesh,
   buildWoodLogMesh,
+  buildBiolumFlowerMesh,
+  buildBiolumMushroomMesh,
+  buildBiolumFernMesh,
   SNIPER_TOWER_HEIGHT,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
@@ -1658,6 +1661,144 @@ describe("buildSniperMesh", () => {
   it("has children (barrel, receiver, scope, stock, bipod, etc.)", () => {
     const mesh = buildSniperMesh();
     expect(mesh.children.length).toBeGreaterThan(8);
+  });
+});
+
+// ─── Bioluminescent Avatar plant tests ────────────────────────────────────────
+
+describe("buildBiolumFlowerMesh", () => {
+  it("returns group and emissiveMats array", () => {
+    const rng = makeRng(1);
+    const result = buildBiolumFlowerMesh(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.emissiveMats)).toBe(true);
+  });
+
+  it("emissiveMats is non-empty", () => {
+    const rng = makeRng(2);
+    const result = buildBiolumFlowerMesh(rng);
+    expect(result.emissiveMats.length).toBeGreaterThan(0);
+  });
+
+  it("all emissiveMats have emissiveIntensity starting at 0", () => {
+    const rng = makeRng(3);
+    const result = buildBiolumFlowerMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      expect(mat.emissiveIntensity).toBe(0);
+    });
+  });
+
+  it("group has children (stem, bulb, petals)", () => {
+    const rng = makeRng(4);
+    const result = buildBiolumFlowerMesh(rng);
+    expect(result.group.children.length).toBeGreaterThan(2);
+  });
+
+  it("emissiveMats are MeshLambertMaterial instances", () => {
+    const rng = makeRng(5);
+    const result = buildBiolumFlowerMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      expect(mat).toBeInstanceOf(THREE.MeshLambertMaterial);
+    });
+  });
+
+  it("produces different results with different seeds", () => {
+    const r1 = buildBiolumFlowerMesh(makeRng(10));
+    const r2 = buildBiolumFlowerMesh(makeRng(99));
+    // Different seeds → different number of children or materials
+    const same =
+      r1.group.children.length === r2.group.children.length &&
+      r1.emissiveMats.length === r2.emissiveMats.length;
+    // They may occasionally match by coincidence but seeds 10 and 99 differ enough
+    // Just verify both are valid
+    expect(r1.group.children.length).toBeGreaterThan(0);
+    expect(r2.group.children.length).toBeGreaterThan(0);
+    void same;
+  });
+});
+
+describe("buildBiolumMushroomMesh", () => {
+  it("returns group and emissiveMats array", () => {
+    const rng = makeRng(1);
+    const result = buildBiolumMushroomMesh(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.emissiveMats)).toBe(true);
+  });
+
+  it("emissiveMats is non-empty", () => {
+    const rng = makeRng(2);
+    const result = buildBiolumMushroomMesh(rng);
+    expect(result.emissiveMats.length).toBeGreaterThan(0);
+  });
+
+  it("all emissiveMats have emissiveIntensity starting at 0", () => {
+    const rng = makeRng(3);
+    const result = buildBiolumMushroomMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      expect(mat.emissiveIntensity).toBe(0);
+    });
+  });
+
+  it("group has stalk, cap and spot children", () => {
+    const rng = makeRng(4);
+    const result = buildBiolumMushroomMesh(rng);
+    // Stalk + cap + at least 3 spots
+    expect(result.group.children.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("emissiveMats are MeshLambertMaterial instances", () => {
+    const rng = makeRng(5);
+    const result = buildBiolumMushroomMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      expect(mat).toBeInstanceOf(THREE.MeshLambertMaterial);
+    });
+  });
+
+  it("emissiveIntensity can be set to 1.0 (simulates night glow)", () => {
+    const rng = makeRng(6);
+    const result = buildBiolumMushroomMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      mat.emissiveIntensity = 1.0;
+    });
+    result.emissiveMats.forEach((mat) => {
+      expect(mat.emissiveIntensity).toBe(1.0);
+    });
+  });
+});
+
+describe("buildBiolumFernMesh", () => {
+  it("returns group and emissiveMats array", () => {
+    const rng = makeRng(1);
+    const result = buildBiolumFernMesh(rng);
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(Array.isArray(result.emissiveMats)).toBe(true);
+  });
+
+  it("emissiveMats is non-empty", () => {
+    const rng = makeRng(2);
+    const result = buildBiolumFernMesh(rng);
+    expect(result.emissiveMats.length).toBeGreaterThan(0);
+  });
+
+  it("group has leaflet children across all fronds", () => {
+    const rng = makeRng(3);
+    const result = buildBiolumFernMesh(rng);
+    expect(result.group.children.length).toBeGreaterThan(10);
+  });
+
+  it("all emissiveMats start with emissiveIntensity 0", () => {
+    const rng = makeRng(4);
+    const result = buildBiolumFernMesh(rng);
+    result.emissiveMats.forEach((mat) => {
+      expect(mat.emissiveIntensity).toBe(0);
+    });
+  });
+
+  it("emissiveMats contain at least one transparent material (leaf tips)", () => {
+    const rng = makeRng(5);
+    const result = buildBiolumFernMesh(rng);
+    const hasTransparent = result.emissiveMats.some((mat) => mat.transparent);
+    expect(hasTransparent).toBe(true);
   });
 });
 

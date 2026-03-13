@@ -736,3 +736,71 @@ body {
 .sniper-ready-flash circle {
   animation: sniper-ready-flash 0.45s ease-out forwards;
 }
+
+/* ── Avatar / Pandora bioluminescent theme ────────────────────────────────── */
+
+/* Slow pulsing glow — used for bioluminescent UI accents */
+@keyframes biolum-pulse {
+  0%,  100% { opacity: 0.6; filter: drop-shadow(0 0 6px #00ffee) drop-shadow(0 0 18px #00aacc); }
+  50%        { opacity: 1.0; filter: drop-shadow(0 0 12px #00ffee) drop-shadow(0 0 36px #00aacc); }
+}
+
+/* Floating upward drift — Pandora spore / wisp particles */
+@keyframes biolum-spore-rise {
+  0%   { transform: translateY(0)    scale(1)   ; opacity: 0.9; }
+  60%  { transform: translateY(-60px) scale(1.1); opacity: 0.7; }
+  100% { transform: translateY(-110px) scale(0.6); opacity: 0; }
+}
+
+/* Gentle side-to-side drift on top of the rise */
+@keyframes biolum-spore-sway {
+  0%,  100% { margin-left: 0; }
+  33%        { margin-left: 8px; }
+  66%        { margin-left: -6px; }
+}
+
+/* Ripple ring emitted from a bioluminescent source */
+@keyframes biolum-ring-expand {
+  0%   { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(3.0); opacity: 0; }
+}
+
+/* Shift lobby background toward deep Avatar teal at "night" */
+@keyframes avatar-lobby-bg {
+  0%,  100% { background-color: #020a18; } /* Pandora midnight   */
+  33%        { background-color: #010d10; } /* Deep teal darkness */
+  66%        { background-color: #050818; } /* Violet space night */
+}
+
+/* Bioluminescent text glow — lobby title / headings */
+.biolum-glow {
+  animation: biolum-pulse 3s ease-in-out infinite;
+  color: #b8fff8;
+}
+
+/* Spore particle element */
+.biolum-spore {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #00ffee 0%, #0088ff 60%, transparent 100%);
+  animation:
+    biolum-spore-rise 4s ease-in-out forwards,
+    biolum-spore-sway 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Ripple ring overlay */
+.biolum-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 255, 238, 0.55);
+  animation: biolum-ring-expand 2.8s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Lobby overlay that subtly takes on the Avatar night palette */
+.avatar-night-bg {
+  animation: avatar-lobby-bg 20s ease-in-out infinite;
+}
