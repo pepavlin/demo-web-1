@@ -147,9 +147,6 @@ const STAMINA_REGEN = 9; // per second while walking/idle
 // ─── Combat Constants ─────────────────────────────────────────────────────────
 const PLAYER_MAX_HP = 100;
 const FOX_MAX_HP = 60;
-const FOX_ATTACK_DAMAGE = 9; // per second of direct contact
-const FOX_ATTACK_RANGE = 2.5;
-const FOX_PLAYER_CHASE_RADIUS = 22; // foxes chase player if this close
 const COIN_HEAL_AMOUNT = 20; // HP restored when collecting a coin
 
 // ─── Catapult Constants ────────────────────────────────────────────────────────
@@ -525,8 +522,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
   // ─── Sound Refs ─────────────────────────────────────────────────────────────
   const footstepTimerRef = useRef(0);
-  const foxGrowlCooldownRef = useRef(0);
-  /** Countdown (seconds) until the next water-ambient snippet plays. */
+/** Countdown (seconds) until the next water-ambient snippet plays. */
   const waterAmbienceTimerRef = useRef(0);
 
   // ─── Pause Refs ──────────────────────────────────────────────────────────────
@@ -5904,11 +5900,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Fox AI ─────────────────────────────────────────────────────────────
-      let foxNear = false;
       let closestAliveFox: (typeof foxListRef.current)[0] | null = null;
       let closestAliveFoxDist = Infinity;
-      /** Distance to nearest fox that is actively chasing the player (for growl volume). */
-      let closestChasingFoxDist = Infinity;
 
       // LOD radius for entities — on mobile we hide entities beyond this distance
       const LOD_ENTITY_VIS_SQ = IS_MOBILE ? 90 * 90 : Infinity;
@@ -5948,40 +5941,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           closestAliveFox = fox;
         }
 
-        // Fox chases player if nearby, otherwise hunts sheep
-        const playerIsClose = distToPlayer < FOX_PLAYER_CHASE_RADIUS;
-
+        // Fox hunts sheep only — does not chase player
         const foxPrevX = fm.position.x;
         const foxPrevZ = fm.position.z;
 
-        if (playerIsClose) {
-          // Chase player
-          const dx = playerPos.x - fm.position.x;
-          const dz = playerPos.z - fm.position.z;
-          const len = Math.sqrt(dx * dx + dz * dz);
-          if (len > FOX_ATTACK_RANGE) {
-            fm.position.x += (dx / len) * FOX_SPEED * 1.1 * dt;
-            fm.position.z += (dz / len) * FOX_SPEED * 1.1 * dt;
-            fm.rotation.y = Math.atan2(-dz, dx);
-          } else {
-            // Attack player
-            fox.attackCooldown -= dt;
-            if (fox.attackCooldown <= 0) {
-              fox.attackCooldown = 1.0;
-              // No damage during rocket flight or in space station — player is physically elsewhere
-              if (!gameOver && !onRocketRef.current && !inSpaceStationRef.current) {
-                playerHpRef.current = Math.max(0, playerHpRef.current - FOX_ATTACK_DAMAGE);
-                setHitFlash(true);
-                setTimeout(() => setHitFlash(false), 300);
-                soundManager.playPlayerHit();
-                if (playerHpRef.current <= 0) {
-                  setGameOver(true);
-                  if (document.pointerLockElement) document.exitPointerLock();
-                }
-              }
-            }
-          }
-        } else {
+        {
           // Find closest sheep to hunt — refresh cache every ~0.25 s (4× per second)
           // instead of doing a full O(n) scan every frame for every fox.
           fox.sheepSearchTimer -= dt;
@@ -6047,27 +6011,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Snap to the visual terrain surface (bilinear interpolation matches mesh)
         fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z);
 
-        // Fox is chasing (within chase radius) – track for growl + HUD warning
-        if (distToPlayer < FOX_PLAYER_CHASE_RADIUS) {
-          foxNear = true;
-          if (distToPlayer < closestChasingFoxDist) {
-            closestChasingFoxDist = distToPlayer;
-          }
-        }
       });
 
-      setFoxWarning(foxNear);
-
-      // ── Fox growl (periodic while a fox is chasing the player) ──────────
-      if (closestChasingFoxDist < Infinity) {
-        foxGrowlCooldownRef.current -= dt;
-        if (foxGrowlCooldownRef.current <= 0) {
-          soundManager.playFoxGrowl(closestChasingFoxDist);
-          // Closer fox → growls more frequently (1.5 s at 0 units → 4 s at max range)
-          const distFactor = Math.min(1, closestChasingFoxDist / FOX_PLAYER_CHASE_RADIUS);
-          foxGrowlCooldownRef.current = 1.5 + distFactor * 2.5;
-        }
-      }
+      setFoxWarning(false);
 
       // Update nearest fox HP display
       if (closestAliveFox && closestAliveFoxDist < 18) {
