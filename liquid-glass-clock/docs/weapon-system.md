@@ -1,6 +1,6 @@
 # Weapon System
 
-The game features five distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
+The game features seven distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
 
 ## Weapons
 
@@ -10,7 +10,9 @@ The game features five distinct weapons selectable before entering the world (or
 | [2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s | 80 u |
 | [3] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s | 100 u |
 | [4] | Sniper | Odstřelovačka | Ranged + scope | 160 | 2.8s | 220 u/s | 400 u |
-| [5] | Machine Gun | Kulomet | Ranged auto-fire | 18 | 0.08s | 150 u/s | 120 u |
+| [5] | Axe | Sekera | Melee only | 45 | 0.65s | — | 2.5 u |
+| [6] | Machine Gun | Kulomet | Ranged auto-fire | 18 | 0.08s | 150 u/s | 120 u |
+| [7] | Flamethrower | Plamenomet | Ranged stream | 10 | 0.07s | 11 u/s | 15 u |
 
 ## Sword (Meč)
 
@@ -60,12 +62,29 @@ The game features five distinct weapons selectable before entering the world (or
 - **Auto-fire:** Uses the same `isMouseHeldRef` + game-loop polling mechanism as sword and crossbow. The machine gun's 80 ms cooldown allows the frame-rate-driven loop to trigger ~12–13 shots/second while the button is held.
 - **No special mechanic:** Unlike bow (charge) and sniper (scope), the machine gun fires immediately on click and continuously while held — maximum ease of use, minimum per-shot threat.
 
+## Flamethrower (Plamenomet)
+
+- **Combat style:** Short-range fire stream. Hold left mouse button to spray a continuous cone of flame particles — each burst spawns 4 particles with random spread.
+- **Range:** 15 units (very short — close-quarters weapon).
+- **Fire rate:** ~14.3 bursts/second (cooldown 0.07 s) — effectively continuous when held.
+- **DPS:** 4 particles × 10 damage × 14.3 bursts/s ≈ 571 damage/s (highest burst DPS but only at melee range).
+- **3D model:** `buildFlamethrowerMesh()` — olive-green cylindrical fuel tank (with pressure gauge + valve), receiver body, heat shield, thin nozzle barrel with flared tip, orange emissive pilot flame sphere at muzzle, pistol grip with trigger guard, shoulder stock.
+- **Flame particles:** `buildFlameParticleMesh()` — emissive orange spheres that expand from scale 0.12 → 0.67 as they travel (hot gas dispersal). Particles drift slightly upward (hot gas rises). 4 particles are spawned per shot in a ±0.28 rad cone.
+- **Muzzle light:** On each shot the muzzle flash point light changes to orange-red (#ff5500) for 110 ms (longer than bullet weapons at 75 ms).
+- **Sound:** `_playFlamethrowerShot()` — pressurised gas whoosh (bandpass 1.8–2.2 kHz, 0.18 s decay) + low sawtooth combustion rumble (55→30 Hz, lowpass 320 Hz, 0.14 s decay) + high-frequency crackle tail (>4 kHz noise, 0.08 s).
+- **Bullet speed:** 11 u/s — guarantees flame particles reach the full 15-unit range even at minimum spawn speed (0.75 × 11 × 1.9 s ≈ 15.7 units).
+- **Auto-fire:** Eligible for hold-to-fire (same as machine gun). Sniper and bow are excluded; flamethrower is not.
+- **Constants (Game3D.tsx):**
+  - `FLAME_PARTICLE_COUNT = 4` — particles per burst
+  - `FLAME_PARTICLE_LIFETIME = 1.9` — seconds before particle despawns (range = 11 × 1.9 ≈ 20.9 units max)
+  - `FLAME_CONE_SPREAD = 0.28` — half-angle of dispersion cone (radians)
+
 ## Architecture
 
 ### Type System (`lib/gameTypes.ts`)
 
 ```typescript
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "machinegun";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun" | "flamethrower";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -82,7 +101,7 @@ export interface WeaponConfig {
 
 - Animated SVG previews for each weapon (idle animation, attack animation)
 - Czech descriptions and stat bars per weapon
-- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [5] Machine Gun, [Enter] confirm
+- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [5] Axe, [6] Machine Gun, [7] Flamethrower, [Enter] confirm
 
 ### 3D Models (`lib/meshBuilders.ts`)
 
@@ -92,7 +111,10 @@ export interface WeaponConfig {
 | `buildBowMesh()` | Bow |
 | `buildCrossbowMesh()` | Crossbow |
 | `buildSniperMesh()` | Sniper Rifle |
+| `buildAxeMesh()` | Axe |
 | `buildMachineGunMesh()` | Machine Gun |
+| `buildFlamethrowerMesh()` | Flamethrower |
+| `buildFlameParticleMesh()` | Flame particle (projectile) |
 
 ### Sound (`lib/soundManager.ts`)
 
@@ -105,9 +127,9 @@ export interface WeaponConfig {
 - **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits. **Blocked** when possessing a sheep, on a boat, on the rocket, or inside the space station.
 - **Weapon sway** — FP-only bob/sway animation updated each frame. In TP the weapon rides the arm animation naturally (weapon is a child of handR which is a child of armR).
 - **Scope logic** — right-click mousedown sets `isScopedRef`, hides weapon mesh, smoothly interpolates camera FOV to `SNIPER_SCOPE_FOV` (12°). Release restores `DEFAULT_FOV` (75°). **Scope is blocked in third-person mode.**
-- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭 🔫) with active weapon highlighted.
-- **Scroll wheel / [1][2][3][4][5]** — cycle or select weapons during gameplay.
-- **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow). Machine gun, sword, and crossbow all use auto-fire.
+- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭 🪓 🔫 🔥) with active weapon highlighted.
+- **Scroll wheel / [1]–[7]** — cycle or select weapons during gameplay.
+- **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow). Machine gun, flamethrower, sword, and crossbow all use auto-fire.
 
 ### Weapon Anchor System
 

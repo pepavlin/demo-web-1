@@ -1475,6 +1475,137 @@ export function buildMachineGunMesh(): THREE.Group {
   return group;
 }
 
+// ─── Flamethrower (Plamenomet) ────────────────────────────────────────────────
+/** Shoulder-mounted flamethrower with fuel tank backpack, nozzle, and pilot flame. */
+export function buildFlamethrowerMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const tankMat       = new THREE.MeshLambertMaterial({ color: 0x3a4a1a }); // olive green tank
+  const tankHighMat   = new THREE.MeshLambertMaterial({ color: 0x4e6322 });
+  const metalMat      = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  const darkMetalMat  = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const hoseMat       = new THREE.MeshLambertMaterial({ color: 0x3d3d3d });
+  const gripMat       = new THREE.MeshLambertMaterial({ color: 0x111111 });
+  const flameMat      = new THREE.MeshLambertMaterial({
+    color: 0xff6600,
+    emissive: new THREE.Color(0.5, 0.2, 0),
+    emissiveIntensity: 1,
+  });
+
+  // ── Cylindrical fuel tank (left/back side) ────────────────────────────────
+  const tankGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.28, 10);
+  const tank = new THREE.Mesh(tankGeo, tankMat);
+  tank.rotation.x = Math.PI / 2;
+  tank.position.set(-0.06, 0.0, 0.12);
+  group.add(tank);
+
+  // Tank end caps
+  const capGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.01, 10);
+  const capFront = new THREE.Mesh(capGeo, tankHighMat);
+  capFront.rotation.x = Math.PI / 2;
+  capFront.position.set(-0.06, 0, -0.01);
+  group.add(capFront);
+
+  const capBack = new THREE.Mesh(capGeo, tankHighMat);
+  capBack.rotation.x = Math.PI / 2;
+  capBack.position.set(-0.06, 0, 0.25);
+  group.add(capBack);
+
+  // Tank highlight band
+  const bandGeo = new THREE.CylinderGeometry(0.047, 0.047, 0.015, 10);
+  const band = new THREE.Mesh(bandGeo, metalMat);
+  band.rotation.x = Math.PI / 2;
+  band.position.set(-0.06, 0, 0.08);
+  group.add(band);
+
+  // Pressure valve on tank top
+  const valveGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.025, 6);
+  const valve = new THREE.Mesh(valveGeo, metalMat);
+  valve.position.set(-0.06, 0.052, 0.08);
+  group.add(valve);
+
+  // ── Main receiver body (aimed along -Z axis) ──────────────────────────────
+  const receiverGeo = new THREE.BoxGeometry(0.065, 0.055, 0.30);
+  const receiver = new THREE.Mesh(receiverGeo, metalMat);
+  receiver.position.set(0.01, 0.0, -0.02);
+  group.add(receiver);
+
+  // Top heat shield
+  const shieldGeo = new THREE.BoxGeometry(0.055, 0.012, 0.18);
+  const shield = new THREE.Mesh(shieldGeo, darkMetalMat);
+  shield.position.set(0.01, 0.034, -0.04);
+  group.add(shield);
+
+  // ── Fuel hose connecting tank to receiver ─────────────────────────────────
+  const hoseGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.10, 6);
+  const hose = new THREE.Mesh(hoseGeo, hoseMat);
+  hose.rotation.z = Math.PI / 2;
+  hose.position.set(-0.025, -0.02, 0.06);
+  group.add(hose);
+
+  // ── Nozzle / barrel (slender, extends forward) ───────────────────────────
+  const nozzleGeo = new THREE.CylinderGeometry(0.012, 0.016, 0.38, 8);
+  const nozzle = new THREE.Mesh(nozzleGeo, darkMetalMat);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.set(0.01, 0.012, -0.31);
+  group.add(nozzle);
+
+  // Nozzle tip flare
+  const flareGeo = new THREE.CylinderGeometry(0.022, 0.012, 0.03, 8);
+  const flare = new THREE.Mesh(flareGeo, metalMat);
+  flare.rotation.x = Math.PI / 2;
+  flare.position.set(0.01, 0.012, -0.51);
+  group.add(flare);
+
+  // ── Pilot light (emissive flame at nozzle tip) ────────────────────────────
+  const pilotGeo = new THREE.SphereGeometry(0.018, 8, 6);
+  const pilot = new THREE.Mesh(pilotGeo, flameMat);
+  pilot.position.set(0.01, 0.012, -0.54);
+  group.add(pilot);
+
+  // ── Pistol grip / trigger assembly ────────────────────────────────────────
+  const gripGeo = new THREE.BoxGeometry(0.038, 0.08, 0.04);
+  const grip = new THREE.Mesh(gripGeo, gripMat);
+  grip.rotation.x = 0.2;
+  grip.position.set(0.01, -0.05, 0.05);
+  group.add(grip);
+
+  // Trigger guard
+  const guardGeo = new THREE.TorusGeometry(0.018, 0.004, 4, 8, Math.PI);
+  const guard = new THREE.Mesh(guardGeo, metalMat);
+  guard.rotation.z = Math.PI / 2;
+  guard.position.set(0.01, -0.038, 0.06);
+  group.add(guard);
+
+  // ── Shoulder stock ────────────────────────────────────────────────────────
+  const stockGeo = new THREE.BoxGeometry(0.05, 0.05, 0.16);
+  const stock = new THREE.Mesh(stockGeo, darkMetalMat);
+  stock.position.set(0.01, -0.003, 0.22);
+  group.add(stock);
+
+  // Butt plate
+  const buttGeo = new THREE.BoxGeometry(0.056, 0.065, 0.014);
+  const butt = new THREE.Mesh(buttGeo, metalMat);
+  butt.position.set(0.01, -0.003, 0.30);
+  group.add(butt);
+
+  return group;
+}
+
+/**
+ * A single flame particle projectile — small emissive sphere that expands
+ * as it travels away from the nozzle.  Spawned in bursts of 4 per shot.
+ */
+export function buildFlameParticleMesh(): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(0.12, 7, 5);
+  const mat = new THREE.MeshLambertMaterial({
+    color: 0xff6600,
+    emissive: new THREE.Color(0.45, 0.18, 0),
+    emissiveIntensity: 1,
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();

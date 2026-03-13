@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // ─── Weapon system ────────────────────────────────────────────────────────────
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun" | "flamethrower";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -76,6 +76,15 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     cooldown: 0.08, // ~12 shots/second — ultra-fast fire rate
     bulletSpeed: 150,
     color: "#f97316",
+  },
+  flamethrower: {
+    type: "flamethrower",
+    label: "Plamenomet",
+    damage: 10,
+    range: 15,  // short range — fire stream up to 15 units
+    cooldown: 0.07, // fast continuous stream
+    bulletSpeed: 11, // slow-moving fire blobs
+    color: "#ef4444", // fire red
   },
 };
 

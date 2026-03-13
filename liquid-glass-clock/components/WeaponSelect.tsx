@@ -492,6 +492,88 @@ function MachineGunSVG({ selected }: { selected: boolean }) {
   );
 }
 
+
+function FlameThrowerSVG({ selected }: { selected: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 130 80"
+      width="130"
+      height="80"
+      style={{
+        filter: selected ? "drop-shadow(0 0 10px #ef4444)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        animation: "ft-idle 4s ease-in-out infinite",
+      }}
+    >
+      <style>{`
+        @keyframes ft-idle {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          35% { transform: translateY(-4px) rotate(0.7deg); }
+          70% { transform: translateY(-2px) rotate(-0.5deg); }
+        }
+        @keyframes ft-flame1 {
+          0%, 100% { opacity: 0.9; transform: scaleX(1) scaleY(1); }
+          25% { opacity: 0.7; transform: scaleX(1.25) scaleY(0.88); }
+          50% { opacity: 1; transform: scaleX(0.82) scaleY(1.18); }
+          75% { opacity: 0.75; transform: scaleX(1.15) scaleY(0.9); }
+        }
+        @keyframes ft-flame2 {
+          0%, 100% { opacity: 0.85; transform: scaleX(1) scaleY(1); }
+          35% { opacity: 0.55; transform: scaleX(0.78) scaleY(1.22); }
+          65% { opacity: 1; transform: scaleX(1.2) scaleY(0.85); }
+        }
+        @keyframes ft-core {
+          0%, 100% { opacity: 0.9; }
+          50% { opacity: 0.45; }
+        }
+      `}</style>
+
+      {/* Fuel tank (olive green) */}
+      <rect x="6" y="28" width="30" height="22" rx="8" fill="#3a4a1a" />
+      <rect x="7" y="29" width="28" height="7" rx="4" fill="#5a6a2a" opacity="0.5" />
+      <ellipse cx="6" cy="39" rx="5" ry="11" fill="#4a5a22" />
+      <ellipse cx="36" cy="39" rx="5" ry="11" fill="#4a5a22" />
+      <rect x="17" y="25" width="4" height="28" rx="2" fill="#2a3412" />
+
+      {/* Pressure gauge */}
+      <circle cx="34" cy="39" r="5" fill="#1a1a1a" stroke="#666" strokeWidth="0.8" />
+      <circle cx="34" cy="39" r="3" fill="#111" />
+      <line x1="34" y1="39" x2="36" y2="37" stroke="#ef4444" strokeWidth="1" strokeLinecap="round" />
+
+      {/* Fuel hose */}
+      <path d="M36 39 Q40 38 42 38" stroke="#3a3a3a" strokeWidth="3" fill="none" strokeLinecap="round" />
+
+      {/* Main receiver body */}
+      <rect x="40" y="33" width="50" height="13" rx="3" fill="#2a2a2a" />
+      <rect x="41" y="34" width="48" height="4" rx="2" fill="#3a3a3a" opacity="0.5" />
+      <rect x="44" y="28" width="34" height="7" rx="2" fill="#1a1a1a" />
+
+      {/* Nozzle barrel */}
+      <rect x="88" y="36" width="28" height="6" rx="2" fill="#111" />
+      <rect x="113" y="33" width="6" height="12" rx="2" fill="#222" />
+
+      {/* Pistol grip */}
+      <polygon points="60,46 72,46 68,64 56,64" fill="#111" />
+      <rect x="63" y="46" width="3" height="6" rx="1" fill="#444" />
+
+      {/* Shoulder stock */}
+      <rect x="87" y="33.5" width="24" height="11" rx="3" fill="#1a1a1a" />
+
+      {/* Flame burst */}
+      <g style={{ transformOrigin: "116px 39px" }}>
+        <ellipse cx="125" cy="39" rx="10" ry="7" fill="#ff4400" opacity="0.9"
+          style={{ animation: "ft-flame1 0.45s ease-in-out infinite", transformOrigin: "116px 39px" }} />
+        <ellipse cx="122" cy="39" rx="7" ry="5" fill="#ff8800"
+          style={{ animation: "ft-flame2 0.38s ease-in-out infinite 0.1s", transformOrigin: "116px 39px" }} />
+        <ellipse cx="119" cy="39" rx="4" ry="3" fill="#ffee00"
+          style={{ animation: "ft-core 0.28s ease-in-out infinite" }} />
+      </g>
+
+      {/* Red accent */}
+      <rect x="8" y="37" width="26" height="1" rx="0.5" fill="#ef4444" opacity="0.35" />
+    </svg>
+  );
+}
+
 // ─── Weapon card ──────────────────────────────────────────────────────────────
 interface WeaponCardProps {
   type: WeaponType;
@@ -567,6 +649,16 @@ const WEAPON_META: Record<
     ],
     description: "Těžký kulomet s bleskovou kadencí. Drž levé tlačítko a seč nepřítele dávkami — nejrychlejší zbraň v arzenálu.",
     key: "6",
+  },
+  flamethrower: {
+    icon: null,
+    stats: [
+      { label: "Poškození", value: 30, max: 100 },
+      { label: "Dostřel", value: 10, max: 100 },
+      { label: "Proud ohně", value: 95, max: 100 },
+    ],
+    description: "Plamenomet s palivovou nádrží. Proud spalující ohně na krátkou vzdálenost — drž levé tlačítko pro nepřetržitý žár.",
+    key: "7",
   },
 };
 
@@ -660,6 +752,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         {type === "sniper" && <SniperSVG selected={selected} />}
         {type === "axe" && <AxeSVG selected={selected} />}
         {type === "machinegun" && <MachineGunSVG selected={selected} />}
+        {type === "flamethrower" && <FlameThrowerSVG selected={selected} />}
       </div>
 
       {/* Name */}
@@ -748,6 +841,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
       if (e.key === "4") setSelected("sniper");
       if (e.key === "5") setSelected("axe");
       if (e.key === "6") setSelected("machinegun");
+      if (e.key === "7") setSelected("flamethrower");
       if (e.key === "Enter") onConfirm(selected);
     };
     window.addEventListener("keydown", handler);
@@ -777,7 +871,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
           border: "1px solid rgba(255,255,255,0.1)",
           borderRadius: 24,
           padding: "36px 36px 32px",
-          width: "min(960px, 96vw)",
+          width: "min(1100px, 96vw)",
           boxShadow: "0 24px 80px rgba(0,0,0,0.7)",
           color: "white",
           fontFamily: "system-ui, -apple-system, sans-serif",
@@ -798,12 +892,12 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
+            gridTemplateColumns: "repeat(7, 1fr)",
             gap: 12,
             marginBottom: 24,
           }}
         >
-          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun"] as WeaponType[]).map((t) => (
+          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower"] as WeaponType[]).map((t) => (
             <WeaponCard key={t} type={t} selected={selected === t} onSelect={setSelected} />
           ))}
         </div>
@@ -845,7 +939,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
             color: "rgba(255,255,255,0.2)",
           }}
         >
-          Klávesy [1] [2] [3] [4] [5] [6] pro výběr · [Enter] pro potvrzení
+          Klávesy [1] [2] [3] [4] [5] [6] [7] pro výběr · [Enter] pro potvrzení
         </p>
       </div>
     </div>
