@@ -37,7 +37,7 @@ Held items (`isHeld: true`) are always skipped — the check only runs for items
 - Builds a pumpkin from primitive geometries: flattened body sphere, 4 rib spheres, cylindrical stem, torus leaf curl.
 - Call with `scale = 1.0` for world placements and `scale = 0.55` for the hand-held first-person view.
 
-### Persistence (`lib/buildingSystem.ts`)
+### Persistence (`lib/worldItemsPersistence.ts`)
 
 | Function | Description |
 |----------|-------------|
@@ -83,7 +83,7 @@ Held items (`isHeld: true`) are always skipped — the check only runs for items
 
 - **Cannot attack** while holding an item (`doAttack` guards `heldItemRef.current`).
 - **Weapon mesh hidden** while holding; restored when item is placed/dropped.
-- **Ghost preview hidden** during build mode, in boat, on rocket, or in space station.
+- **Ghost preview hidden** while in boat, on rocket, or in space station.
 - **Cannot pick up items** while possessing a sheep or aboard a vehicle.
 
 ## Initialization
