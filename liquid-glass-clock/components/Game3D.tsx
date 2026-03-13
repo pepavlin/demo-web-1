@@ -74,6 +74,7 @@ import {
   buildAirstripMesh,
   buildAirstripSignMesh,
   buildMountainWithWaterfallAndCave,
+  buildCity,
   buildSniperTowerMesh,
   buildSniperMesh,
   SNIPER_TOWER_HEIGHT,
@@ -83,6 +84,13 @@ import {
   type RuinsResult,
   type SniperTowerResult,
 } from "@/lib/meshBuilders";
+import {
+  type BoxCollider3D,
+  type CylinderCollider3D,
+  resolveBoxCollision3D,
+  resolveCylinderCollision3D,
+  getWalkableSurfaceY,
+} from "@/lib/collisionSystem";
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData } from "@/lib/gameTypes";
 import {
   buildHarborDockMesh,
@@ -210,6 +218,11 @@ const LIGHTHOUSE_Z = 85;        // world Z coordinate — within playable bounda
 /** World-space centre of the mountain with waterfall and cave (southwest quadrant) */
 const MOUNTAIN_X = -60;
 const MOUNTAIN_Z = -80;
+
+// ─── City Constants ────────────────────────────────────────────────────────────
+/** World-space centre of the procedural city (northeast area) */
+const CITY_X = 60;
+const CITY_Z = 65;
 
 // ─── Sniper Tower Position ─────────────────────────────────────────────────────
 // Initialised to safe fallback values; overwritten after terrain pre-generation
@@ -505,17 +518,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     posX: number;          // world X for LOD distance check
     posZ: number;          // world Z for LOD distance check
   }>>([]);
-  const treeCollisionRef = useRef<Array<{
-    x: number; z: number;
-    radius: number;        // trunk radius + small buffer
-  }>>([]);
-  /** Box colliders for landmarks (house, ruins walls).
-   *  halfW / halfD are local half-extents; rotY is the world-space rotation. */
-  const boxCollidersRef = useRef<Array<{
-    cx: number; cz: number;
-    halfW: number; halfD: number;
-    rotY: number;
-  }>>([]);
+  /** 3D cylinder colliders for trees, columns, towers and other round obstacles.
+   *  radius already includes PLAYER_RADIUS (legacy convention).
+   *  baseY + height define the vertical extent; walkable = can player stand on top. */
+  const treeCollisionRef = useRef<CylinderCollider3D[]>([]);
+  /** 3D box colliders for buildings, walls, and other box-shaped obstacles.
+   *  cy + halfH define the vertical extent; walkable = can player stand on top face. */
+  const boxCollidersRef = useRef<BoxCollider3D[]>([]);
 
   // ─── Combat Refs ────────────────────────────────────────────────────────────
   const playerHpRef = useRef(PLAYER_MAX_HP);
@@ -2636,12 +2645,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // Register large trees for player collision
+      // Register large trees for player collision (3D cylinder: not walkable on top)
       if (result.hasCollision) {
         treeCollisionRef.current.push({
           x: p.x,
+          baseY: p.y,
           z: p.z,
           radius: result.trunkRadius + PLAYER_RADIUS,
+          height: 8,  // approximate trunk collision height
+          walkable: false,
         });
       }
     });
@@ -2685,8 +2697,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       rock.position.set(p.x, p.y + 0.2, p.z);
       rock.rotation.y = rockRng() * Math.PI * 2;
       scene.add(rock);
-      // All rocks block the player — even small ones are solid obstacles
-      treeCollisionRef.current.push({ x: p.x, z: p.z, radius: rockCollRadius + PLAYER_RADIUS });
+      // All rocks block the player — even small ones are solid obstacles (low height, not walkable)
+      treeCollisionRef.current.push({ x: p.x, baseY: p.y + 0.2, z: p.z, radius: rockCollRadius + PLAYER_RADIUS, height: 1.5, walkable: false });
     });
 
     // ── Sheep ────────────────────────────────────────────────────────────────
@@ -2947,8 +2959,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     windmillGroup.position.set(windmillX, getTerrainHeightSampled(windmillX, windmillZ), windmillZ);
     scene.add(windmillGroup);
     windmillBladesRef.current = blades;
-    // Cylinder collider for the windmill tower (base radius 1.1)
-    treeCollisionRef.current.push({ x: windmillX, z: windmillZ, radius: 1.1 + PLAYER_RADIUS });
+    // Cylinder collider for the windmill tower (base radius 1.1, approx 10m tall)
+    treeCollisionRef.current.push({ x: windmillX, z: windmillZ, radius: 1.1 + PLAYER_RADIUS, baseY: getTerrainHeightSampled(windmillX, windmillZ), height: 10, walkable: false });
 
     // ── Farmhouse (near the pen) ──────────────────────────────────────────────
     let houseSeed = 88;
@@ -2962,8 +2974,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     house.position.set(houseX, getTerrainHeightSampled(houseX, houseZ), houseZ);
     house.rotation.y = Math.PI * 0.15;
     scene.add(house);
-    // Box collider for the house walls (7×5.5 footprint, same rotation as the mesh)
-    boxCollidersRef.current.push({ cx: houseX, cz: houseZ, halfW: 3.5, halfD: 2.75, rotY: Math.PI * 0.15 });
+    // Box collider for the house walls (7×5.5 footprint, 4.5m tall walls, pitched roof = not walkable)
+    {
+      const houseGroundY = getTerrainHeightSampled(houseX, houseZ);
+      boxCollidersRef.current.push({ cx: houseX, cy: houseGroundY + 2.25, cz: houseZ, halfW: 3.5, halfH: 2.25, halfD: 2.75, rotY: Math.PI * 0.15, walkable: false });
+    }
 
     // ── Ruins (distant location) ──────────────────────────────────────────────
     let ruinsSeed = 999;
@@ -2978,24 +2993,31 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     ruins.position.set(ruinsX, getTerrainHeightSampled(ruinsX, ruinsZ), ruinsZ);
     ruins.rotation.y = ruinsRotY;
     scene.add(ruins);
-    // Register ruins box colliders in world space (rotate local positions by ruinsRotY)
+    // Register ruins colliders in world space (rotate local positions by ruinsRotY)
     {
+      const ruinsGroundY = getTerrainHeightSampled(ruinsX, ruinsZ);
       const cosR = Math.cos(ruinsRotY);
       const sinR = Math.sin(ruinsRotY);
       for (const bc of ruinsBoxes) {
         boxCollidersRef.current.push({
           cx: ruinsX + bc.lx * cosR - bc.lz * sinR,
+          cy: ruinsGroundY + (bc.ly ?? 0),
           cz: ruinsZ + bc.lx * sinR + bc.lz * cosR,
           halfW: bc.halfW,
+          halfH: bc.halfH ?? 0.5,
           halfD: bc.halfD,
           rotY: bc.rotY + ruinsRotY,
+          walkable: bc.walkable ?? false,
         });
       }
       for (const cc of ruinsCyls) {
         treeCollisionRef.current.push({
           x: ruinsX + cc.lx * cosR - cc.lz * sinR,
+          baseY: ruinsGroundY,
           z: ruinsZ + cc.lx * sinR + cc.lz * cosR,
           radius: cc.radius + PLAYER_RADIUS,
+          height: cc.height ?? 3.5,
+          walkable: cc.walkable ?? false,
         });
       }
     }
@@ -3006,8 +3028,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(lighthouse);
     lighthouseBeamRef.current = beamPivot;
     lighthouseLightRef.current = lighthouseLight;
-    // Cylinder collider for the lighthouse base (base radius 2.2)
-    treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS });
+    // Cylinder collider for the lighthouse base (radius 2.2, ~18m tall, not walkable on top)
+    treeCollisionRef.current.push({ x: LIGHTHOUSE_X, z: LIGHTHOUSE_Z, radius: 2.2 + PLAYER_RADIUS, baseY: getTerrainHeightSampled(LIGHTHOUSE_X, LIGHTHOUSE_Z), height: 18, walkable: false });
 
     // ── Sniper Tower (northeast elevated area) ────────────────────────────────
     {
@@ -3018,10 +3040,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       sniperTowerDataRef.current = towerResult;
       sniperTowerTerrainYRef.current = towerTerrainY;
       // Solid cylinder collider for the tower body (no entry to tower interior)
+      // Height and top platform are handled by the spiral staircase special case in physics.
       treeCollisionRef.current.push({
         x: SNIPER_TOWER_X,
         z: SNIPER_TOWER_Z,
         radius: towerResult.towerBodyRadius + PLAYER_RADIUS,
+        baseY: towerTerrainY,
+        height: SNIPER_TOWER_HEIGHT,
+        walkable: false,
       });
     }
 
@@ -3032,21 +3058,69 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       mountainResult.group.position.set(MOUNTAIN_X, mountainGroundY, MOUNTAIN_Z);
       scene.add(mountainResult.group);
 
-      // Register colliders in world space
+      // Register colliders in world space (3D with height info)
       for (const bc of mountainResult.boxColliders) {
         boxCollidersRef.current.push({
           cx: MOUNTAIN_X + bc.lx,
+          cy: mountainGroundY + (bc.ly ?? 0),
           cz: MOUNTAIN_Z + bc.lz,
           halfW: bc.halfW,
+          halfH: bc.halfH ?? 0.5,
           halfD: bc.halfD,
           rotY: bc.rotY,
+          walkable: bc.walkable ?? false,
         });
       }
       for (const cc of mountainResult.cylColliders) {
         treeCollisionRef.current.push({
           x: MOUNTAIN_X + cc.lx,
+          baseY: mountainGroundY,
           z: MOUNTAIN_Z + cc.lz,
           radius: cc.radius + PLAYER_RADIUS,
+          height: cc.height ?? 65,
+          walkable: cc.walkable ?? false,
+        });
+      }
+    }
+
+    // ── City (northeast area) ─────────────────────────────────────────────────
+    {
+      let citySeed = 42;
+      const cityRng = () => {
+        citySeed = (citySeed * 1664525 + 1013904223) & 0xffffffff;
+        return (citySeed >>> 0) / 0xffffffff;
+      };
+      const cityGroundY = getTerrainHeightSampled(CITY_X, CITY_Z);
+      const cityResult: CityResult = buildCity(cityRng, {
+        terrainSampler: getTerrainHeightSampled,
+        worldX: CITY_X,
+        worldZ: CITY_Z,
+      });
+      cityResult.group.position.set(CITY_X, cityGroundY, CITY_Z);
+      scene.add(cityResult.group);
+
+      // Register 3D box colliders (buildings with flat roofs – walkable from above)
+      for (const bc of cityResult.boxColliders) {
+        boxCollidersRef.current.push({
+          cx: CITY_X + bc.lx,
+          cy: cityGroundY + (bc.ly ?? 0),
+          cz: CITY_Z + bc.lz,
+          halfW: bc.halfW,
+          halfH: bc.halfH ?? 0.5,
+          halfD: bc.halfD,
+          rotY: bc.rotY,
+          walkable: bc.walkable ?? true,
+        });
+      }
+      // Register cylinder colliders (fountain barrier etc.)
+      for (const cc of cityResult.cylColliders) {
+        treeCollisionRef.current.push({
+          x: CITY_X + cc.lx,
+          baseY: cityGroundY,
+          z: CITY_Z + cc.lz,
+          radius: cc.radius + PLAYER_RADIUS,
+          height: cc.height ?? 0.7,
+          walkable: cc.walkable ?? false,
         });
       }
     }
@@ -4494,47 +4568,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
         // Swimming: allow entry into water but clamp terrain height lookup
 
-        // Tree trunk collision: push player out of large tree trunks
-        for (const tree of treeCollisionRef.current) {
-          const tdx = cam.position.x - tree.x;
-          const tdz = cam.position.z - tree.z;
-          const tdist = Math.sqrt(tdx * tdx + tdz * tdz);
-          if (tdist < tree.radius && tdist > 0.001) {
-            // Push player to the edge of the collision cylinder
-            const nx = tdx / tdist;
-            const nz = tdz / tdist;
-            cam.position.x = tree.x + nx * tree.radius;
-            cam.position.z = tree.z + nz * tree.radius;
-          }
+        // ── 3D Cylinder collision: trees, columns, towers (height-aware) ───────
+        // Horizontal push-out only applies when player's vertical extent overlaps
+        // the cylinder's height range. Players standing ON TOP are not pushed.
+        for (const cyl of treeCollisionRef.current) {
+          const result = resolveCylinderCollision3D(
+            cam.position.x, cam.position.y, cam.position.z,
+            PLAYER_RADIUS, PLAYER_HEIGHT, cyl,
+          );
+          cam.position.x = result.x;
+          cam.position.z = result.z;
         }
 
-        // Box colliders: houses, ruins walls — OBB push-out in 2D
+        // ── 3D Box collision: buildings, ruins walls — OBB push-out (height-aware)
+        // Horizontal push-out only applies when player overlaps the box vertically.
+        // Players standing on top (feet above box top) are not pushed sideways.
         for (const box of boxCollidersRef.current) {
-          const cosR = Math.cos(box.rotY);
-          const sinR = Math.sin(box.rotY);
-          const dx = cam.position.x - box.cx;
-          const dz = cam.position.z - box.cz;
-          // Transform to box-local space (rotate by -rotY)
-          const lx = dx * cosR + dz * sinR;
-          const lz = -dx * sinR + dz * cosR;
-          const inflW = box.halfW + PLAYER_RADIUS;
-          const inflD = box.halfD + PLAYER_RADIUS;
-          if (Math.abs(lx) < inflW && Math.abs(lz) < inflD) {
-            // Push out along the axis of least penetration
-            const overlapX = inflW - Math.abs(lx);
-            const overlapZ = inflD - Math.abs(lz);
-            let pushLx = 0, pushLz = 0;
-            if (overlapX < overlapZ) {
-              pushLx = overlapX * Math.sign(lx);
-            } else {
-              pushLz = overlapZ * Math.sign(lz);
-            }
-            const newLx = lx + pushLx;
-            const newLz = lz + pushLz;
-            // Rotate back to world space
-            cam.position.x = box.cx + newLx * cosR - newLz * sinR;
-            cam.position.z = box.cz + newLx * sinR + newLz * cosR;
-          }
+          const result = resolveBoxCollision3D(
+            cam.position.x, cam.position.y, cam.position.z,
+            PLAYER_RADIUS, PLAYER_HEIGHT, box,
+          );
+          cam.position.x = result.x;
+          cam.position.z = result.z;
         }
 
         // Building block horizontal collision — AABB per block
@@ -4616,8 +4671,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           player.velY += GRAVITY * dt;
           cam.position.y += player.velY * dt;
 
-          // Ground detection: terrain height or top of placed blocks
+          // ── Ground detection: terrain + placed blocks + 3D walkable colliders ──
           let groundY = terrainY + PLAYER_HEIGHT;
+
+          // Placed blocks (1×1×1 cubes placed by the player)
           for (const block of placedBlocksDataRef.current) {
             const bdx = Math.abs(cam.position.x - block.x);
             const bdz = Math.abs(cam.position.z - block.z);
@@ -4626,6 +4683,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               if (blockGroundY > groundY) groundY = blockGroundY;
             }
           }
+
+          // 3D walkable surfaces: building rooftops, wall tops, etc.
+          // getWalkableSurfaceY returns the camera height to stand at, or -Infinity if none.
+          const structureGroundY = getWalkableSurfaceY(
+            cam.position.x, cam.position.z,
+            cam.position.y, PLAYER_HEIGHT, PLAYER_RADIUS,
+            boxCollidersRef.current, treeCollisionRef.current,
+          );
+          if (structureGroundY > groundY) groundY = structureGroundY;
 
           // ── Sniper tower spiral staircase ──────────────────────────────────
           // When player stands in the stair ring, compute height from angle.

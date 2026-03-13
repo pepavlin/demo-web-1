@@ -638,16 +638,26 @@ export function buildHouse(rng: () => number): THREE.Group {
 
 // ─── Ancient Ruins ────────────────────────────────────────────────────────────
 
-/** Local-space box collider (relative to ruins group origin). */
+/** Local-space box collider (relative to a group origin). */
 export interface RuinsBoxCollider {
   lx: number; lz: number;
   halfW: number; halfD: number;
   rotY: number;
+  /** Local Y centre of the collider (default 0). */
+  ly?: number;
+  /** Half-height of the collider (default 0 → effectively flat barrier). */
+  halfH?: number;
+  /** True if the player can stand on the top face (default false). */
+  walkable?: boolean;
 }
-/** Local-space cylinder collider (relative to ruins group origin). */
+/** Local-space cylinder collider (relative to a group origin). */
 export interface RuinsCylCollider {
   lx: number; lz: number;
   radius: number;
+  /** Full height of the cylinder (default 0 → effectively a flat disc). */
+  height?: number;
+  /** True if the player can stand on the top face (default false). */
+  walkable?: boolean;
 }
 export interface RuinsResult {
   group: THREE.Group;
@@ -670,7 +680,7 @@ export function buildRuins(rng: () => number): RuinsResult {
   w1.rotation.y = (rng() - 0.5) * 0.15;
   w1.castShadow = true;
   group.add(w1);
-  boxColliders.push({ lx: 0, lz: 0, halfW: 4, halfD: 0.35, rotY: w1.rotation.y });
+  boxColliders.push({ lx: 0, lz: 0, halfW: 4, halfD: 0.35, rotY: w1.rotation.y, ly: w1H / 2, halfH: w1H / 2, walkable: true });
 
   // Side wall (partial)
   const w2H = 1.8 + rng() * 1.5;
@@ -678,20 +688,20 @@ export function buildRuins(rng: () => number): RuinsResult {
   w2.position.set(4, w2H / 2, -3);
   w2.castShadow = true;
   group.add(w2);
-  boxColliders.push({ lx: 4, lz: -3, halfW: 0.35, halfD: 3, rotY: 0 });
+  boxColliders.push({ lx: 4, lz: -3, halfW: 0.35, halfD: 3, rotY: 0, ly: w2H / 2, halfH: w2H / 2, walkable: true });
 
   // Arch remnant
   const archBaseL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.8), darkStoneMat);
   archBaseL.position.set(-2, 1.75, 0.1);
   archBaseL.castShadow = true;
   group.add(archBaseL);
-  cylColliders.push({ lx: -2, lz: 0.1, radius: 0.6 });
+  cylColliders.push({ lx: -2, lz: 0.1, radius: 0.6, height: 3.5, walkable: false });
 
   const archBaseR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3.5, 0.8), darkStoneMat);
   archBaseR.position.set(2, 1.75, 0.1);
   archBaseR.castShadow = true;
   group.add(archBaseR);
-  cylColliders.push({ lx: 2, lz: 0.1, radius: 0.6 });
+  cylColliders.push({ lx: 2, lz: 0.1, radius: 0.6, height: 3.5, walkable: false });
 
   const archTop = new THREE.Mesh(new THREE.BoxGeometry(5, 0.8, 0.8), darkStoneMat);
   archTop.position.set(0, 3.9, 0.1);
@@ -709,7 +719,7 @@ export function buildRuins(rng: () => number): RuinsResult {
     col.rotation.z = (rng() - 0.5) * 0.12;
     col.castShadow = true;
     group.add(col);
-    cylColliders.push({ lx: colX, lz: colZ, radius: 0.5 });
+    cylColliders.push({ lx: colX, lz: colZ, radius: 0.5, height: colH, walkable: false });
     // Capital
     const capGeo = new THREE.BoxGeometry(0.9, 0.3, 0.9);
     const capMesh = new THREE.Mesh(capGeo, darkStoneMat);
@@ -3781,7 +3791,8 @@ export function buildCity(rng: () => number, terrain?: CityTerrainOptions): City
       // Rotate the collider centre offset
       const cx = lx * Math.cos(rotY) - lz * Math.sin(rotY);
       const cz = lx * Math.sin(rotY) + lz * Math.cos(rotY);
-      boxColliders.push({ lx: cx, lz: cz, halfW: hw, halfD: hd, rotY });
+      // Include 3D height info so players can land on top of buildings
+      boxColliders.push({ lx: cx, lz: cz, halfW: hw, halfD: hd, rotY, ly, halfH: h / 2, walkable: true });
     }
     return mesh;
   }
@@ -3876,8 +3887,8 @@ export function buildCity(rng: () => number, terrain?: CityTerrainOptions): City
   const water = new THREE.Mesh(waterGeo, waterMat);
   water.position.set(0, plazaTH + 2.88, 0);
   group.add(water);
-  // Fountain cylinder collider
-  cylColliders.push({ lx: 0, lz: 0, radius: 3.8 });
+  // Fountain cylinder collider (low barrier, not walkable from the top)
+  cylColliders.push({ lx: 0, lz: 0, radius: 3.8, height: 0.7, walkable: false });
 
   // ── 3. Skyscrapers (3 towers around plaza) ────────────────────────────────
   interface SkyscraperDef { lx: number; lz: number; w: number; d: number; h: number; mat: THREE.Material; rotY: number }
@@ -4272,9 +4283,9 @@ export function buildMountainWithWaterfallAndCave(_terrain?: CityTerrainOptions)
 
   // ── Colliders ─────────────────────────────────────────────────────────────
   // Main cylinder — keeps players from walking through the mountain core
-  cylColliders.push({ lx: 0, lz: 0, radius: 22 });
+  cylColliders.push({ lx: 0, lz: 0, radius: 22, height: 65, walkable: false });
   // Pool perimeter — steers players around the pond
-  cylColliders.push({ lx: 11, lz: 20, radius: 5.5 });
+  cylColliders.push({ lx: 11, lz: 20, radius: 5.5, height: 0.5, walkable: false });
 
   return { group, boxColliders, cylColliders };
 }
