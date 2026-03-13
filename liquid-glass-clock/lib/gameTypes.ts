@@ -145,6 +145,12 @@ export interface FoxData {
   isAlive: boolean;
   attackCooldown: number;
   hitFlashTimer: number;
+  /** True while the death animation is playing. */
+  isDying: boolean;
+  /** Elapsed seconds since death was triggered. */
+  deathTimer: number;
+  /** Accumulated Y rotation during death spin. */
+  deathRotationY: number;
   /** Cached nearest sheep target — refreshed every ~0.25 s to avoid O(n²) per-frame search. */
   cachedNearestSheep: SheepData | null;
   /** Countdown until next nearest-sheep search. */
