@@ -23,7 +23,6 @@ Object.defineProperty(global, "localStorage", { value: localStorageMock });
 import {
   buildBlockMesh,
   buildGhostMesh,
-  buildSculptIndicator,
   updateGhostMaterial,
   snapToGrid,
   getPlacementPosition,
@@ -118,21 +117,6 @@ describe("buildGhostMesh", () => {
     const mat = ghost.material as THREE.MeshLambertMaterial;
     expect(mat.transparent).toBe(true);
     expect(mat.opacity).toBeLessThan(0.6);
-  });
-});
-
-// ─── buildSculptIndicator ─────────────────────────────────────────────────────
-
-describe("buildSculptIndicator", () => {
-  it("returns a mesh and starts invisible", () => {
-    const ring = buildSculptIndicator(5);
-    expect(ring).toBeInstanceOf(THREE.Mesh);
-    expect(ring.visible).toBe(false);
-  });
-
-  it("rotates flat (rotation.x = -PI/2)", () => {
-    const ring = buildSculptIndicator(5);
-    expect(ring.rotation.x).toBeCloseTo(-Math.PI / 2, 5);
   });
 });
 

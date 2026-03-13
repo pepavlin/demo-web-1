@@ -396,7 +396,7 @@ describe("terrainUtils", () => {
 
   describe("modifyTerrainHeight", () => {
     beforeEach(() => {
-      // Re-init noise to get a clean heightGrid before each sculpt test
+      // Re-init noise to get a clean heightGrid before each test
       initNoise(42);
     });
 

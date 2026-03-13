@@ -27,14 +27,11 @@ import {
   BLOCK_DEFS,
   BLOCK_MATERIAL_ORDER,
   BUILD_RANGE,
-  SCULPT_RADIUS,
-  SCULPT_STRENGTH,
   MAX_BLOCKS,
 } from "@/lib/buildingTypes";
 import {
   buildBlockMesh,
   buildGhostMesh,
-  buildSculptIndicator,
   updateGhostMaterial,
   getPlacementPosition,
   blockKey,
@@ -597,7 +594,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const ghostMeshRef = useRef<THREE.Mesh | null>(null);
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
   const terrainMatRef = useRef<THREE.ShaderMaterial | null>(null);
-  const sculptIndicatorRef = useRef<THREE.Mesh | null>(null);
   const buildRaycasterRef = useRef(new THREE.Raycaster());
 
   // ─── World Items (pickable / placeable objects) ───────────────────────────────
@@ -2232,14 +2228,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     terrainMeshRef.current = terrain;
     terrainMatRef.current  = terrainMat;
 
-    // ── Building system: ghost block + sculpt indicator ──────────────────────
+    // ── Building system: ghost block ──────────────────────────────────────────
     const ghost = buildGhostMesh("wood");
     scene.add(ghost);
     ghostMeshRef.current = ghost;
-
-    const sculptRing = buildSculptIndicator(SCULPT_RADIUS);
-    scene.add(sculptRing);
-    sculptIndicatorRef.current = sculptRing;
 
     // Restore placed blocks from localStorage
     const savedBlocks = loadBlocks();
@@ -3492,7 +3484,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             doAttack(); // fire immediately on first click
           }
         }
-        // sculpt mode: scroll wheel sculpts, left click does nothing extra
       } else if (e.button === 2) {
         if (buildModeRef.current !== "explore") {
           removeBlock();
@@ -3838,20 +3829,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const next: BuildMode = buildModeRef.current !== "explore" ? "explore" : "build";
         buildModeRef.current = next;
         if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
         setBuildingUiState((s) => ({ ...s, mode: next }));
       }
 
-      // T key — toggle sculpt sub-mode (only when already in build mode)
-      if (e.type === "keydown" && e.code === "KeyT" && buildModeRef.current !== "explore") {
-        const next: BuildMode = buildModeRef.current === "sculpt" ? "build" : "sculpt";
-        buildModeRef.current = next;
-        if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
-        setBuildingUiState((s) => ({ ...s, mode: next }));
-      }
-
-      // T key — open chat (only in explore mode; build mode uses T for sculpt)
+      // T key — open chat (only in explore mode)
       if (e.type === "keydown" && e.code === "KeyT" && buildModeRef.current === "explore" && isLockedRef.current) {
         e.preventDefault();
         document.exitPointerLock();
@@ -3946,26 +3927,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
-    // ── Mouse wheel — sculpt terrain or cycle materials ───────────────────────
+    // ── Mouse wheel — cycle materials or weapons ──────────────────────────────
     const onWheel = (e: WheelEvent) => {
       if (!isLockedRef.current) return;
 
-      if (buildModeRef.current === "sculpt") {
-        const cam = cameraRef.current;
-        const terrainMesh = terrainMeshRef.current;
-        if (!cam || !terrainMesh) return;
-
-        const raycaster = buildRaycasterRef.current;
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-        raycaster.far = BUILD_RANGE * 2;
-        const hits = raycaster.intersectObject(terrainMesh, false);
-        if (hits.length > 0) {
-          const delta = e.deltaY > 0 ? -SCULPT_STRENGTH : SCULPT_STRENGTH;
-          modifyTerrainHeight(hits[0].point.x, hits[0].point.z, delta, SCULPT_RADIUS);
-          updateTerrainGeometry(terrainMesh);
-          soundManager.playTerrainSculpt();
-        }
-      } else if (buildModeRef.current === "build") {
+      if (buildModeRef.current === "build") {
         const cur = BLOCK_MATERIAL_ORDER.indexOf(selectedMaterialRef.current);
         const next =
           (cur + (e.deltaY > 0 ? 1 : -1) + BLOCK_MATERIAL_ORDER.length) %
@@ -5436,43 +5402,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // ── Build mode: ghost block preview & sculpt indicator position ───────────
-      if (buildModeRef.current !== "explore" && cameraRef.current) {
+      // ── Build mode: ghost block preview ───────────────────────────────────────
+      if (buildModeRef.current === "build" && cameraRef.current) {
         const cam = cameraRef.current;
         const raycaster = buildRaycasterRef.current;
         raycaster.setFromCamera(new THREE.Vector2(0, 0), cam);
-
-        if (buildModeRef.current === "build") {
-          raycaster.far = BUILD_RANGE;
-          const rayTargets: THREE.Object3D[] = terrainMeshRef.current
-            ? [terrainMeshRef.current, ...placedBlockMeshesRef.current.values()]
-            : [...placedBlockMeshesRef.current.values()];
-          const hits = raycaster.intersectObjects(rayTargets, false);
-          if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
-            const placePos = getPlacementPosition(hits[0].point, hits[0].face.normal);
-            ghostMeshRef.current.position.copy(placePos);
-            ghostMeshRef.current.visible = true;
-          } else if (ghostMeshRef.current) {
-            ghostMeshRef.current.visible = false;
-          }
-          if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
-        } else if (buildModeRef.current === "sculpt") {
-          raycaster.far = BUILD_RANGE * 2;
-          if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-          if (terrainMeshRef.current && sculptIndicatorRef.current) {
-            const hits = raycaster.intersectObject(terrainMeshRef.current, false);
-            if (hits.length > 0) {
-              const h = getTerrainHeightSampled(hits[0].point.x, hits[0].point.z);
-              sculptIndicatorRef.current.position.set(hits[0].point.x, h + 0.12, hits[0].point.z);
-              sculptIndicatorRef.current.visible = true;
-            } else {
-              sculptIndicatorRef.current.visible = false;
-            }
-          }
+        raycaster.far = BUILD_RANGE;
+        const rayTargets: THREE.Object3D[] = terrainMeshRef.current
+          ? [terrainMeshRef.current, ...placedBlockMeshesRef.current.values()]
+          : [...placedBlockMeshesRef.current.values()];
+        const hits = raycaster.intersectObjects(rayTargets, false);
+        if (hits.length > 0 && hits[0].face && ghostMeshRef.current) {
+          const placePos = getPlacementPosition(hits[0].point, hits[0].face.normal);
+          ghostMeshRef.current.position.copy(placePos);
+          ghostMeshRef.current.visible = true;
+        } else if (ghostMeshRef.current) {
+          ghostMeshRef.current.visible = false;
         }
       } else {
         if (ghostMeshRef.current) ghostMeshRef.current.visible = false;
-        if (sculptIndicatorRef.current) sculptIndicatorRef.current.visible = false;
       }
 
       // ── Possessed sheep control ────────────────────────────────────────────
@@ -8524,18 +8472,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             className="rounded-xl text-white text-xs text-center font-semibold"
             style={{
               padding: "9px 22px",
-              background:
-                buildingUiState.mode === "sculpt"
-                  ? "rgba(0,180,220,0.82)"
-                  : "rgba(60,160,50,0.82)",
+              background: "rgba(60,160,50,0.82)",
               backdropFilter: "blur(12px)",
               border: "1px solid rgba(255,255,255,0.15)",
               boxShadow: "0 2px 14px rgba(0,0,0,0.45)",
             }}
           >
-            {buildingUiState.mode === "sculpt"
-              ? "Tvarování terénu  ·  Scroll=výška  ·  [T] zpět  ·  [B] konec"
-              : `Stavění: ${BLOCK_DEFS[buildingUiState.selectedMaterial].label}  ·  Klik=umístit  ·  Pklik=smazat  ·  Scroll=materiál  ·  [T] terén  ·  [B] konec`}
+            {`Stavění: ${BLOCK_DEFS[buildingUiState.selectedMaterial].label}  ·  Klik=umístit  ·  Pklik=smazat  ·  Scroll=materiál  ·  [B] konec`}
           </div>
         </div>
       )}

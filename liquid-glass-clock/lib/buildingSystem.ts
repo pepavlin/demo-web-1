@@ -66,23 +66,6 @@ export function updateGhostMaterial(ghost: THREE.Mesh, material: BlockMaterial):
   mat.color.setHex(BLOCK_DEFS[material].color);
 }
 
-// ─── Sculpt indicator ─────────────────────────────────────────────────────────
-
-/** Torus ring drawn on the terrain surface to show sculpt brush radius. */
-export function buildSculptIndicator(radius: number): THREE.Mesh {
-  const geo = new THREE.TorusGeometry(radius, 0.12, 8, 40);
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x00e8ff,
-    transparent: true,
-    opacity: 0.7,
-    depthTest: false,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.visible = false;
-  return mesh;
-}
-
 // ─── Grid snapping ────────────────────────────────────────────────────────────
 
 /**
