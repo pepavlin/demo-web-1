@@ -499,34 +499,240 @@ function FlameThrowerSVG({ selected }: { selected: boolean }) {
       viewBox="0 0 130 80"
       width="130"
       height="80"
+      overflow="visible"
       style={{
-        filter: selected ? "drop-shadow(0 0 10px #ef4444)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+        filter: selected ? "drop-shadow(0 0 12px #ef4444)" : "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
         animation: "ft-idle 4s ease-in-out infinite",
       }}
     >
+      <defs>
+        {/* Turbulence displacement for organic flame warping */}
+        <filter id="ftFlameWarp" x="-40%" y="-60%" width="180%" height="220%">
+          <feTurbulence type="turbulence" baseFrequency="0.045 0.08" numOctaves="4" seed="3" result="turb">
+            <animate attributeName="seed" values="3;7;2;9;4;3" dur="0.6s" repeatCount="indefinite" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="turb" scale="7" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        {/* Soft glow blur */}
+        <filter id="ftGlow" x="-30%" y="-60%" width="160%" height="220%">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+        {/* Gradient fade — opaque at nozzle (right), transparent at tip (left) */}
+        <linearGradient id="ftFadeOuter" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stopColor="#ff2200" stopOpacity="0.95" />
+          <stop offset="55%" stopColor="#ff4400" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#ff6600" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="ftFadeMid" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stopColor="#ff6600" stopOpacity="1" />
+          <stop offset="60%" stopColor="#ff9900" stopOpacity="0.75" />
+          <stop offset="100%" stopColor="#ffcc00" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="ftFadeInner" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stopColor="#ffee00" stopOpacity="1" />
+          <stop offset="70%" stopColor="#fff9c4" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="ftGradGlow" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0%" stopColor="#ff4400" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#ff6600" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
       <style>{`
         @keyframes ft-idle {
           0%, 100% { transform: translateY(0px) rotate(0deg); }
           35% { transform: translateY(-4px) rotate(0.7deg); }
           70% { transform: translateY(-2px) rotate(-0.5deg); }
         }
-        @keyframes ft-flame1 {
-          0%, 100% { opacity: 0.9; transform: scaleX(1) scaleY(1); }
-          25% { opacity: 0.7; transform: scaleX(1.25) scaleY(0.88); }
-          50% { opacity: 1; transform: scaleX(0.82) scaleY(1.18); }
-          75% { opacity: 0.75; transform: scaleX(1.15) scaleY(0.9); }
+        /* === OUTER flame shapes === */
+        @keyframes ft-o1 {
+          0%   { opacity:0.85; d:path("M119,34 C100,28 75,22 50,20 C30,19 12,26 8,33 C6,36 6,42 8,45 C12,52 30,59 50,58 C75,56 100,50 119,44"); }
+          28%  { opacity:0.65; d:path("M119,33 C98,26 70,18 44,17 C24,16 9,24 6,32 C4,35 4,43 6,46 C9,54 24,62 44,61 C70,60 98,52 119,45"); }
+          55%  { opacity:0.9;  d:path("M119,35 C102,30 78,25 53,23 C33,22 14,28 10,35 C8,37 8,41 10,43 C14,50 33,56 53,55 C78,54 102,48 119,43"); }
+          80%  { opacity:0.6;  d:path("M119,34 C96,27 68,20 42,19 C22,18 8,25 5,33 C3,36 3,42 5,45 C8,53 22,61 42,60 C68,59 96,51 119,44"); }
+          100% { opacity:0.85; d:path("M119,34 C100,28 75,22 50,20 C30,19 12,26 8,33 C6,36 6,42 8,45 C12,52 30,59 50,58 C75,56 100,50 119,44"); }
         }
-        @keyframes ft-flame2 {
-          0%, 100% { opacity: 0.85; transform: scaleX(1) scaleY(1); }
-          35% { opacity: 0.55; transform: scaleX(0.78) scaleY(1.22); }
-          65% { opacity: 1; transform: scaleX(1.2) scaleY(0.85); }
+        @keyframes ft-o2 {
+          0%   { opacity:0.7;  d:path("M119,33 C95,26 65,18 38,17 C18,16 5,24 3,32 C1,36 1,42 3,46 C5,54 18,63 38,62 C65,61 95,52 119,45"); }
+          35%  { opacity:0.9;  d:path("M119,35 C103,29 76,23 50,22 C30,21 14,27 10,34 C8,37 8,41 10,44 C14,51 30,57 50,56 C76,55 103,49 119,43"); }
+          68%  { opacity:0.55; d:path("M119,34 C97,27 70,20 45,19 C25,18 10,25 7,32 C5,35 5,43 7,46 C10,53 25,60 45,60 C70,59 97,51 119,44"); }
+          100% { opacity:0.7;  d:path("M119,33 C95,26 65,18 38,17 C18,16 5,24 3,32 C1,36 1,42 3,46 C5,54 18,63 38,62 C65,61 95,52 119,45"); }
         }
+        /* === MID flame shapes === */
+        @keyframes ft-m1 {
+          0%   { opacity:0.9;  d:path("M119,35 C104,30 82,25 58,24 C40,23 24,28 18,34 C15,37 15,41 18,44 C24,50 40,55 58,54 C82,53 104,48 119,43"); }
+          30%  { opacity:0.7;  d:path("M119,36 C107,32 85,27 60,26 C42,25 25,29 19,35 C17,37 17,41 19,43 C25,49 42,54 60,53 C85,52 107,47 119,42"); }
+          60%  { opacity:1.0;  d:path("M119,35 C102,29 78,23 54,22 C36,21 21,27 16,33 C14,36 14,42 16,45 C21,51 36,56 54,56 C78,55 102,49 119,43"); }
+          100% { opacity:0.9;  d:path("M119,35 C104,30 82,25 58,24 C40,23 24,28 18,34 C15,37 15,41 18,44 C24,50 40,55 58,54 C82,53 104,48 119,43"); }
+        }
+        @keyframes ft-m2 {
+          0%   { opacity:0.8;  d:path("M119,36 C106,31 84,26 59,25 C41,24 25,29 19,35 C17,37 17,41 19,43 C25,49 41,54 59,54 C84,53 106,48 119,42"); }
+          40%  { opacity:1.0;  d:path("M119,35 C103,30 80,24 56,23 C38,22 22,27 17,34 C15,37 15,41 17,44 C22,50 38,55 56,55 C80,54 103,49 119,43"); }
+          72%  { opacity:0.65; d:path("M119,36 C108,32 86,27 62,26 C44,25 27,30 21,36 C19,38 19,40 21,42 C27,48 44,53 62,52 C86,51 108,46 119,42"); }
+          100% { opacity:0.8;  d:path("M119,36 C106,31 84,26 59,25 C41,24 25,29 19,35 C17,37 17,41 19,43 C25,49 41,54 59,54 C84,53 106,48 119,42"); }
+        }
+        /* === INNER yellow flame === */
+        @keyframes ft-inner {
+          0%   { opacity:0.95; d:path("M119,37 C110,34 96,31 80,30 C66,29 54,32 48,36 C45,37 45,41 48,43 C54,46 66,49 80,48 C96,47 110,44 119,41"); }
+          35%  { opacity:0.75; d:path("M119,37 C112,35 98,32 82,31 C68,30 56,33 50,37 C48,38 48,40 50,42 C56,45 68,48 82,47 C98,46 112,43 119,41"); }
+          65%  { opacity:1.0;  d:path("M119,37 C109,34 94,31 78,30 C64,29 52,32 46,36 C44,37 44,41 46,43 C52,46 64,49 78,49 C94,48 109,44 119,41"); }
+          100% { opacity:0.95; d:path("M119,37 C110,34 96,31 80,30 C66,29 54,32 48,36 C45,37 45,41 48,43 C54,46 66,49 80,48 C96,47 110,44 119,41"); }
+        }
+        /* === CORE white-yellow === */
         @keyframes ft-core {
-          0%, 100% { opacity: 0.9; }
-          50% { opacity: 0.45; }
+          0%,100% { opacity:1;    d:path("M119,38 C113,36 104,34 94,33 C86,32 79,34 75,37 C73,38 73,40 75,41 C79,44 86,46 94,45 C104,44 113,42 119,40"); }
+          45%     { opacity:0.6;  d:path("M119,38 C114,36 105,34 96,33 C88,32 81,35 77,38 C75,39 75,39 77,40 C81,43 88,45 96,44 C105,43 114,41 119,40"); }
+        }
+        /* === FLAME TONGUES === */
+        @keyframes ft-tA {
+          0%,100% { opacity:0.85; transform:translate(0,0) skewX(0deg); }
+          40%     { opacity:0.5;  transform:translate(-4px,-6px) skewX(-5deg); }
+          70%     { opacity:0.9;  transform:translate(-2px,-3px) skewX(3deg); }
+        }
+        @keyframes ft-tB {
+          0%,100% { opacity:0.7; transform:translate(0,0) skewX(0deg); }
+          35%     { opacity:1.0; transform:translate(-3px,5px) skewX(4deg); }
+          65%     { opacity:0.45; transform:translate(-5px,3px) skewX(-3deg); }
+        }
+        @keyframes ft-tC {
+          0%,100% { opacity:0.9; transform:translate(0,0) skewX(0deg); }
+          50%     { opacity:0.55; transform:translate(-6px,-4px) skewX(-6deg); }
+        }
+        @keyframes ft-tD {
+          0%,100% { opacity:0.75; transform:translate(0,0); }
+          45%     { opacity:0.4;  transform:translate(-4px,7px); }
+          80%     { opacity:0.9;  transform:translate(-2px,4px); }
+        }
+        @keyframes ft-tE {
+          0%,100% { opacity:0.8; transform:translate(0,0) skewX(0deg); }
+          30%     { opacity:0.5; transform:translate(-8px,-5px) skewX(-8deg); }
+          70%     { opacity:0.95; transform:translate(-3px,-2px) skewX(4deg); }
+        }
+        /* === SPARKS === */
+        @keyframes ft-sp1 {
+          0%   { opacity:1;   transform:translate(0,0); }
+          80%  { opacity:0.5; transform:translate(-22px,-12px); }
+          100% { opacity:0;   transform:translate(-28px,-16px); }
+        }
+        @keyframes ft-sp2 {
+          0%   { opacity:0.9; transform:translate(0,0); }
+          75%  { opacity:0.4; transform:translate(-18px,10px); }
+          100% { opacity:0;   transform:translate(-24px,14px); }
+        }
+        @keyframes ft-sp3 {
+          0%   { opacity:1;   transform:translate(0,0); }
+          70%  { opacity:0.6; transform:translate(-30px,-8px); }
+          100% { opacity:0;   transform:translate(-38px,-10px); }
+        }
+        @keyframes ft-sp4 {
+          0%   { opacity:0.8; transform:translate(0,0); }
+          80%  { opacity:0.3; transform:translate(-16px,8px); }
+          100% { opacity:0;   transform:translate(-20px,12px); }
+        }
+        /* === HEAT SHIMMER GLOW === */
+        @keyframes ft-glow {
+          0%,100% { opacity:0.45; transform:scaleY(1); }
+          50%     { opacity:0.25; transform:scaleY(1.15); }
         }
       `}</style>
 
+      {/* ── GLOW halo behind the whole flame ── */}
+      <ellipse
+        cx="75" cy="39" rx="48" ry="22"
+        fill="url(#ftGradGlow)"
+        filter="url(#ftGlow)"
+        style={{ animation: "ft-glow 0.5s ease-in-out infinite", transformOrigin: "119px 39px" }}
+      />
+
+      {/* ── FLAME MESH (all warped by turbulence) ── */}
+      <g filter="url(#ftFlameWarp)">
+
+        {/* OUTER layer — 2 red-orange shapes */}
+        <path
+          fill="url(#ftFadeOuter)"
+          style={{ animation: "ft-o1 0.52s ease-in-out infinite" }}
+        />
+        <path
+          fill="url(#ftFadeOuter)"
+          opacity="0.7"
+          style={{ animation: "ft-o2 0.47s ease-in-out infinite", animationDelay: "0.1s" }}
+        />
+
+        {/* MID layer — 2 orange shapes */}
+        <path
+          fill="url(#ftFadeMid)"
+          style={{ animation: "ft-m1 0.38s ease-in-out infinite" }}
+        />
+        <path
+          fill="url(#ftFadeMid)"
+          opacity="0.8"
+          style={{ animation: "ft-m2 0.34s ease-in-out infinite", animationDelay: "0.08s" }}
+        />
+
+        {/* INNER layer — yellow */}
+        <path
+          fill="url(#ftFadeInner)"
+          style={{ animation: "ft-inner 0.26s ease-in-out infinite" }}
+        />
+
+        {/* CORE — white-yellow brightest */}
+        <path
+          fill="#fffde7"
+          opacity="0.95"
+          style={{ animation: "ft-core 0.19s ease-in-out infinite" }}
+        />
+
+        {/* FLAME TONGUES — irregular wisps */}
+        {/* tongue A — upper mid */}
+        <polygon
+          points="90,30 75,16 60,28"
+          fill="#ff6600"
+          opacity="0.7"
+          style={{ animation: "ft-tA 0.44s ease-in-out infinite", transformOrigin: "75px 23px" }}
+        />
+        {/* tongue B — lower mid */}
+        <polygon
+          points="85,48 68,62 55,50"
+          fill="#ff4400"
+          opacity="0.65"
+          style={{ animation: "ft-tB 0.39s ease-in-out infinite", animationDelay: "0.13s", transformOrigin: "68px 55px" }}
+        />
+        {/* tongue C — upper near nozzle */}
+        <polygon
+          points="108,33 96,20 84,31"
+          fill="#ff8800"
+          opacity="0.6"
+          style={{ animation: "ft-tC 0.48s ease-in-out infinite", animationDelay: "0.22s", transformOrigin: "96px 25px" }}
+        />
+        {/* tongue D — lower near nozzle */}
+        <polygon
+          points="104,45 92,58 80,47"
+          fill="#ff5500"
+          opacity="0.55"
+          style={{ animation: "ft-tD 0.41s ease-in-out infinite", animationDelay: "0.05s", transformOrigin: "92px 52px" }}
+        />
+        {/* tongue E — far tip */}
+        <polygon
+          points="42,32 26,39 42,46"
+          fill="#ff9900"
+          opacity="0.5"
+          style={{ animation: "ft-tE 0.55s ease-in-out infinite", animationDelay: "0.18s", transformOrigin: "30px 39px" }}
+        />
+      </g>
+
+      {/* SPARKS — outside warp filter so they fly cleanly */}
+      <circle cx="100" cy="34" r="1.5" fill="#fff176"
+        style={{ animation: "ft-sp1 0.75s linear infinite" }} />
+      <circle cx="88" cy="46" r="1.2" fill="#ffd54f"
+        style={{ animation: "ft-sp2 0.9s linear infinite", animationDelay: "0.3s" }} />
+      <circle cx="72" cy="30" r="1.8" fill="#fff9c4"
+        style={{ animation: "ft-sp3 0.65s linear infinite", animationDelay: "0.55s" }} />
+      <circle cx="80" cy="49" r="1.0" fill="#ffcc02"
+        style={{ animation: "ft-sp4 0.82s linear infinite", animationDelay: "0.12s" }} />
+
+      {/* ── WEAPON BODY ── */}
       {/* Fuel tank (olive green) */}
       <rect x="6" y="28" width="30" height="22" rx="8" fill="#3a4a1a" />
       <rect x="7" y="29" width="28" height="7" rx="4" fill="#5a6a2a" opacity="0.5" />
@@ -558,17 +764,7 @@ function FlameThrowerSVG({ selected }: { selected: boolean }) {
       {/* Shoulder stock */}
       <rect x="87" y="33.5" width="24" height="11" rx="3" fill="#1a1a1a" />
 
-      {/* Flame burst */}
-      <g style={{ transformOrigin: "116px 39px" }}>
-        <ellipse cx="125" cy="39" rx="10" ry="7" fill="#ff4400" opacity="0.9"
-          style={{ animation: "ft-flame1 0.45s ease-in-out infinite", transformOrigin: "116px 39px" }} />
-        <ellipse cx="122" cy="39" rx="7" ry="5" fill="#ff8800"
-          style={{ animation: "ft-flame2 0.38s ease-in-out infinite 0.1s", transformOrigin: "116px 39px" }} />
-        <ellipse cx="119" cy="39" rx="4" ry="3" fill="#ffee00"
-          style={{ animation: "ft-core 0.28s ease-in-out infinite" }} />
-      </g>
-
-      {/* Red accent */}
+      {/* Red heat accent on tank */}
       <rect x="8" y="37" width="26" height="1" rx="0.5" fill="#ef4444" opacity="0.35" />
     </svg>
   );
