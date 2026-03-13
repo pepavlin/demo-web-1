@@ -78,11 +78,11 @@ describe("ChangelogWidget component", () => {
     expect(toggleBtn).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("renders dates for every entry", () => {
+  it("renders versions for every entry", () => {
     render(<ChangelogWidget />);
     fireEvent.click(screen.getByRole("button", { name: /otevřít changelog/i }));
     CHANGELOG.forEach((entry) => {
-      expect(screen.getByText(entry.date)).toBeInTheDocument();
+      expect(screen.getByText(entry.version)).toBeInTheDocument();
     });
   });
 
@@ -93,6 +93,13 @@ describe("ChangelogWidget component", () => {
       expect(screen.getByText(entry.title)).toBeInTheDocument();
     });
   });
+
+  it("shows 'nejnovější' badge only on the first (latest) entry", () => {
+    render(<ChangelogWidget />);
+    fireEvent.click(screen.getByRole("button", { name: /otevřít changelog/i }));
+    const badges = screen.getAllByText(/nejnovější/i);
+    expect(badges).toHaveLength(1);
+  });
 });
 
 describe("CHANGELOG data", () => {
@@ -100,10 +107,16 @@ describe("CHANGELOG data", () => {
     expect(CHANGELOG.length).toBeGreaterThan(0);
   });
 
-  it("entries are ordered newest-first (dates descending)", () => {
+  it("entries are ordered newest-first (versions descending)", () => {
     for (let i = 0; i < CHANGELOG.length - 1; i++) {
-      expect(CHANGELOG[i].date >= CHANGELOG[i + 1].date).toBe(true);
+      expect(CHANGELOG[i].version >= CHANGELOG[i + 1].version).toBe(true);
     }
+  });
+
+  it("every entry has a non-empty version string", () => {
+    CHANGELOG.forEach((entry) => {
+      expect(entry.version.trim().length).toBeGreaterThan(0);
+    });
   });
 
   it("every entry has a non-empty title", () => {
