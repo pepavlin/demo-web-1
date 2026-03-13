@@ -613,6 +613,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const treeDataRef = useRef<TreeData[]>([]);
   /** Wood log meshes currently lying on the ground waiting to be collected. */
   const woodLogMeshesRef = useRef<Array<{ mesh: THREE.Group; x: number; z: number; collected: boolean }>>([]);
+  /** Wood pieces flying through the air after a tree falls — physics-simulated before landing. */
+  const flyingWoodPiecesRef = useRef<Array<{ mesh: THREE.Group; velX: number; velY: number; velZ: number }>>([]);
   /** Total wood logs collected this session. */
   const woodCollectedRef = useRef(0);
   /** 3D box colliders for buildings, walls, and other box-shaped obstacles.
@@ -6618,21 +6620,56 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             );
           }
 
-          // Drop 2–4 wood logs near the tree stump
+          // Launch 2–4 wood log pieces from the tree base with physics — they scatter outward
           const logCount = 2 + Math.floor(Math.random() * 3);
+          const baseY = getTerrainHeight(tree.x, tree.z) + 0.5;
           for (let i = 0; i < logCount; i++) {
             const angle = (i / logCount) * Math.PI * 2 + Math.random() * 0.5;
-            const dist = 0.8 + Math.random() * 1.2;
-            const lx = tree.x + Math.cos(angle) * dist;
-            const lz = tree.z + Math.sin(angle) * dist;
-            const ly = getTerrainHeight(lx, lz) + 0.25;
+            const speed = 2.5 + Math.random() * 3.0;
             const logMesh = buildWoodLogMesh();
-            logMesh.position.set(lx, ly, lz);
+            logMesh.position.set(tree.x, baseY, tree.z);
             if (sceneRef.current) sceneRef.current.add(logMesh);
-            woodLogMeshesRef.current.push({ mesh: logMesh, x: lx, z: lz, collected: false });
+            flyingWoodPiecesRef.current.push({
+              mesh: logMesh,
+              velX: Math.cos(angle) * speed,
+              velY: 3.0 + Math.random() * 2.5,
+              velZ: Math.sin(angle) * speed,
+            });
           }
         }
       });
+
+      // ── Flying wood piece physics (scatter after tree falls) ────────────────
+      {
+        const WOOD_GRAVITY = -10;
+        const toRemove: number[] = [];
+        flyingWoodPiecesRef.current.forEach((piece, idx) => {
+          piece.velY += WOOD_GRAVITY * dt;
+          piece.mesh.position.x += piece.velX * dt;
+          piece.mesh.position.y += piece.velY * dt;
+          piece.mesh.position.z += piece.velZ * dt;
+          // Spin proportional to horizontal speed
+          piece.mesh.rotation.x += piece.velX * dt * 2.5;
+          piece.mesh.rotation.z += piece.velZ * dt * 2.5;
+
+          const groundY = getTerrainHeight(piece.mesh.position.x, piece.mesh.position.z) + 0.25;
+          if (piece.mesh.position.y <= groundY) {
+            piece.mesh.position.y = groundY;
+            // Settle rotation to a natural resting angle
+            piece.mesh.rotation.x = Math.round(piece.mesh.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
+            woodLogMeshesRef.current.push({
+              mesh: piece.mesh,
+              x: piece.mesh.position.x,
+              z: piece.mesh.position.z,
+              collected: false,
+            });
+            toRemove.push(idx);
+          }
+        });
+        if (toRemove.length > 0) {
+          flyingWoodPiecesRef.current = flyingWoodPiecesRef.current.filter((_, i) => !toRemove.includes(i));
+        }
+      }
 
       // ── Wood log collection ─────────────────────────────────────────────────
       const WOOD_COLLECT_RADIUS = 2.0;
@@ -7857,6 +7894,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         (p.mesh.material as THREE.MeshLambertMaterial).dispose();
       });
       bloodParticlesRef.current = [];
+      // Clean up flying wood pieces still in the air
+      flyingWoodPiecesRef.current.forEach((p) => scene.remove(p.mesh));
+      flyingWoodPiecesRef.current = [];
       // Clean up wood logs
       woodLogMeshesRef.current.forEach((log) => scene.remove(log.mesh));
       woodLogMeshesRef.current = [];
