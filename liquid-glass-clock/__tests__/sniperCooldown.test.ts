@@ -31,9 +31,9 @@ describe("WEAPON_CONFIGS sanity", () => {
     expect(WEAPON_CONFIGS.sniper.cooldown).toBe(Math.max(...cooldowns));
   });
 
-  test("sword has the shortest cooldown", () => {
+  test("machinegun has the shortest cooldown (ultra-fast fire rate)", () => {
     const cooldowns = Object.values(WEAPON_CONFIGS).map((c) => c.cooldown);
-    expect(WEAPON_CONFIGS.sword.cooldown).toBe(Math.min(...cooldowns));
+    expect(WEAPON_CONFIGS.machinegun.cooldown).toBe(Math.min(...cooldowns));
   });
 
   test("all cooldowns are positive", () => {

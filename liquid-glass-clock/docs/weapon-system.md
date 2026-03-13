@@ -1,6 +1,6 @@
 # Weapon System
 
-The game features four distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
+The game features five distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
 
 ## Weapons
 
@@ -10,6 +10,7 @@ The game features four distinct weapons selectable before entering the world (or
 | [2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s | 80 u |
 | [3] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s | 100 u |
 | [4] | Sniper | Odstřelovačka | Ranged + scope | 160 | 2.8s | 220 u/s | 400 u |
+| [5] | Machine Gun | Kulomet | Ranged auto-fire | 18 | 0.08s | 150 u/s | 120 u |
 
 ## Sword (Meč)
 
@@ -48,12 +49,23 @@ The game features four distinct weapons selectable before entering the world (or
 - **Special:** Single-shot (no auto-fire); weapon model hidden while scoped; movement sway near-zero while aiming.
 - **Tower pickup:** At the top of the Sniper Tower (see `sniper-tower.md`), pressing **[E]** equips the sniper regardless of initially selected weapon.
 
+## Machine Gun (Kulomet)
+
+- **Combat style:** Full-auto ranged. Hold left mouse button to sustain rapid fire — the fastest firing weapon in the arsenal.
+- **Range:** 120 units (medium-long).
+- **Fire rate:** ~12.5 shots/second (cooldown 0.08 s).
+- **DPS:** 225 damage/s (highest sustained DPS of all weapons at the cost of low per-shot damage).
+- **3D model:** `buildMachineGunMesh()` — long barrel with perforated cooling jacket (five ring bands), muzzle brake with orange emissive glow, receiver body, carry handle/top rail, pistol grip, shoulder stock with butt plate, box magazine, bipod legs, and front sight.
+- **Sound:** `_playMachineGunShot()` — short square-wave bang transient (180–240 Hz) + brief bandpass noise burst (3.2–4 kHz) — kept very short (≤ 50 ms) to blend cleanly at the rapid fire rate without audio click artefacts.
+- **Auto-fire:** Uses the same `isMouseHeldRef` + game-loop polling mechanism as sword and crossbow. The machine gun's 80 ms cooldown allows the frame-rate-driven loop to trigger ~12–13 shots/second while the button is held.
+- **No special mechanic:** Unlike bow (charge) and sniper (scope), the machine gun fires immediately on click and continuously while held — maximum ease of use, minimum per-shot threat.
+
 ## Architecture
 
 ### Type System (`lib/gameTypes.ts`)
 
 ```typescript
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "machinegun";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -70,7 +82,7 @@ export interface WeaponConfig {
 
 - Animated SVG previews for each weapon (idle animation, attack animation)
 - Czech descriptions and stat bars per weapon
-- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [Enter] confirm
+- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [5] Machine Gun, [Enter] confirm
 
 ### 3D Models (`lib/meshBuilders.ts`)
 
@@ -80,6 +92,7 @@ export interface WeaponConfig {
 | `buildBowMesh()` | Bow |
 | `buildCrossbowMesh()` | Crossbow |
 | `buildSniperMesh()` | Sniper Rifle |
+| `buildMachineGunMesh()` | Machine Gun |
 
 ### Sound (`lib/soundManager.ts`)
 
@@ -92,9 +105,9 @@ export interface WeaponConfig {
 - **`doAttack()`** — calls `soundManager.playAttack(weaponCfg.type)`, spawns projectile if `bulletSpeed > 0`, checks melee range for immediate hits. **Blocked** when possessing a sheep, on a boat, on the rocket, or inside the space station.
 - **Weapon sway** — FP-only bob/sway animation updated each frame. In TP the weapon rides the arm animation naturally (weapon is a child of handR which is a child of armR).
 - **Scope logic** — right-click mousedown sets `isScopedRef`, hides weapon mesh, smoothly interpolates camera FOV to `SNIPER_SCOPE_FOV` (12°). Release restores `DEFAULT_FOV` (75°). **Scope is blocked in third-person mode.**
-- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭) with active weapon highlighted.
-- **Scroll wheel / [1][2][3][4]** — cycle or select weapons during gameplay.
-- **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow).
+- **HUD** — weapon slots show emoji (⚔️ 🏹 🎯 🔭 🔫) with active weapon highlighted.
+- **Scroll wheel / [1][2][3][4][5]** — cycle or select weapons during gameplay.
+- **Auto-fire exclusion** — sniper is excluded from the auto-fire loop (single-shot only, like bow). Machine gun, sword, and crossbow all use auto-fire.
 
 ### Weapon Anchor System
 

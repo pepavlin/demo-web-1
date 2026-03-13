@@ -1319,6 +1319,135 @@ export function buildCrossbowMesh(): THREE.Group {
   return group;
 }
 
+// ─── Machine Gun (Kulomet) ────────────────────────────────────────────────────
+/** Heavy automatic weapon with perforated barrel jacket, box magazine, and bipod. */
+export function buildMachineGunMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const metalMat    = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  const darkMetalMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
+  const steelMat    = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+  const woodMat     = new THREE.MeshLambertMaterial({ color: 0x5a3010 });
+  const orangeMat   = new THREE.MeshLambertMaterial({
+    color: 0xff6600,
+    emissive: new THREE.Color(0.4, 0.15, 0),
+  });
+
+  // ── Main receiver body (aimed along -Z axis) ──────────────────────────────
+  const receiverGeo = new THREE.BoxGeometry(0.07, 0.065, 0.38);
+  const receiver = new THREE.Mesh(receiverGeo, metalMat);
+  receiver.position.set(0, 0, -0.02);
+  group.add(receiver);
+
+  // ── Long barrel with cooling jacket ──────────────────────────────────────
+  const barrelGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.52, 10);
+  const barrel = new THREE.Mesh(barrelGeo, darkMetalMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.006, -0.38);
+  group.add(barrel);
+
+  // Cooling jacket (perforated sleeve around front of barrel)
+  const jacketGeo = new THREE.CylinderGeometry(0.026, 0.026, 0.30, 10, 1, true);
+  const jacket = new THREE.Mesh(jacketGeo, steelMat);
+  jacket.rotation.x = Math.PI / 2;
+  jacket.position.set(0, 0.006, -0.32);
+  group.add(jacket);
+
+  // Perforation rings on the jacket (visual bands)
+  for (let i = 0; i < 5; i++) {
+    const ringGeo = new THREE.TorusGeometry(0.027, 0.004, 6, 12);
+    const ring = new THREE.Mesh(ringGeo, metalMat);
+    ring.rotation.y = Math.PI / 2;
+    ring.position.set(0, 0.006, -0.20 - i * 0.055);
+    group.add(ring);
+  }
+
+  // Muzzle brake at end of barrel
+  const muzzleGeo = new THREE.CylinderGeometry(0.025, 0.022, 0.045, 8);
+  const muzzle = new THREE.Mesh(muzzleGeo, steelMat);
+  muzzle.rotation.x = Math.PI / 2;
+  muzzle.position.set(0, 0.006, -0.645);
+  group.add(muzzle);
+
+  // Muzzle opening glow (orange emissive – heating effect from rapid fire)
+  const glowGeo = new THREE.CircleGeometry(0.012, 8);
+  const glow = new THREE.Mesh(glowGeo, orangeMat);
+  glow.rotation.y = Math.PI;
+  glow.position.set(0, 0.006, -0.668);
+  group.add(glow);
+
+  // ── Pistol grip ──────────────────────────────────────────────────────────
+  const gripGeo = new THREE.BoxGeometry(0.04, 0.09, 0.045);
+  const grip = new THREE.Mesh(gripGeo, woodMat);
+  grip.rotation.x = 0.25;
+  grip.position.set(0, -0.065, 0.08);
+  group.add(grip);
+
+  // ── Shoulder stock ────────────────────────────────────────────────────────
+  const stockGeo = new THREE.BoxGeometry(0.055, 0.055, 0.22);
+  const stock = new THREE.Mesh(stockGeo, woodMat);
+  stock.position.set(0, -0.005, 0.22);
+  group.add(stock);
+
+  // Stock butt plate
+  const buttGeo = new THREE.BoxGeometry(0.06, 0.072, 0.018);
+  const butt = new THREE.Mesh(buttGeo, metalMat);
+  butt.position.set(0, -0.005, 0.332);
+  group.add(butt);
+
+  // ── Box magazine (feeds from below) ──────────────────────────────────────
+  const magGeo = new THREE.BoxGeometry(0.055, 0.12, 0.08);
+  const mag = new THREE.Mesh(magGeo, darkMetalMat);
+  mag.position.set(0, -0.092, 0.01);
+  group.add(mag);
+
+  // Magazine lip / feed
+  const magLipGeo = new THREE.BoxGeometry(0.058, 0.014, 0.06);
+  const magLip = new THREE.Mesh(magLipGeo, steelMat);
+  magLip.position.set(0, -0.028, 0.01);
+  group.add(magLip);
+
+  // ── Carrying handle / top rail ────────────────────────────────────────────
+  const handleGeo = new THREE.BoxGeometry(0.018, 0.038, 0.18);
+  const handle = new THREE.Mesh(handleGeo, metalMat);
+  handle.position.set(0, 0.058, -0.04);
+  group.add(handle);
+
+  // ── Front sight post ─────────────────────────────────────────────────────
+  const fsightGeo = new THREE.BoxGeometry(0.008, 0.028, 0.008);
+  const fsight = new THREE.Mesh(fsightGeo, darkMetalMat);
+  fsight.position.set(0, 0.048, -0.42);
+  group.add(fsight);
+
+  // Front sight base
+  const fsightBaseGeo = new THREE.BoxGeometry(0.028, 0.01, 0.022);
+  const fsightBase = new THREE.Mesh(fsightBaseGeo, metalMat);
+  fsightBase.position.set(0, 0.034, -0.42);
+  group.add(fsightBase);
+
+  // ── Bipod legs (folded forward, flanking the barrel) ─────────────────────
+  const bipodLegGeo = new THREE.CylinderGeometry(0.006, 0.005, 0.16, 5);
+  // Left leg
+  const legL = new THREE.Mesh(bipodLegGeo, steelMat);
+  legL.rotation.z = 0.55;
+  legL.position.set(-0.055, -0.04, -0.44);
+  group.add(legL);
+  // Right leg
+  const legR = new THREE.Mesh(bipodLegGeo, steelMat);
+  legR.rotation.z = -0.55;
+  legR.position.set(0.055, -0.04, -0.44);
+  group.add(legR);
+
+  // Bipod mount collar
+  const bipodCollarGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.018, 8);
+  const bipodCollar = new THREE.Mesh(bipodCollarGeo, metalMat);
+  bipodCollar.rotation.x = Math.PI / 2;
+  bipodCollar.position.set(0, 0.006, -0.44);
+  group.add(bipodCollar);
+
+  return group;
+}
+
 // ─── Lighthouse ───────────────────────────────────────────────────────────────
 export function buildLighthouse(): { group: THREE.Group; beamPivot: THREE.Group; lighthouseLight: THREE.PointLight } {
   const group = new THREE.Group();

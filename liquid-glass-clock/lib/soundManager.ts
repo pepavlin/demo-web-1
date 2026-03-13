@@ -502,6 +502,8 @@ class SoundManager {
       this._playSwordSwing();
     } else if (weaponType === "crossbow") {
       this._playCrossbowShot();
+    } else if (weaponType === "machinegun") {
+      this._playMachineGunShot();
     } else {
       this._playBowShot();
     }
@@ -640,6 +642,42 @@ class SoundManager {
     boltEnv.connect(this.sfxGain);
     boltSrc.start(t + 0.02);
     boltSrc.stop(t + 0.18);
+  }
+
+  /** Machine gun shot: sharp crack + brief high-freq noise burst (very short, fires rapidly). */
+  private _playMachineGunShot(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Sharp bang transient – short square wave with fast attack/decay
+    const bangOsc = ctx.createOscillator();
+    bangOsc.type = "square";
+    bangOsc.frequency.setValueAtTime(180 + Math.random() * 60, t);
+    bangOsc.frequency.exponentialRampToValueAtTime(60, t + 0.05);
+    const bangEnv = ctx.createGain();
+    bangEnv.gain.setValueAtTime(0.22, t);
+    bangEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    bangOsc.connect(bangEnv);
+    bangEnv.connect(this.sfxGain);
+    bangOsc.start(t);
+    bangOsc.stop(t + 0.06);
+
+    // High-frequency crack – very brief noise burst (muzzle blast)
+    const crackSrc = ctx.createBufferSource();
+    crackSrc.buffer = this._noiseBuffer(0.05);
+    const crackFlt = ctx.createBiquadFilter();
+    crackFlt.type = "bandpass";
+    crackFlt.frequency.value = 3200 + Math.random() * 800;
+    crackFlt.Q.value = 0.6;
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0.18, t);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    crackSrc.connect(crackFlt);
+    crackFlt.connect(crackEnv);
+    crackEnv.connect(this.sfxGain);
+    crackSrc.start(t);
+    crackSrc.stop(t + 0.05);
   }
 
   /**

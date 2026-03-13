@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // ─── Weapon system ────────────────────────────────────────────────────────────
-export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe";
+export type WeaponType = "sword" | "bow" | "crossbow" | "sniper" | "axe" | "machinegun";
 
 export interface WeaponConfig {
   type: WeaponType;
@@ -67,6 +67,15 @@ export const WEAPON_CONFIGS: Record<WeaponType, WeaponConfig> = {
     bulletSpeed: 0, // melee only — sekání
     color: "#a3e635",
     treeDamageMultiplier: 3, // 3× damage vs trees → 135 per swing
+  },
+  machinegun: {
+    type: "machinegun",
+    label: "Kulomet",
+    damage: 18,
+    range: 120,
+    cooldown: 0.08, // ~12 shots/second — ultra-fast fire rate
+    bulletSpeed: 150,
+    color: "#f97316",
   },
 };
 
