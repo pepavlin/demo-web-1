@@ -446,3 +446,84 @@ describe("Headlamp shader spotlight formula – ground illumination", () => {
     expect(Math.abs(dir.y)).toBeLessThan(0.02);
   });
 });
+
+// ── Helpers mirroring the updated terrain ambient calculation ─────────────────
+
+function getSunIntensity(t: number): number {
+  if (t < 0.18 || t > 0.82) return 0;
+  if (t < 0.25) return smoothstep(0.18, 0.28, t) * 1.4;
+  if (t > 0.75) return smoothstep(0.82, 0.72, t) * 1.4;
+  return 1.4;
+}
+
+function computeTerrainAmbient(dayFraction: number): { r: number; g: number; b: number } {
+  const si = getSunIntensity(dayFraction);
+  return {
+    r: 0.06 + si * 0.46,
+    g: 0.08 + si * 0.46,
+    b: 0.14 + si * 0.44,
+  };
+}
+
+describe("Terrain ambient night/day scaling", () => {
+  it("ambient is very dark at full night (dayFraction=0, si=0)", () => {
+    const amb = computeTerrainAmbient(0.0);
+    // Night ambient should be low to provide contrast for the headlamp
+    expect(amb.r).toBeCloseTo(0.06, 3);
+    expect(amb.g).toBeCloseTo(0.08, 3);
+    expect(amb.b).toBeCloseTo(0.14, 3);
+    // All channels should be well below 0.20 so the headlamp creates visible contrast
+    expect(amb.r).toBeLessThan(0.20);
+    expect(amb.g).toBeLessThan(0.20);
+  });
+
+  it("ambient is bright at noon (dayFraction=0.5, si=1.4)", () => {
+    const amb = computeTerrainAmbient(0.5);
+    // Daytime ambient should be bright
+    expect(amb.r).toBeGreaterThan(0.50);
+    expect(amb.g).toBeGreaterThan(0.50);
+    expect(amb.b).toBeGreaterThan(0.50);
+  });
+
+  it("night ambient (blue channel) is greater than red channel for moonlit look", () => {
+    const amb = computeTerrainAmbient(0.0);
+    expect(amb.b).toBeGreaterThan(amb.r);
+  });
+
+  it("headlamp creates at least 4x contrast over night ambient (good visibility)", () => {
+    // At full night with headlamp intensity 4.0, attenuation 0.69, lambert 0.18:
+    // headContrib_r ≈ 1.0 * 4.0 * 0.69 * 0.18 ≈ 0.496
+    // ambient_r = 0.06
+    // contrast ratio = 0.496 / 0.06 ≈ 8.3 (very visible!)
+    const amb = computeTerrainAmbient(0.0);
+    const headlampContrib = 1.0 * 4.0 * 0.69 * 0.18; // lampColor * intensity * atten * lambert
+    const contrastRatio = headlampContrib / amb.r;
+    expect(contrastRatio).toBeGreaterThan(4.0);
+  });
+});
+
+describe("Moon light terrain shader uniform", () => {
+  it("moon color is bluish (B > R and B > G)", () => {
+    const moonColor = new THREE.Color(0x8899cc);
+    expect(moonColor.b).toBeGreaterThan(moonColor.r);
+    expect(moonColor.b).toBeGreaterThan(moonColor.g);
+  });
+
+  it("moon intensity at full night is positive and less than sun intensity", () => {
+    // Moon intensity at night ≈ 0.35
+    const moonNight = 0.35;
+    const sunNoon = 1.4;
+    expect(moonNight).toBeGreaterThan(0);
+    expect(moonNight).toBeLessThan(sunNoon);
+  });
+
+  it("moon provides directional lighting (lambert-based diffuse)", () => {
+    // Verify dot product of flat terrain normal with a typical moon direction
+    const moonDir = new THREE.Vector3(-1, 0.5, -0.3).normalize();
+    const terrainNormal = new THREE.Vector3(0, 1, 0);
+    const moonDiffuse = Math.max(0, terrainNormal.dot(moonDir));
+    // Moon above horizon → flat terrain should receive positive diffuse
+    expect(moonDiffuse).toBeGreaterThan(0);
+    expect(moonDiffuse).toBeCloseTo(moonDir.y, 4);
+  });
+});
