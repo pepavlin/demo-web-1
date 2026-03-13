@@ -2001,6 +2001,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uTexScale:     { value: 1.0 / 8.0 },
         // Texture blend strength (0 = no texture, 1 = full texture)
         uTexStrength:  { value: 0.40 },
+        // Headlamp spotlight (updated each frame from camera state)
+        uHeadlampPos:       { value: new THREE.Vector3() },
+        uHeadlampDir:       { value: new THREE.Vector3(0, 0, -1) },
+        uHeadlampIntensity: { value: 0.0 },
+        uHeadlampColor:     { value: new THREE.Color(0xffe8a0) },
+        uHeadlampAngle:     { value: Math.cos(Math.PI / 8) },  // cosine of half-angle
+        uHeadlampPenumbra:  { value: 0.25 },
+        uHeadlampRange:     { value: 60.0 },
       },
       vertexShader: /* glsl */`
         varying vec3 vWorldPos;
@@ -2028,6 +2036,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uniform sampler2D uTexDirt;
         uniform float     uTexScale;
         uniform float     uTexStrength;
+
+        // Headlamp spotlight
+        uniform vec3  uHeadlampPos;
+        uniform vec3  uHeadlampDir;
+        uniform float uHeadlampIntensity;
+        uniform vec3  uHeadlampColor;
+        uniform float uHeadlampAngle;
+        uniform float uHeadlampPenumbra;
+        uniform float uHeadlampRange;
 
         varying vec3  vWorldPos;
         varying vec3  vNormal;
@@ -2218,6 +2235,30 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           float diffuse  = max(0.0, dot(vNormal, normalize(uSunDir)));
           vec3  litColor = col * (uAmbientColor + uSunColor * diffuse * uSunIntensity);
 
+          // ── Headlamp spotlight ────────────────────────────────────────────────
+          // Custom spotlight calculation since ShaderMaterial bypasses Three.js lights.
+          // Realistic cone beam with soft penumbra edge and quadratic distance falloff.
+          if (uHeadlampIntensity > 0.001) {
+            vec3  toFrag  = vWorldPos - uHeadlampPos;
+            float dist    = length(toFrag);
+            if (dist < uHeadlampRange && dist > 0.001) {
+              vec3  fragDir = toFrag / dist;
+              // Spot cone: dot product against headlamp forward direction
+              float spotDot   = dot(fragDir, normalize(uHeadlampDir));
+              // Inner cone edge (hard centre), outer cone edge (soft boundary)
+              float innerAngle = mix(1.0, uHeadlampAngle, 1.0 - uHeadlampPenumbra);
+              float spotFactor = smoothstep(uHeadlampAngle, innerAngle, spotDot);
+              // Quadratic distance attenuation: bright at origin, fades at range
+              float atten = max(0.0, 1.0 - dist / uHeadlampRange);
+              atten *= atten;
+              // Lambert diffuse from the headlamp direction
+              float lambert = max(0.0, dot(vNormal, -fragDir));
+              vec3 headContrib = uHeadlampColor * uHeadlampIntensity
+                                 * spotFactor * atten * lambert;
+              litColor += col * headContrib;
+            }
+          }
+
           gl_FragColor = vec4(clamp(litColor, 0.0, 1.0), 1.0);
         }
       `,
@@ -2354,6 +2395,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         skyCol:       { value: new THREE.Color(0.45, 0.65, 0.90) },
         sunColor:     { value: new THREE.Color(1.0, 0.90, 0.75) },
         sunIntensity: { value: 1.0 },
+        // Headlamp spotlight (updated each frame from camera state)
+        uHeadlampPos:       { value: new THREE.Vector3() },
+        uHeadlampDir:       { value: new THREE.Vector3(0, 0, -1) },
+        uHeadlampIntensity: { value: 0.0 },
+        uHeadlampColor:     { value: new THREE.Color(0xffe8a0) },
+        uHeadlampAngle:     { value: Math.cos(Math.PI / 8) },
+        uHeadlampPenumbra:  { value: 0.25 },
+        uHeadlampRange:     { value: 60.0 },
       },
       vertexShader: `
         uniform float time;
@@ -2419,6 +2468,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uniform vec3  skyCol;
         uniform vec3  sunColor;
         uniform float sunIntensity;
+        // Headlamp spotlight
+        uniform vec3  uHeadlampPos;
+        uniform vec3  uHeadlampDir;
+        uniform float uHeadlampIntensity;
+        uniform vec3  uHeadlampColor;
+        uniform float uHeadlampAngle;
+        uniform float uHeadlampPenumbra;
+        uniform float uHeadlampRange;
         varying vec3  vWorldPos;
         varying vec3  vNormal;
         varying vec2  vUv;
@@ -2490,6 +2547,28 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           // ── Alpha: grazing = more opaque/reflective ────────────────────────
           float alpha = mix(0.72, 0.96, fresnel);
+
+          // ── Headlamp spotlight on water surface ───────────────────────────
+          if (uHeadlampIntensity > 0.001) {
+            vec3  toFrag  = vWorldPos - uHeadlampPos;
+            float dist    = length(toFrag);
+            if (dist < uHeadlampRange && dist > 0.001) {
+              vec3  fragDir = toFrag / dist;
+              float spotDot    = dot(fragDir, normalize(uHeadlampDir));
+              float innerAngle = mix(1.0, uHeadlampAngle, 1.0 - uHeadlampPenumbra);
+              float spotFactor = smoothstep(uHeadlampAngle, innerAngle, spotDot);
+              float atten = max(0.0, 1.0 - dist / uHeadlampRange);
+              atten *= atten;
+              float lambert = max(0.0, dot(n, -fragDir));
+              vec3 headContrib = uHeadlampColor * uHeadlampIntensity
+                                 * spotFactor * atten * lambert;
+              // Add diffuse + a specular glint on the wavy water surface
+              vec3  halfHL     = normalize(-fragDir + viewDir);
+              float specHL     = pow(max(dot(n, halfHL), 0.0), 64.0) * 2.0;
+              waterColor += headContrib + uHeadlampColor * specHL * spotFactor * atten * uHeadlampIntensity * 0.3;
+              alpha = min(alpha + spotFactor * atten * 0.12, 1.0);
+            }
+          }
 
           gl_FragColor = vec4(waterColor, alpha);
         }
@@ -4388,6 +4467,32 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               (hlMesh.material as THREE.MeshLambertMaterial).emissiveIntensity = remoteEmissive;
             }
           });
+        }
+
+        // ── Propagate headlamp to custom ShaderMaterial surfaces ─────────────
+        // Terrain and water use ShaderMaterial so Three.js SpotLight has no effect on them.
+        // We pass the headlamp state as uniforms so their GLSL can compute the spotlight.
+        if (headlampLightRef.current && cameraRef.current) {
+          const hlIntensity = headlampLightRef.current.intensity;
+          const cam = cameraRef.current;
+          if (terrainMatRef.current) {
+            const tu = terrainMatRef.current.uniforms;
+            // Compute headlamp world direction: target offset (0,-0.12,-10) in cam space
+            tu.uHeadlampDir.value.set(0, -0.12, -10).applyQuaternion(cam.quaternion).normalize();
+            tu.uHeadlampPos.value.copy(cam.position);
+            tu.uHeadlampIntensity.value = hlIntensity;
+          }
+          if (waterMatRef.current) {
+            const wu = waterMatRef.current.uniforms;
+            wu.uHeadlampPos.value.copy(cam.position);
+            // Reuse the direction already computed into the terrain uniform
+            if (terrainMatRef.current) {
+              wu.uHeadlampDir.value.copy(terrainMatRef.current.uniforms.uHeadlampDir.value);
+            } else {
+              wu.uHeadlampDir.value.set(0, -0.12, -10).applyQuaternion(cam.quaternion).normalize();
+            }
+            wu.uHeadlampIntensity.value = hlIntensity;
+          }
         }
       }
 

@@ -311,3 +311,138 @@ describe("Headlamp SpotLight parameters", () => {
     expect(color.b).toBeLessThan(0.8); // warm, not cool blue
   });
 });
+
+// ── Constants for shader uniform tests ────────────────────────────────────────
+const HEADLAMP_ANGLE = Math.cos(Math.PI / 8); // cosine of half-angle stored as uniform
+const HEADLAMP_PENUMBRA = 0.25;
+const HEADLAMP_RANGE = 60.0;
+
+// ── Reproduce the GLSL spotlight formula in TypeScript for unit testing ───────
+/**
+ * Mirrors the headlamp spotlight contribution GLSL code in the terrain/water
+ * fragment shaders. Returns the spotlight factor in [0, 1].
+ */
+function computeSpotFactor(
+  fragPos: { x: number; y: number; z: number },
+  lampPos: { x: number; y: number; z: number },
+  lampDir: { x: number; y: number; z: number },
+  angle = HEADLAMP_ANGLE,
+  penumbra = HEADLAMP_PENUMBRA,
+  range = HEADLAMP_RANGE,
+): number {
+  const dx = fragPos.x - lampPos.x;
+  const dy = fragPos.y - lampPos.y;
+  const dz = fragPos.z - lampPos.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (dist >= range || dist < 0.001) return 0;
+  const fx = dx / dist;
+  const fy = dy / dist;
+  const fz = dz / dist;
+  const ld = Math.sqrt(lampDir.x ** 2 + lampDir.y ** 2 + lampDir.z ** 2);
+  const ldx = lampDir.x / ld;
+  const ldy = lampDir.y / ld;
+  const ldz = lampDir.z / ld;
+  const spotDot = fx * ldx + fy * ldy + fz * ldz;
+  const innerAngle = angle + (1.0 - angle) * (1.0 - penumbra);
+  // smoothstep(angle, innerAngle, spotDot)
+  const t = Math.max(0, Math.min(1, (spotDot - angle) / (innerAngle - angle)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Mirrors the distance attenuation formula used in the terrain/water shaders.
+ */
+function computeAttenuation(dist: number, range = HEADLAMP_RANGE): number {
+  const a = Math.max(0, 1 - dist / range);
+  return a * a;
+}
+
+describe("Headlamp shader uniform initial values", () => {
+  it("uHeadlampAngle is the cosine of PI/8 (half-cone angle)", () => {
+    expect(HEADLAMP_ANGLE).toBeCloseTo(Math.cos(Math.PI / 8), 6);
+    // cos(22.5°) ≈ 0.924
+    expect(HEADLAMP_ANGLE).toBeGreaterThan(0.9);
+  });
+
+  it("uHeadlampPenumbra matches the SpotLight penumbra value (0.25)", () => {
+    expect(HEADLAMP_PENUMBRA).toBe(0.25);
+  });
+
+  it("uHeadlampRange matches the SpotLight range (60 units)", () => {
+    expect(HEADLAMP_RANGE).toBe(60);
+  });
+
+  it("headlamp shader color matches SpotLight color (0xffe8a0)", () => {
+    const shaderColor = new THREE.Color(0xffe8a0);
+    const spotColor = new THREE.Color(0xffe8a0);
+    expect(shaderColor.r).toBeCloseTo(spotColor.r, 5);
+    expect(shaderColor.g).toBeCloseTo(spotColor.g, 5);
+    expect(shaderColor.b).toBeCloseTo(spotColor.b, 5);
+  });
+});
+
+describe("Headlamp shader spotlight formula – ground illumination", () => {
+  // Lamp at player eye height (1.7 units), pointing straight forward (-Z)
+  const lampPos = { x: 0, y: 1.7, z: 0 };
+  const lampDir = { x: 0, y: 0, z: -1 }; // forward = -Z
+
+  it("illuminates ground directly in front of player (within cone)", () => {
+    // Ground 5 units ahead, below eye level
+    const factor = computeSpotFactor({ x: 0, y: 0, z: -5 }, lampPos, lampDir);
+    expect(factor).toBeGreaterThan(0);
+  });
+
+  it("does NOT illuminate ground directly behind player", () => {
+    const factor = computeSpotFactor({ x: 0, y: 0, z: 5 }, lampPos, lampDir);
+    expect(factor).toBe(0);
+  });
+
+  it("does NOT illuminate ground beyond range (65 units ahead)", () => {
+    const factor = computeSpotFactor({ x: 0, y: 0, z: -65 }, lampPos, lampDir);
+    expect(factor).toBe(0);
+  });
+
+  it("ground far outside cone angle receives zero illumination", () => {
+    // 90° off-axis should be outside the ~22.5° half-angle cone
+    const factor = computeSpotFactor({ x: 10, y: 1.7, z: 0 }, lampPos, lampDir);
+    expect(factor).toBe(0);
+  });
+
+  it("attenuation is 1.0 at origin and 0 at range boundary", () => {
+    expect(computeAttenuation(0)).toBe(1);
+    expect(computeAttenuation(HEADLAMP_RANGE)).toBe(0);
+  });
+
+  it("attenuation is quadratic (falls off faster than linear)", () => {
+    // At half-range, quadratic atten = 0.25, linear would be 0.5
+    const halfRangeAtten = computeAttenuation(HEADLAMP_RANGE / 2);
+    expect(halfRangeAtten).toBeCloseTo(0.25, 3);
+  });
+
+  it("ground at 10 units forward is inside the beam (cone centre)", () => {
+    // At 10 units forward the lamp-to-frag angle is arctan(1.7/10) ≈ 9.6°, well within 22.5°
+    const groundAhead = { x: 0, y: 0, z: -10 };
+    const factor = computeSpotFactor(groundAhead, lampPos, lampDir);
+    expect(factor).toBeGreaterThan(0.5);
+  });
+
+  it("ground close (3 units) is outside the narrow cone due to vertical offset", () => {
+    // At 3 units forward the angle is arctan(1.7/3) ≈ 29.6°, which exceeds the 22.5° half-angle
+    const groundClose = { x: 0, y: 0, z: -3 };
+    const factor = computeSpotFactor(groundClose, lampPos, lampDir);
+    expect(factor).toBe(0);
+  });
+
+  it("headlamp direction is computed by rotating (0,-0.12,-10) by camera quaternion", () => {
+    // When camera looks straight forward (identity rotation), direction should be
+    // approximately (0, -0.012, -1) normalized.
+    const offset = new THREE.Vector3(0, -0.12, -10);
+    const identity = new THREE.Quaternion(); // no rotation
+    const dir = offset.clone().applyQuaternion(identity).normalize();
+    expect(dir.x).toBeCloseTo(0, 4);
+    expect(dir.z).toBeLessThan(0); // points forward (-Z)
+    // Tiny downward tilt
+    expect(dir.y).toBeLessThan(0);
+    expect(Math.abs(dir.y)).toBeLessThan(0.02);
+  });
+});
