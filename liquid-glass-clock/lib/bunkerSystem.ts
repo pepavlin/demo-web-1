@@ -342,12 +342,31 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
   const addContainer = (startZ: number) => {
     const endZ = startZ + CONTAINER_L;
     const halfW = CONTAINER_W / 2;
+    const isLast = startZ === (NUM_CONTAINERS - 1) * CONTAINER_L;
 
-    // Register walkable room (slightly inset from walls)
+    // Doorway dimensions — defined here so both room registration and geometry use the same values
+    const doorW = 1.6;
+    const doorH = 2.2;
+    const sideW = (CONTAINER_W - doorW) / 2;
+
+    // Register walkable room body.
+    // Non-first containers start AFTER the previous connector wall; non-last stop BEFORE the
+    // next connector wall. This prevents the player from walking through solid wall segments.
+    const roomStartZ = startZ === 0 ? startZ : startZ + WALL_T / 2;
+    const roomEndZ   = isLast       ? endZ   : endZ   - WALL_T / 2;
     rooms.push(new THREE.Box3(
-      new THREE.Vector3(-halfW + WALL_T, 0, startZ),
-      new THREE.Vector3( halfW - WALL_T, CONTAINER_H, endZ),
+      new THREE.Vector3(-halfW + WALL_T, 0,           roomStartZ),
+      new THREE.Vector3( halfW - WALL_T, CONTAINER_H, roomEndZ),
     ));
+
+    // For non-last containers also register the narrow doorway passage so the player
+    // can move through the opening between containers without being blocked.
+    if (!isLast) {
+      rooms.push(new THREE.Box3(
+        new THREE.Vector3(-doorW / 2, 0,     endZ - WALL_T / 2),
+        new THREE.Vector3( doorW / 2, doorH, endZ + WALL_T / 2),
+      ));
+    }
 
     // Floor
     const floorGeo = new THREE.BoxGeometry(CONTAINER_W, WALL_T, CONTAINER_L);
@@ -374,7 +393,7 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     wallR.position.set( halfW, CONTAINER_H / 2, startZ + CONTAINER_L / 2);
     group.add(wallR);
 
-    // Front wall (start face — only on very first container; others have connector openings)
+    // Front wall (start face — only on very first container; others share connector openings)
     if (startZ === 0) {
       const frontGeo = new THREE.BoxGeometry(CONTAINER_W, CONTAINER_H, WALL_T);
       const front = new THREE.Mesh(frontGeo, containerMat);
@@ -383,37 +402,32 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     }
 
     // Back wall (end face — only on last container)
-    const isLast = startZ === (NUM_CONTAINERS - 1) * CONTAINER_L;
     if (isLast) {
       const backGeo = new THREE.BoxGeometry(CONTAINER_W, CONTAINER_H, WALL_T);
       const back = new THREE.Mesh(backGeo, containerMat);
       back.position.set(0, CONTAINER_H / 2, endZ + WALL_T / 2);
       group.add(back);
     } else {
-      // Connector: solid wall with a doorway opening.
-      // Left segment of wall (left of doorway)
-      const doorW = 1.6;
-      const doorH = 2.2;
-      const sideW = (CONTAINER_W - doorW) / 2;
+      // Connector: solid wall with a centred doorway opening.
 
-      // Left segment
+      // Left segment (fills wall left of doorway, floor to ceiling)
       const wallSegLGeo = new THREE.BoxGeometry(sideW, CONTAINER_H, WALL_T);
       const wallSegL = new THREE.Mesh(wallSegLGeo, containerRustMat);
       wallSegL.position.set(-CONTAINER_W / 2 + sideW / 2, CONTAINER_H / 2, endZ);
       group.add(wallSegL);
 
-      // Right segment
+      // Right segment (fills wall right of doorway, floor to ceiling)
       const wallSegR = new THREE.Mesh(wallSegLGeo, containerRustMat);
       wallSegR.position.set( CONTAINER_W / 2 - sideW / 2, CONTAINER_H / 2, endZ);
       group.add(wallSegR);
 
-      // Top of doorway (above the opening)
+      // Top of doorway (above the opening, between doorH and container ceiling)
       const wallTopGeo = new THREE.BoxGeometry(doorW, CONTAINER_H - doorH, WALL_T);
       const wallTop = new THREE.Mesh(wallTopGeo, containerRustMat);
       wallTop.position.set(0, doorH + (CONTAINER_H - doorH) / 2, endZ);
       group.add(wallTop);
 
-      // Door frame (emissive accent around opening)
+      // Door frame accent (emissive strip at the top of the opening)
       const frameMat = new THREE.MeshStandardMaterial({
         color: 0x225522,
         emissive: new THREE.Color(0x113311),
@@ -425,12 +439,31 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
       group.add(frameTop);
     }
 
-    // Corrugation ridges on walls (vertical stripes every 1 unit)
-    for (let i = 0; i < 5; i++) {
-      const ridgeGeo = new THREE.BoxGeometry(0.06, CONTAINER_H, CONTAINER_L);
-      const ridge = new THREE.Mesh(ridgeGeo, containerRustMat);
-      ridge.position.set(-halfW + 0.06 + i * 1.1, CONTAINER_H / 2, startZ + CONTAINER_L / 2);
-      group.add(ridge);
+    // Corrugation ridges — small bumps ON the left and right side walls, running full
+    // height at regular Z intervals.  Previously these were incorrectly placed as
+    // full-length slabs crossing the interior at various X positions, which created
+    // impassable walls inside each container.
+    const RIDGE_BUMP = 0.05; // protrusion depth from the wall surface
+    const RIDGE_W    = 0.06; // ridge width along Z axis
+    const NUM_RIDGES = 8;    // ridges per side per container (≈ every 1.5 m)
+    for (let ri = 0; ri <= NUM_RIDGES; ri++) {
+      const zPos = startZ + (ri / NUM_RIDGES) * CONTAINER_L;
+
+      // Left wall ridge (protrudes inward toward +X)
+      const ridgeL = new THREE.Mesh(
+        new THREE.BoxGeometry(RIDGE_BUMP, CONTAINER_H, RIDGE_W),
+        containerRustMat,
+      );
+      ridgeL.position.set(-halfW + RIDGE_BUMP / 2, CONTAINER_H / 2, zPos);
+      group.add(ridgeL);
+
+      // Right wall ridge (protrudes inward toward -X)
+      const ridgeR = new THREE.Mesh(
+        new THREE.BoxGeometry(RIDGE_BUMP, CONTAINER_H, RIDGE_W),
+        containerRustMat,
+      );
+      ridgeR.position.set(halfW - RIDGE_BUMP / 2, CONTAINER_H / 2, zPos);
+      group.add(ridgeR);
     }
   };
 

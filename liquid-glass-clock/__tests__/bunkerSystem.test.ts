@@ -122,8 +122,21 @@ describe("buildBunkerInteriorScene", () => {
     expect(result.exitLocalPos).toBeInstanceOf(THREE.Vector3);
   });
 
-  it("has at least 3 walkable rooms (one per container)", () => {
-    expect(result.rooms.length).toBeGreaterThanOrEqual(3);
+  it("has exactly 5 walkable rooms (3 container bodies + 2 doorway passages)", () => {
+    // Each non-last container contributes: 1 main room + 1 doorway room = 2 rooms
+    // The last container contributes 1 main room
+    // Total = (NUM_CONTAINERS - 1) * 2 + 1 = 2*2 + 1 = 5
+    expect(result.rooms.length).toBe(5);
+  });
+
+  it("doorway rooms are narrower than container rooms (enforce doorway width)", () => {
+    // Doorway rooms should have X width <= doorW (1.6) — narrower than full container (5 units)
+    const doorW = 1.6;
+    const doorwayRooms = result.rooms.filter(
+      (room) => room.max.x - room.min.x <= doorW + 0.01
+    );
+    // There should be 2 doorway rooms (between container 0-1 and container 1-2)
+    expect(doorwayRooms.length).toBe(2);
   });
 
   it("each room is a valid THREE.Box3 with min < max", () => {
