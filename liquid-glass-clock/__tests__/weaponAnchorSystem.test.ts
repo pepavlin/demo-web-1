@@ -323,3 +323,96 @@ describe("buildRemotePlayerMesh handR anchor", () => {
     expect(handRY).toBeCloseTo(-0.21);
   });
 });
+
+// ─── Remote player weapon sync logic ─────────────────────────────────────────
+
+/**
+ * Mirror the attachWeaponToRemotePlayer logic from Game3D.tsx (pure object
+ * graph tests — no Three.js renderer needed).
+ */
+function mockAttachWeaponToRemotePlayer(
+  playerMesh: THREE.Group,
+  oldWeaponMesh: THREE.Group | null,
+  weaponType: WeaponType | null,
+): THREE.Group | null {
+  // Remove old weapon mesh from its parent
+  if (oldWeaponMesh && oldWeaponMesh.parent) {
+    oldWeaponMesh.parent.remove(oldWeaponMesh);
+  }
+  if (!weaponType) return null;
+
+  const handR = playerMesh.getObjectByName("handR");
+  if (!handR) return null;
+
+  const wMesh = new THREE.Group();
+  wMesh.name = `weapon_${weaponType}`;
+  applyWeaponTransform(wMesh, weaponType as WeaponType, "third");
+  handR.add(wMesh);
+  return wMesh;
+}
+
+function buildMockRemotePlayerMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const armR = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 0.42, 6),
+    new THREE.MeshLambertMaterial(),
+  );
+  armR.name = "armR";
+  const handR = new THREE.Object3D();
+  handR.name = "handR";
+  handR.position.set(0, -0.21, 0);
+  armR.add(handR);
+  group.add(armR);
+  return group;
+}
+
+describe("Remote player weapon attachment (attachWeaponToRemotePlayer logic)", () => {
+  it("attaches weapon mesh to handR when weaponType is provided", () => {
+    const playerMesh = buildMockRemotePlayerMesh();
+    const handR = playerMesh.getObjectByName("handR")!;
+    const wMesh = mockAttachWeaponToRemotePlayer(playerMesh, null, "sword");
+
+    expect(wMesh).not.toBeNull();
+    expect(wMesh!.parent).toBe(handR);
+    expect(handR.children.length).toBe(1);
+  });
+
+  it("applies TP weapon transform when attaching", () => {
+    const playerMesh = buildMockRemotePlayerMesh();
+    const wMesh = mockAttachWeaponToRemotePlayer(playerMesh, null, "bow")!;
+    const cfg = WEAPON_TP_CONFIG.bow;
+    expect(wMesh.position.x).toBeCloseTo(cfg.pos[0]);
+    expect(wMesh.position.y).toBeCloseTo(cfg.pos[1]);
+    expect(wMesh.scale.x).toBeCloseTo(cfg.scale);
+  });
+
+  it("removes old weapon mesh before attaching new one", () => {
+    const playerMesh = buildMockRemotePlayerMesh();
+    const firstMesh = mockAttachWeaponToRemotePlayer(playerMesh, null, "sword")!;
+    const handR = playerMesh.getObjectByName("handR")!;
+    expect(handR.children.length).toBe(1);
+
+    // Swap to bow — old sword mesh should be removed
+    const secondMesh = mockAttachWeaponToRemotePlayer(playerMesh, firstMesh, "bow")!;
+    expect(handR.children.length).toBe(1);
+    expect(firstMesh.parent).toBeNull();
+    expect(secondMesh.parent).toBe(handR);
+  });
+
+  it("returns null and leaves handR empty when weaponType is null", () => {
+    const playerMesh = buildMockRemotePlayerMesh();
+    const firstMesh = mockAttachWeaponToRemotePlayer(playerMesh, null, "sword")!;
+    const handR = playerMesh.getObjectByName("handR")!;
+    expect(handR.children.length).toBe(1);
+
+    const result = mockAttachWeaponToRemotePlayer(playerMesh, firstMesh, null);
+    expect(result).toBeNull();
+    expect(handR.children.length).toBe(0);
+  });
+
+  it("returns null when playerMesh has no handR anchor", () => {
+    const playerMesh = new THREE.Group(); // no handR
+    const result = mockAttachWeaponToRemotePlayer(playerMesh, null, "crossbow");
+    expect(result).toBeNull();
+  });
+});
