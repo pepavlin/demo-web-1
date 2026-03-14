@@ -12,7 +12,7 @@ import type { AirdropLoot, AirdropLootType, WeaponType } from "./gameTypes";
 // ─── Timing & spawn ──────────────────────────────────────────────────────────
 
 /** Seconds between successive airdrops. */
-export const AIRDROP_INTERVAL = 60; // 1 minute
+export const AIRDROP_INTERVAL = 20; // 3× more frequent (was 60 s)
 
 /** Y coordinate from which the crate starts falling. */
 export const AIRDROP_SPAWN_HEIGHT = 80;
