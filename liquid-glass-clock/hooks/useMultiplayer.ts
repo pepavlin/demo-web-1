@@ -16,6 +16,8 @@ export interface RemotePlayer {
   hp?: number;
   /** True when the player has paused (pointer unlocked) – rendered as a floating ghost */
   inactive?: boolean;
+  /** Active weapon type this player is holding, or null if empty-handed. */
+  weapon?: string;
 }
 
 export interface PlayerUpdate {
@@ -27,6 +29,10 @@ export interface PlayerUpdate {
   hp?: number;
   /** True when the player has paused – other clients render them as a floating ghost */
   inactive?: boolean;
+  /** Active weapon type the local player is currently holding. */
+  weapon?: string;
+  /** True while the player is attacking / drawing a bow (for remote animation). */
+  isAttacking?: boolean;
 }
 
 export interface ChatMessage {

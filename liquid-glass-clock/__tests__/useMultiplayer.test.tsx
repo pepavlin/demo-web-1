@@ -169,6 +169,30 @@ describe("useMultiplayer hook", () => {
     });
   });
 
+  it("sendUpdate includes weapon and isAttacking fields when provided", () => {
+    jest.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValue(1000);
+    const { result } = renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    act(() => {
+      result.current.sendUpdate({ x: 1, y: 2, z: 3, rotY: 0.5, pitch: 0.1, weapon: "bow", isAttacking: true });
+    });
+    expect(mockSocket.emit).toHaveBeenCalledWith("player:update", {
+      x: 1, y: 2, z: 3, rotY: 0.5, pitch: 0.1, weapon: "bow", isAttacking: true,
+    });
+  });
+
+  it("calls onPlayerUpdated with weapon and isAttacking when player:update fires with those fields", () => {
+    const onPlayerUpdated = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onPlayerUpdated })
+    );
+    const updateCall = mockSocket.on.mock.calls.find((c) => c[0] === "player:update");
+    const updateData = { id: "abc", x: 10, y: 2, z: 10, rotY: 0.5, pitch: 0.1, color: 0, weapon: "sword", isAttacking: false };
+    act(() => { updateCall![1](updateData); });
+    expect(onPlayerUpdated).toHaveBeenCalledWith("abc", expect.objectContaining({ weapon: "sword", isAttacking: false }));
+  });
+
   it("returns isConnected function that reflects socket.connected", () => {
     const { result } = renderHook(() =>
       useMultiplayer({ playerName: "TestPlayer" })

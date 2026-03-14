@@ -606,6 +606,47 @@ function applyWeaponTransform(
   mesh.scale.setScalar(cfg.scale);
 }
 
+// ─── Remote player weapon helpers ────────────────────────────────────────────
+
+/** Build a Three.js weapon mesh for the given weapon type. */
+function buildWeaponMeshForType(type: WeaponType): THREE.Group {
+  switch (type) {
+    case "bow":          return buildBowMesh();
+    case "crossbow":     return buildCrossbowMesh();
+    case "sniper":       return buildSniperMesh();
+    case "axe":          return buildAxeMesh();
+    case "machinegun":   return buildMachineGunMesh();
+    case "flamethrower": return buildFlamethrowerMesh();
+    case "shovel":       return buildShovelMesh();
+    default:             return buildSwordMesh();
+  }
+}
+
+/**
+ * Attach (or swap) a weapon mesh onto a remote player's handR anchor.
+ * Removes any previously attached weapon mesh first.
+ * Pass `weaponType = null` to just remove the current weapon.
+ */
+function attachWeaponToRemotePlayer(
+  playerMesh: THREE.Group,
+  oldWeaponMesh: THREE.Group | null,
+  weaponType: WeaponType | null,
+): THREE.Group | null {
+  // Remove old weapon mesh
+  if (oldWeaponMesh && oldWeaponMesh.parent) {
+    oldWeaponMesh.parent.remove(oldWeaponMesh);
+  }
+  if (!weaponType) return null;
+
+  const handR = playerMesh.getObjectByName("handR");
+  if (!handR) return null;
+
+  const wMesh = buildWeaponMeshForType(weaponType);
+  applyWeaponTransform(wMesh, weaponType, "third");
+  handR.add(wMesh);
+  return wMesh;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Game3D({ playerName = "Hráč" }: { playerName?: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -996,6 +1037,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     ghostFloatH: number;      // current levitation height above ground (smoothly animated)
     groundY: number;          // base Y position (saved when going inactive)
     wasInactive: boolean;     // tracks transition to restore materials
+    // Weapon sync
+    currentWeapon: WeaponType | null;
+    weaponMesh: THREE.Group | null;
+    isAttacking: boolean;
   }>>(new Map());
 
   // ─── Local player ghost / inactive refs ──────────────────────────────────────
@@ -1037,7 +1082,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   }, []);
 
   // ─── Multiplayer callbacks (use sceneRef which is set inside useEffect) ───────
-  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number; hp?: number }>, hostId: string | null) => {
+  const handleMultiplayerInit = useCallback((players: Record<string, { id: string; name: string; x: number; y: number; z: number; rotY: number; pitch: number; color: number; hp?: number; weapon?: string }>, hostId: string | null) => {
     const scene = sceneRef.current;
     if (!scene) return;
 
@@ -1057,6 +1102,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       mesh.position.set(p.x, meshY, p.z);
       mesh.rotation.y = p.rotY;
       scene.add(mesh);
+      const initWeapon = (p.weapon as WeaponType | undefined) ?? null;
+      const initWeaponMesh = initWeapon
+        ? attachWeaponToRemotePlayer(mesh, null, initWeapon)
+        : null;
       remotePlayersRef.current.set(p.id, {
         mesh, name: p.name, color: p.color,
         targetX: p.x, targetY: meshY, targetZ: p.z, targetRotY: p.rotY,
@@ -1068,6 +1117,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
         isDying: false, deathTimer: 0, deathRotY: 0,
         isInactive: false, ghostFloatH: 0, groundY: meshY, wasInactive: false,
+        currentWeapon: initWeapon, weaponMesh: initWeaponMesh, isAttacking: false,
       });
       list.push({ id: p.id, name: p.name, color: p.color });
     });
@@ -1082,6 +1132,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     mesh.position.set(p.x, meshY, p.z);
     mesh.rotation.y = p.rotY;
     scene.add(mesh);
+    const joinWeapon = (p as { weapon?: string }).weapon as WeaponType | undefined ?? null;
+    const joinWeaponMesh = joinWeapon
+      ? attachWeaponToRemotePlayer(mesh, null, joinWeapon)
+      : null;
     remotePlayersRef.current.set(p.id, {
       mesh, name: p.name, color: p.color,
       targetX: p.x, targetY: meshY, targetZ: p.z, targetRotY: p.rotY,
@@ -1093,6 +1147,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
       isDying: false, deathTimer: 0, deathRotY: 0,
       isInactive: false, ghostFloatH: 0, groundY: meshY, wasInactive: false,
+      currentWeapon: joinWeapon, weaponMesh: joinWeaponMesh, isAttacking: false,
     });
     setOnlinePlayers((prev) => [...prev, { id: p.id, name: p.name, color: p.color }]);
     showMpNotif(`${p.name} se připojil ke světu`);
@@ -1134,6 +1189,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (!nowInactive) {
       data.targetY = update.y - PLAYER_HEIGHT + 0.825;
     }
+
+    // Sync weapon: swap mesh when the held weapon changes
+    const newWeapon = (update.weapon as WeaponType | undefined) ?? null;
+    if (newWeapon !== data.currentWeapon) {
+      data.weaponMesh = attachWeaponToRemotePlayer(data.mesh, data.weaponMesh, newWeapon);
+      data.currentWeapon = newWeapon;
+    }
+    // Sync attack state for animations (bow draw, etc.)
+    data.isAttacking = update.isAttacking ?? false;
   }, []);
 
   // ── PvP callbacks ────────────────────────────────────────────────────────────
@@ -6129,6 +6193,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           rotY: yawRef.current,
           pitch: pitchRef.current,
           inactive: false,
+          weapon: selectedWeaponRef.current,
+          isAttacking: isBowChargingRef.current || isMouseHeldRef.current,
         });
 
         // ── Footstep sounds ─────────────────────────────────────────────────
@@ -6267,6 +6333,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               rotY: yawRef.current,
               pitch: pitchRef.current,
               inactive: false,
+              weapon: selectedWeaponRef.current,
+              isAttacking: isBowChargingRef.current || isMouseHeldRef.current,
             });
           }
         }
@@ -6387,6 +6455,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             rotY: activeShip.yaw,
             pitch: -0.22,
             inactive: false,
+            weapon: selectedWeaponRef.current,
+            isAttacking: false,
           });
         }
       }
@@ -9037,6 +9107,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           data.prevX = data.mesh.position.x;
           data.prevZ = data.mesh.position.z;
+
+          // ── Weapon draw animation ───────────────────────────────────────────
+          // For bow/crossbow: raise both arms toward an aiming pose while drawing.
+          // For other weapons: tilt armR forward on attack to suggest a swing.
+          if (data.armR) {
+            const w = data.currentWeapon;
+            if (data.isAttacking && (w === "bow" || w === "crossbow")) {
+              // Draw pose: arms raised forward to aim
+              const targetX = w === "bow" ? -1.2 : -0.9;
+              data.armR.rotation.x += (targetX - data.armR.rotation.x) * Math.min(1, dt * 10);
+              if (data.armL) data.armL.rotation.x += (targetX * 0.6 - data.armL.rotation.x) * Math.min(1, dt * 10);
+            } else if (data.isAttacking && (w === "sword" || w === "axe")) {
+              // Sword/axe swing: quickly tilt armR forward
+              data.armR.rotation.x += (-1.4 - data.armR.rotation.x) * Math.min(1, dt * 14);
+            }
+          }
 
           // ── PvP hit flash timer ─────────────────────────────────────────────
           if (data.hitFlashTimer > 0) {
