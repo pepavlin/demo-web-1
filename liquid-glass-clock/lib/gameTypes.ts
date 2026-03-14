@@ -551,6 +551,12 @@ export interface AirdropData {
   beaconAge: number;
   /** Pre-rolled loot array — always at least one weapon plus one resource bonus. */
   loot: AirdropLoot[];
+  /**
+   * ID of the PhysicsBody registered in the PhysicsWorld for this crate.
+   * Present while the crate is falling or sliding on terrain.
+   * Set to undefined when the crate is opened or despawned.
+   */
+  physicsBodyId: string | undefined;
 }
 
 // ─── Entity Sync ────────────────────────────────────────────────────────────
