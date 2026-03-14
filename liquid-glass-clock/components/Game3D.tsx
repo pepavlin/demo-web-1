@@ -70,6 +70,7 @@ import {
   buildFlamethrowerMesh,
   buildFlameParticleMesh,
   buildBurningEffect,
+  animateWildFlameMesh,
   buildShovelMesh,
   buildWoodLogMesh,
   buildAirdropCrateMesh,
@@ -6727,12 +6728,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const nl = nf.getObjectByName("nozzleLight") as THREE.PointLight | undefined;
             if (nl) nl.intensity = 0;
           } else {
-            // Organic flicker: scale pulses slightly every frame
-            const flicker = 0.88 + Math.sin(elapsed * 38) * 0.07 + (Math.random() - 0.5) * 0.10;
+            // Animate the wild flame mesh vertices for organic turbulence
+            const wf = nf.getObjectByName("wildFlame") as THREE.Mesh | undefined;
+            if (wf) animateWildFlameMesh(wf, elapsed);
+            // Subtle breathing scale pulse (vertex animation handles the main turbulence)
+            const flicker = 0.93 + Math.sin(elapsed * 10) * 0.04 + (Math.random() - 0.5) * 0.05;
             nf.scale.setScalar(flicker);
-            // Gentle roll of the stream around the barrel axis for turbulence feel
-            nf.rotation.z += (Math.random() - 0.5) * 0.18;
-            nf.rotation.x += (Math.random() - 0.5) * 0.06;
             // Flicker nozzle light intensity
             const nl = nf.getObjectByName("nozzleLight") as THREE.PointLight | undefined;
             if (nl) nl.intensity = 2.8 + Math.random() * 1.4;
@@ -6768,33 +6769,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Move bullet forward
         bullet.mesh.position.addScaledVector(bullet.velocity, dt);
 
-        // ── Flame particle visual: animated multi-layer fire group ───────────
+        // ── Flame particle visual: wild continuous flame mesh ────────────────
         if (bullet.weaponType === "flamethrower") {
           const progress = 1 - bullet.lifetime / FLAME_PARTICLE_LIFETIME;
 
-          // Expand as particle ages: start large and billow outward
-          bullet.mesh.scale.setScalar(0.32 + progress * 0.88);
+          // Grow the flame as the particle ages
+          bullet.mesh.scale.setScalar(0.38 + progress * 1.10);
 
-          // Buoyancy: fire rises more aggressively as it ages
+          // Buoyancy: fire rises more as it ages
           bullet.mesh.position.y += 1.1 * dt * (0.4 + progress * 0.9);
 
-          // Organic wobble — rotate around all axes for realistic flicker
-          bullet.mesh.rotation.y += (Math.random() - 0.5) * 8 * dt;
-          bullet.mesh.rotation.x += (Math.random() - 0.5) * 5 * dt;
-          bullet.mesh.rotation.z += (Math.random() - 0.5) * 5 * dt;
+          // Slow global rotation for organic feel
+          bullet.mesh.rotation.y += (Math.random() - 0.5) * 3.0 * dt;
+          bullet.mesh.rotation.x += (Math.random() - 0.5) * 2.0 * dt;
 
-          // Color shift: young = bright yellow/orange, old = dark red/fading
-          // Decrease green channel of children as particle ages
-          if (progress > 0.35) {
-            const fadeG = Math.max(0, 1 - (progress - 0.35) * 1.6);
-            const fadeOpacity = Math.max(0, 1 - (progress - 0.55) * 2.2);
-            bullet.mesh.children.forEach((child) => {
-              const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
-              if (mat && mat.color) {
-                mat.color.g = mat.color.g * 0.95 + fadeG * 0.05;
-                if (fadeOpacity < 1) mat.opacity = Math.max(0, mat.opacity * fadeOpacity);
-              }
-            });
+          // Animate the wild flame mesh inside the particle group
+          const wf = bullet.mesh.getObjectByName("wildFlame") as THREE.Mesh | undefined;
+          if (wf) animateWildFlameMesh(wf, elapsed);
+
+          // Fade out opacity as particle nears end of life
+          if (progress > 0.45) {
+            const fadeOpacity = Math.max(0, 1 - (progress - 0.45) * 1.8);
+            const wfMat = wf ? (wf.material as THREE.MeshBasicMaterial) : undefined;
+            if (wfMat) wfMat.opacity = Math.max(0, 0.92 * fadeOpacity);
           }
         }
 
