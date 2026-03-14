@@ -1,5 +1,6 @@
 import {
   pickRandomLoot,
+  pickAirdropLootArray,
   findAirdropLandingPosition,
   formatLootMessage,
   lootEmoji,
@@ -123,5 +124,34 @@ describe("descent simulation", () => {
   });
   test("descent takes > 3 seconds", () => {
     expect((AIRDROP_SPAWN_HEIGHT - 2) / AIRDROP_FALL_SPEED).toBeGreaterThan(3);
+  });
+});
+
+describe("pickAirdropLootArray — guaranteed weapon + resource", () => {
+  test("always returns array of length 2", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(pickAirdropLootArray()).toHaveLength(2);
+    }
+  });
+  test("first entry is always weapon type", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(pickAirdropLootArray()[0].type).toBe("weapon");
+    }
+  });
+  test("second entry is always a resource (not weapon)", () => {
+    const nonWeapon = ["coins", "wood", "health"];
+    for (let i = 0; i < 50; i++) {
+      expect(nonWeapon).toContain(pickAirdropLootArray()[1].type);
+    }
+  });
+  test("weapon entry has weaponType defined", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(pickAirdropLootArray()[0].weaponType).toBeDefined();
+    }
+  });
+  test("resource entry has positive amount", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(pickAirdropLootArray()[1].amount).toBeGreaterThan(0);
+    }
   });
 });

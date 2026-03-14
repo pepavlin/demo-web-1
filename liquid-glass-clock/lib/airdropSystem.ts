@@ -63,16 +63,24 @@ const LOOT_TABLE: LootEntry[] = [
   { weight: 8,  type: "health", amountMin: 70, amountMax: 100, label: "Velká lékárnička" },
 
   // ── Weapons ──
-  { weight: 5,  type: "weapon", weaponType: "bow",        label: "Luk" },
-  { weight: 4,  type: "weapon", weaponType: "crossbow",   label: "Kuše" },
-  { weight: 4,  type: "weapon", weaponType: "machinegun", label: "Kulomet" },
-  { weight: 3,  type: "weapon", weaponType: "sniper",     label: "Odstřelovačka" },
-  { weight: 1,  type: "weapon", weaponType: "axe",        label: "Sekera" },
-  { weight: 3,  type: "weapon", weaponType: "shovel",     label: "Lopata" },
+  { weight: 5,  type: "weapon", weaponType: "bow",          label: "Luk" },
+  { weight: 4,  type: "weapon", weaponType: "crossbow",     label: "Kuše" },
+  { weight: 4,  type: "weapon", weaponType: "machinegun",   label: "Kulomet" },
+  { weight: 3,  type: "weapon", weaponType: "sniper",       label: "Odstřelovačka" },
+  { weight: 2,  type: "weapon", weaponType: "axe",          label: "Sekera" },
+  { weight: 3,  type: "weapon", weaponType: "shovel",       label: "Lopata" },
+  { weight: 2,  type: "weapon", weaponType: "flamethrower", label: "Plamenomet" },
 ];
 
 /** Total weight sum — computed once for O(1) roll. */
 const TOTAL_WEIGHT = LOOT_TABLE.reduce((sum, e) => sum + e.weight, 0);
+
+/** Weapon-only entries for guaranteed weapon rolls. */
+const WEAPON_ENTRIES = LOOT_TABLE.filter((e) => e.type === "weapon");
+
+/** Resource-only entries (non-weapon) with their total weight for resource bonus rolls. */
+const RESOURCE_ENTRIES = LOOT_TABLE.filter((e) => e.type !== "weapon");
+const RESOURCE_TOTAL_WEIGHT = RESOURCE_ENTRIES.reduce((sum, e) => sum + e.weight, 0);
 
 /**
  * Randomly selects one loot outcome from the weighted loot table.
@@ -92,6 +100,33 @@ export function pickRandomLoot(rng: () => number = Math.random): AirdropLoot {
 
   // Fallback (floating-point edge case): return last entry
   return resolveLootEntry(LOOT_TABLE[LOOT_TABLE.length - 1], rng);
+}
+
+/**
+ * Picks loot for an airdrop crate: always returns a guaranteed weapon PLUS
+ * one random resource bonus (coins, wood, or health).  Every crate will
+ * contain at least one weapon alongside the resource drop.
+ *
+ * @param rng  Optional RNG function (defaults to Math.random) — injectable for testing.
+ */
+export function pickAirdropLootArray(rng: () => number = Math.random): AirdropLoot[] {
+  // 1. Pick a random weapon from weapon-only entries
+  const weaponIdx = Math.floor(rng() * WEAPON_ENTRIES.length);
+  const weaponLoot = resolveLootEntry(WEAPON_ENTRIES[weaponIdx], rng);
+
+  // 2. Pick a random resource (non-weapon) from the resource entries
+  let resourceRoll = rng() * RESOURCE_TOTAL_WEIGHT;
+  let resourceEntry = RESOURCE_ENTRIES[RESOURCE_ENTRIES.length - 1];
+  for (const entry of RESOURCE_ENTRIES) {
+    resourceRoll -= entry.weight;
+    if (resourceRoll <= 0) {
+      resourceEntry = entry;
+      break;
+    }
+  }
+  const resourceLoot = resolveLootEntry(resourceEntry, rng);
+
+  return [weaponLoot, resourceLoot];
 }
 
 function resolveLootEntry(entry: LootEntry, rng: () => number): AirdropLoot {

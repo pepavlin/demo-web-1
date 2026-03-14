@@ -12,9 +12,18 @@ Players can pick up specific objects (e.g. pumpkins) scattered around the world,
 
 | Type | Description |
 |------|-------------|
-| `WorldItemType` | Union type of all placeable item types (`"pumpkin" \| "bomb"`) |
-| `WorldItem` | Runtime item: `id`, `type`, `mesh`, `isHeld`, optional `onBulletHit` |
+| `WorldItemType` | Union type of all pickable item types (`"pumpkin" \| "bomb" \| "ground_weapon"`) |
+| `WorldItem` | Runtime item: `id`, `type`, `mesh`, `isHeld`, optional `weaponType`, optional `onBulletHit` |
 | `PlacedWorldItemData` | Serialisable snapshot: `type`, `x`, `y`, `z`, `rotY` |
+
+#### `ground_weapon` items
+
+Items with `type === "ground_weapon"` represent weapons lying on the ground. They:
+- Have a `weaponType: WeaponType` field identifying which weapon they are
+- Are rendered as the weapon mesh rotated flat + a green glow ring underneath
+- Are picked up with `[E]` key into the **active weapon slot** (not held in hand like pumpkins)
+- The weapon previously in the active slot is **dropped to the ground** as a new `ground_weapon`
+- Are **not persisted** to `localStorage` — fresh spawns every session
 
 #### `WorldItem.onBulletHit`
 
