@@ -488,6 +488,53 @@ export function resetDensityOverrides(): void {
 }
 
 /**
+ * Returns the effective terrain surface Y at (wx, wz) after accounting for
+ * shovel digs and bomb craters recorded in the density override map.
+ *
+ * Collision detection (player, NPCs, projectiles) must call this instead of
+ * – or in addition to – `getTerrainHeightSampled` so that dug holes and
+ * explosion craters are physically present, not just visual.
+ *
+ * Algorithm
+ * ─────────
+ * 1. Fast-exit: if no density overrides exist, return null (caller uses the
+ *    standard heightGrid value unchanged).
+ * 2. Sample the voxel density at one half-voxel below the natural surface.
+ *    If the sample is still negative (solid) the column is untouched → null.
+ * 3. Otherwise the surface has been carved away.  Scan downward in VOXEL_SIZE
+ *    steps until a solid voxel is found and return that Y as the new ground.
+ *
+ * @param wx  World X coordinate.
+ * @param wz  World Z coordinate.
+ * @returns   New surface Y in world units, or null if no dig affects this column.
+ */
+export function getTerrainSurfaceYAfterDigs(wx: number, wz: number): number | null {
+  if (_densityOverrides.size === 0) return null;
+
+  const baseY = getTerrainHeight(wx, wz);
+
+  // Sample half a voxel below the natural surface.
+  // – Without any override: density = -VOXEL_SIZE*0.5  (negative → solid → no dig).
+  // – With a nearby override (DIG_STRENGTH = 40): density flips to positive → dug.
+  const testY = baseY - VOXEL_SIZE * 0.5;
+  const density = getVoxelDensity(wx, testY, wz, baseY);
+
+  if (density < 0) return null; // still solid just below natural surface
+
+  // The surface at this column has been carved away.
+  // Scan downward in voxel steps to locate the new solid ground.
+  const scanLimit = Math.max(VOXEL_Y_MIN, baseY - 60);
+  let y = baseY - VOXEL_SIZE;
+  while (y > scanLimit) {
+    if (getVoxelDensity(wx, y, wz) < 0) {
+      return y; // first solid voxel below the dug zone
+    }
+    y -= VOXEL_SIZE;
+  }
+  return scanLimit;
+}
+
+/**
  * Initialise the 3D noise generator used for cave carving.
  * Uses a different seed from the 2D terrain noise to keep caves independent
  * of the surface height-map.

@@ -22,6 +22,7 @@ import {
   initVoxelNoise,
   generateVoxelTerrainAsync,
   digVoxelSphere,
+  getTerrainSurfaceYAfterDigs,
   type VoxelTerrainResult,
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
@@ -433,6 +434,22 @@ const RAIN_HEIGHT_RANGE = 90;       // rain spawns between RAIN_Y_MIN and +HEIGH
 const RAIN_Y_MIN = -5;              // rain resets to top when below this Y
 const LIGHTNING_FLASH_DURATION = 0.18; // seconds the white flash lasts
 const WEATHER_TRANSITION_SPEED = 0.35; // lerp speed for weather blending (per second)
+
+// ─── Dynamic terrain surface helper ──────────────────────────────────────────
+/**
+ * Returns the effective terrain height at (x, z) that accounts for both the
+ * base 2D height grid AND any voxel density overrides created by shovel digs
+ * or bomb craters.
+ *
+ * Use this instead of `getTerrainHeightSampled` wherever entity or player
+ * ground-detection is performed so that dug holes and craters are physically
+ * present, not just visual.
+ */
+function getEffectiveTerrainY(x: number, z: number): number {
+  const afterDigs = getTerrainSurfaceYAfterDigs(x, z);
+  if (afterDigs !== null) return afterDigs;
+  return getTerrainHeightSampled(x, z);
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getDirection(yaw: number): string {
@@ -1701,10 +1718,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     }
 
     // ── 5. Terrain crater deformation ──────────────────────────────────────
+    // digVoxelSphere carves the voxel density override map (visual + collision).
+    // modifyTerrainHeight updates the 2D heightGrid used by heightMap-based
+    // systems (NPC placement helpers, water boundary checks, etc.).
+    // Both are required so all subsystems stay consistent.
     if (voxelTerrainRef.current && terrainMatRef.current) {
+      // Offset dig centre slightly below explosion point so the crater is
+      // biased downward (hemispherical shape, not a floating sphere).
+      const digRadius = BOMB_CRATER_RADIUS * 0.75; // ~4.5 world units
+      const digCentreY = pos.y - digRadius * 0.35;
+      digVoxelSphere(pos.x, digCentreY, pos.z, digRadius);
       modifyTerrainHeight(pos.x, pos.z, BOMB_CRATER_DEPTH, BOMB_CRATER_RADIUS);
       voxelTerrainRef.current.refreshChunksAt(
-        pos.x, pos.z, BOMB_CRATER_RADIUS, terrainMatRef.current,
+        pos.x, pos.z, BOMB_CRATER_RADIUS + 32, terrainMatRef.current,
       );
     }
 
@@ -5772,7 +5798,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
 
         const player = playerRef.current;
-        const terrainY = getTerrainHeightSampled(cam.position.x, cam.position.z);
+        // getEffectiveTerrainY accounts for shovel digs and bomb craters
+        // recorded in the voxel density override map so that carved holes
+        // are physically present for the player, not just visual.
+        const terrainY = getEffectiveTerrainY(cam.position.x, cam.position.z);
         const isOverWater = terrainY < WATER_LEVEL;
 
         if (isOverWater) {
@@ -6561,8 +6590,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           s.position.z = sheepPrevZ;
         }
 
-        // Snap to terrain
-        s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
+        // Snap to terrain (respects shovel digs and bomb craters)
+        s.position.y = getEffectiveTerrainY(s.position.x, s.position.z);
 
         // Sheep body faces the direction of movement; stays put when idle
         // Formula: sheep face is at local +X, so to face world direction (dx, dz):
@@ -7488,7 +7517,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             fm.rotation.y = fox.deathRotationY;
             fm.rotation.z = fallT * (Math.PI / 2) * 1.05; // overshoot slightly
             const bounce = Math.max(0, Math.sin(fallT * Math.PI * 2.5) * (1 - fallT) * 0.3);
-            fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z) + bounce;
+            fm.position.y = getEffectiveTerrainY(fm.position.x, fm.position.z) + bounce;
           } else if (t < 2.4) {
             // Phase 3: fade out while lying on ground
             const fadeT = (t - 1.4) / 1.0; // 0 → 1
@@ -7665,7 +7694,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
         // Snap to the visual terrain surface — runs on all clients so the mesh
         // stays on the ground regardless of which client received the position.
-        fm.position.y = getTerrainHeightSampled(fm.position.x, fm.position.z);
+        // Uses effective terrain Y to respect shovel digs and bomb craters.
+        fm.position.y = getEffectiveTerrainY(fm.position.x, fm.position.z);
 
       });
 
@@ -7775,8 +7805,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
-        // Snap to terrain height
-        sm.position.y = getTerrainHeightSampled(sm.position.x, sm.position.z);
+        // Snap to terrain height (respects shovel digs and bomb craters)
+        sm.position.y = getEffectiveTerrainY(sm.position.x, sm.position.z);
 
         // Leg animation: spiders bob slightly as they walk
         const bобPhase = performance.now() * 0.004 + spiderListRef.current.indexOf(spider) * 1.3;
@@ -8418,7 +8448,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             s.rotation.z = fallT * (Math.PI / 2) * 1.05; // overshoot slightly
             // Small vertical bounce on initial impact
             const bounce = Math.max(0, Math.sin(fallT * Math.PI * 2.5) * (1 - fallT) * 0.3);
-            s.position.y = getTerrainHeightSampled(s.position.x, s.position.z) + bounce;
+            s.position.y = getEffectiveTerrainY(s.position.x, s.position.z) + bounce;
             // Legs stick out stiff
             if (sheep.legPivots.length === 4) {
               sheep.legPivots.forEach((p, i) => {
@@ -8628,7 +8658,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         } // end host/non-host sheep AI
 
         // Snap to terrain and update rotation — runs on all clients
-        s.position.y = getTerrainHeightSampled(s.position.x, s.position.z);
+        // Uses effective terrain Y so sheep fall into dug holes/craters.
+        s.position.y = getEffectiveTerrainY(s.position.x, s.position.z);
         s.rotation.y = -sheep.currentAngle;
 
         // ── Walk phase ───────────────────────────────────────────────────────

@@ -172,13 +172,54 @@ All land-based object placement still follows the same rule — terrain height m
 
 ---
 
-## Terrain Deformation (Bomb Craters, Sculpting)
+## Terrain Deformation (Bomb Craters, Shovel Digging)
 
-After `modifyTerrainHeight()` updates the `heightGrid`, the voxel terrain is **regenerated** for the affected chunks via:
+### Shovel / `digVoxelSphere`
+
+`digVoxelSphere(cx, cy, cz, radius)` adds `DIG_STRENGTH = 40` to all voxel grid points within the given world-space sphere, overriding their density from negative (solid) to positive (air).  After the dig, the affected chunks are regenerated:
 
 ```ts
-voxelTerrainRef.current.refreshChunksAt(worldX, worldZ, radius, material);
+digVoxelSphere(hitX, hitY, hitZ, radius);
+voxelTerrainRef.current.refreshChunksAt(hitX, hitZ, radius + 32, material);
 ```
+
+### Bomb Explosions
+
+Bomb craters call **both** mechanisms so the terrain is consistent in visual AND collision:
+
+```ts
+// 1. Voxel density override → visual crater in the Marching-Cubes mesh
+digVoxelSphere(pos.x, pos.y - digRadius * 0.35, pos.z, digRadius);
+// 2. 2D height-grid update → keeps heightMap-based subsystems in sync
+modifyTerrainHeight(pos.x, pos.z, BOMB_CRATER_DEPTH, BOMB_CRATER_RADIUS);
+// 3. Regenerate chunk meshes
+voxelTerrainRef.current.refreshChunksAt(pos.x, pos.z, radius + 32, material);
+```
+
+### Dynamic Collision after Deformation
+
+**Problem:** After a shovel dig or bomb crater, the *visual* voxel mesh changes, but the player and NPC collision system (which uses the 2D `heightGrid` via `getTerrainHeightSampled`) previously returned the original surface height — making dug holes physically invisible.
+
+**Solution:** `getTerrainSurfaceYAfterDigs(wx, wz)` (exported from `lib/voxelTerrain.ts`) queries the voxel density override map at the natural surface level.  If the surface has been carved away it scans downward in `VOXEL_SIZE` steps until it finds solid terrain and returns the new ground Y.  Returns `null` when no overrides exist (fast O(1) path).
+
+```ts
+// lib/voxelTerrain.ts
+export function getTerrainSurfaceYAfterDigs(wx: number, wz: number): number | null
+```
+
+`Game3D.tsx` wraps this in a local helper:
+
+```ts
+function getEffectiveTerrainY(x: number, z: number): number {
+  const afterDigs = getTerrainSurfaceYAfterDigs(x, z);
+  if (afterDigs !== null) return afterDigs;
+  return getTerrainHeightSampled(x, z);
+}
+```
+
+All entity ground detection (player, sheep, fox, spider) now calls `getEffectiveTerrainY` instead of `getTerrainHeightSampled`, ensuring that carved holes are **physically present** for all characters.
+
+### refreshChunksAt
 
 `refreshChunksAt` uses an AABB–circle overlap test to select only the chunks that overlap the deformation radius, then calls `generateChunkGeometry()` for each.
 
@@ -209,3 +250,4 @@ Flat `PlaneGeometry` with Gerstner wave animation — unchanged.
 - `generateVoxelTerrain` returns group + refreshChunksAt
 - `getVoxelChunkMeshes` filters correctly
 - `refreshChunksAt` does not throw
+- **`getTerrainSurfaceYAfterDigs`**: returns null with no overrides, returns lower Y after dig, stays ≥ VOXEL_Y_MIN, resets correctly
