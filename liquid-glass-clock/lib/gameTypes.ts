@@ -431,7 +431,7 @@ export interface TreeData {
 // ─── World Item (pickable / placeable objects) ─────────────────────────────
 
 /** All types of objects that can be picked up and placed in the world. */
-export type WorldItemType = "pumpkin" | "bomb";
+export type WorldItemType = "pumpkin" | "bomb" | "ground_weapon";
 
 /** A pickable/placeable object that exists in the 3D world. */
 export interface WorldItem {
@@ -442,6 +442,11 @@ export interface WorldItem {
   mesh: THREE.Group;
   /** True while the player is holding this item (mesh is hidden from world). */
   isHeld: boolean;
+  /**
+   * For type === "ground_weapon": the weapon type this pickup contains.
+   * Undefined for pumpkin / bomb items.
+   */
+  weaponType?: WeaponType;
   /**
    * Optional callback invoked when a projectile (bullet or arrow) hits this item.
    * Return true to consume the projectile (remove it from the world).
@@ -544,8 +549,8 @@ export interface AirdropData {
   despawnTimer: number;
   /** Beacon animation accumulator. */
   beaconAge: number;
-  /** Pre-rolled loot — determined at spawn time. */
-  loot: AirdropLoot;
+  /** Pre-rolled loot array — always at least one weapon plus one resource bonus. */
+  loot: AirdropLoot[];
 }
 
 // ─── Entity Sync ────────────────────────────────────────────────────────────

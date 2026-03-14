@@ -1,18 +1,71 @@
 # Weapon System
 
-The game features seven distinct weapons selectable before entering the world (or picked up in-world). Each has a unique combat style, 3D model, and procedurally synthesised audio.
+The game features 8 distinct weapons with a **dual-slot inventory system** (max 2 weapons held at once). Each has a unique combat style, 3D model, and procedurally synthesised audio.
+
+## Dual Weapon Slot System
+
+Players can hold a **maximum of 2 weapons** at any time:
+
+- **Slot 1** — Primary weapon (starts with: Sekera/Axe)
+- **Slot 2** — Secondary weapon (starts with: Meč/Sword)
+
+### Controls
+
+| Input | Action |
+|-------|--------|
+| `[1]` | Select Slot 1 (primary weapon) |
+| `[2]` | Select Slot 2 (secondary weapon) |
+| `[Q]` | Toggle between Slot 1 and Slot 2 |
+| Scroll wheel | Toggle between slots |
+| `[E]` near ground weapon | Pick up weapon into active slot (current weapon drops to ground) |
+
+### Starting Loadout
+
+Players always start with:
+- **Slot 1:** Sekera (Axe) — good against trees (3× damage multiplier)
+- **Slot 2:** Meč (Sword) — fast melee combat
+
+No weapon selection screen is shown — the dual loadout is fixed at game start.
+
+### Picking Up Weapons
+
+Weapons can be found lying on the ground in the world (shown with a green glow ring beneath them). When you walk within **2.8 units**, a prompt appears:
+
+> ⚔️ **[E] Vzít [WeaponName]** (nahradí slot N)
+
+Pressing `[E]` picks up the weapon into the **currently active slot**, and the weapon that was in that slot is dropped to the ground at the player's location (can be picked up again later).
+
+### Ground Weapon Spawn Locations
+
+Fixed world spawn positions (fresh each session, not persisted):
+
+| Weapon | Location |
+|--------|----------|
+| Luk (Bow) | Open meadow east (55, -28) |
+| Kuše (Crossbow) | Northwest area (-45, 62) |
+| Kulomet (Machine Gun) | East field (90, 30) |
+| Lopata (Shovel) | South area (-18, -55) |
+| Odstřelovačka (Sniper) | South-east ridge (75, -65) |
+| Plamenomet (Flamethrower) | West forest (-80, -30) |
+| Meč (Sword) | Near windmill (20, 45) |
+| Sekera (Axe) | Central woods (-35, -20) |
+
+### Airdrop Weapons
+
+Every sky crate (airdrop) **always** contains at least one weapon **plus** one resource bonus (coins, wood, or health). The weapon goes to the active slot on pickup; the previous weapon is dropped to the ground.
 
 ## Weapons
 
-| Key | Weapon | Czech | Type | Damage | Cooldown | Bullet Speed | Range |
-|-----|--------|-------|------|--------|----------|--------------|-------|
-| [1] | Sword | Meč | Melee only | 55 | 0.45s | — | 2.2 u |
-| [2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s | 80 u |
-| [3] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s | 100 u |
-| [4] | Sniper | Odstřelovačka | Ranged + scope | 160 | 2.8s | 220 u/s | 400 u |
-| [5] | Axe | Sekera | Melee only | 45 | 0.65s | — | 2.5 u |
-| [6] | Machine Gun | Kulomet | Ranged auto-fire | 18 | 0.08s | 150 u/s | 120 u |
-| [7] | Flamethrower | Plamenomet | Ranged stream | 10 | 0.07s | 11 u/s | 15 u |
+| Slot Key | Weapon | Czech | Type | Damage | Cooldown | Bullet Speed | Range |
+|----------|--------|-------|------|--------|----------|--------------|-------|
+| [1]/[2] | Sword | Meč | Melee only | 55 | 0.45s | — | 2.2 u |
+| [1]/[2] | Bow | Luk | Ranged | 40 | 1.1s | 38 u/s | 80 u |
+| [1]/[2] | Crossbow | Kuše | Ranged | 85 | 2.2s | 90 u/s | 100 u |
+| [1]/[2] | Sniper | Odstřelovačka | Ranged + scope | 160 | 2.8s | 220 u/s | 400 u |
+| [1]/[2] | Axe | Sekera | Melee only | 45 | 0.65s | — | 2.5 u |
+| [1]/[2] | Machine Gun | Kulomet | Ranged auto-fire | 18 | 0.08s | 150 u/s | 120 u |
+| [1]/[2] | Flamethrower | Plamenomet | Ranged stream | 10 | 0.07s | 11 u/s | 15 u |
+| [1]/[2] | Shovel | Lopata | Melee + terrain dig | 20 | 0.70s | — | 3.5 u |
 
 ## Sword (Meč)
 
@@ -118,11 +171,27 @@ export interface WeaponConfig {
 }
 ```
 
+### Dual Slot State (`components/Game3D.tsx`)
+
+```typescript
+// Slot inventory
+const weaponSlotsRef = useRef<[WeaponType, WeaponType | null]>(["axe", "sword"]);
+const activeSlotRef = useRef<0 | 1>(0);
+const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null]>(["axe", "sword"]);
+const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
+```
+
+Key functions:
+- **`dropCurrentWeaponToWorld()`** — Creates a `ground_weapon` WorldItem at feet for the current active slot weapon.
+- **`pickUpGroundWeapon(item)`** — Drops active weapon, removes world item, equips new weapon in active slot.
+- **`addWeaponToActiveSlot(type)`** — Used for airdrop weapons and sniper tower pickup; drops current and equips new.
+
 ### Selection UI (`components/WeaponSelect.tsx`)
+
+> **Note:** The weapon selection screen is no longer shown at game start. Players always begin with Axe (slot 1) and Sword (slot 2). `WeaponSelect` remains in the codebase for potential future use.
 
 - Animated SVG previews for each weapon (idle animation, attack animation)
 - Czech descriptions and stat bars per weapon
-- Keyboard shortcuts: [1] Sword, [2] Bow, [3] Crossbow, [4] Sniper, [5] Axe, [6] Machine Gun, [7] Flamethrower, [Enter] confirm
 
 ### 3D Models (`lib/meshBuilders.ts`)
 

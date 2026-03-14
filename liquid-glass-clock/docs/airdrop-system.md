@@ -44,7 +44,25 @@ The airdrop system adds a recurring world event: a military supply crate falls f
    └─ NO  → wait up to 120 s → auto-despawn
 ```
 
-## Loot Table
+## Loot System — Guaranteed Weapon + Resource Bonus
+
+Every crate **always** contains **two** loot items:
+1. **A weapon** (guaranteed) — goes into the player's active weapon slot (previous weapon drops to ground)
+2. **A resource** (bonus) — random coins, wood, or health
+
+### Weapon Loot Pool (randomly selected)
+
+| Weapon | Czech | Weight |
+|--------|-------|--------|
+| Luk | Bow | 5 |
+| Kuše | Crossbow | 4 |
+| Kulomet | Machine Gun | 4 |
+| Odstřelovačka | Sniper | 3 |
+| Sekera | Axe | 2 |
+| Lopata | Shovel | 3 |
+| Plamenomet | Flamethrower | 2 |
+
+### Resource Bonus Pool (randomly selected)
 
 | Type | Czech label | Reward | Weight |
 |------|-------------|--------|--------|
@@ -54,17 +72,21 @@ The airdrop system adds a recurring world event: a military supply crate falls f
 | Wood | Hromada dřeva | +30–55 dřeva | 10 |
 | Health | Lékárnička | +40–70 HP | 15 |
 | Health | Velká lékárnička | +70–100 HP | 8 |
-| Weapon | Luk | weapon swap | 5 |
-| Weapon | Kuše | weapon swap | 4 |
-| Weapon | Kulomet | weapon swap | 4 |
-| Weapon | Odstřelovačka | weapon swap | 3 |
-| Weapon | Sekera | weapon swap | 1 |
 
-Total weight: 100.  Probability of each category:
-- **Ammo/Coins**: 32 %
-- **Materials/Wood**: 28 %
-- **Health**: 23 %
-- **Weapon**: 17 %
+### API
+
+```typescript
+// Always returns [weapon_loot, resource_loot] — 2 items guaranteed
+export function pickAirdropLootArray(rng?: () => number): AirdropLoot[]
+
+// Legacy: returns single loot item (used for backward-compatible code paths)
+export function pickRandomLoot(rng?: () => number): AirdropLoot
+```
+
+### AirdropData type change
+
+`AirdropData.loot` is now `AirdropLoot[]` (array) instead of a single `AirdropLoot`.
+The game loop iterates over all loot items and applies each one.
 
 ## Constants (`lib/airdropSystem.ts`)
 

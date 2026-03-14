@@ -99,6 +99,7 @@ import {
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData, AirdropData } from "@/lib/gameTypes";
 import {
   pickRandomLoot,
+  pickAirdropLootArray,
   findAirdropLandingPosition,
   formatLootMessage,
   lootEmoji,
@@ -742,6 +743,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const itemPlacementGhostRef = useRef<THREE.Group | null>(null);
   /** Nearest pickable item within PICKUP_RADIUS (updated per frame). */
   const nearestPickableItemRef = useRef<WorldItem | null>(null);
+  /** Nearest ground weapon within PICKUP_RADIUS (updated per frame). */
+  const nearestGroundWeaponRef = useRef<WorldItem | null>(null);
 
   // ─── Possession Refs ─────────────────────────────────────────────────────────
   const possessedSheepRef = useRef<SheepData | null>(null);
@@ -829,8 +832,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const playerBodyLegPhaseRef = useRef(0);
 
   // ─── Selected weapon (persisted via ref for use inside animation loop) ───────
-  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("sword");
-  const selectedWeaponRef = useRef<WeaponType>("sword");
+  const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("axe");
+  const selectedWeaponRef = useRef<WeaponType>("axe");
+
+  // ─── Dual weapon slots (max 2 weapons) ──────────────────────────────────────
+  /** Inventory of 2 weapon slots. Slot 0 = primary (axe), slot 1 = secondary (sword). */
+  const weaponSlotsRef = useRef<[WeaponType, WeaponType | null]>(["axe", "sword"]);
+  const activeSlotRef = useRef<0 | 1>(0);
+  const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null]>(["axe", "sword"]);
+  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
 
   // ─── Third-Person Camera Refs ────────────────────────────────────────────────
   const thirdPersonRef    = useRef(false);
@@ -841,6 +851,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [weatherLabel, setWeatherLabel] = useState<string>("☀️ Jasno");
   const [nearItemPrompt, setNearItemPrompt] = useState<WorldItemType | null>(null);
   const [heldItemType, setHeldItemType] = useState<WorldItemType | null>(null);
+  /** WeaponType of the nearest ground weapon within pickup range, or null. */
+  const [nearGroundWeaponPrompt, setNearGroundWeaponPrompt] = useState<WeaponType | null>(null);
   const [nearAirdropPrompt, setNearAirdropPrompt] = useState(false);
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
@@ -1291,6 +1303,94 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     attachWeaponToAnchor(cameraModeRef.current);
   }, [attachWeaponToAnchor]);
 
+  // ─── Ground weapon display mesh builder ──────────────────────────────────────
+  /** Builds a Three.js group showing a weapon lying on the ground with a glow ring. */
+  function createGroundWeaponMesh(type: WeaponType): THREE.Group {
+    const group = new THREE.Group();
+    const wMesh =
+      type === "bow" ? buildBowMesh()
+      : type === "crossbow" ? buildCrossbowMesh()
+      : type === "sniper" ? buildSniperMesh()
+      : type === "axe" ? buildAxeMesh()
+      : type === "machinegun" ? buildMachineGunMesh()
+      : type === "flamethrower" ? buildFlamethrowerMesh()
+      : type === "shovel" ? buildShovelMesh()
+      : buildSwordMesh();
+    // Lay weapon flat on the ground
+    wMesh.rotation.x = Math.PI / 2;
+    wMesh.scale.setScalar(0.55);
+    group.add(wMesh);
+    // Subtle green glow ring beneath the weapon
+    const ringGeo = new THREE.RingGeometry(0.3, 0.55, 16);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x44ff88,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.01;
+    group.add(ring);
+    return group;
+  }
+
+  // ─── Weapon slot: drop current active weapon to the world as a pickable item ──
+  function dropCurrentWeaponToWorld() {
+    const scene = sceneRef.current;
+    const cam = cameraRef.current;
+    if (!scene || !cam) return;
+    const currentWeapon = weaponSlotsRef.current[activeSlotRef.current];
+    if (!currentWeapon) return;
+    // Place the dropped weapon slightly in front of the player
+    const dropX = cam.position.x + Math.sin(cam.rotation.y) * -2;
+    const dropZ = cam.position.z + Math.cos(cam.rotation.y) * -2;
+    const groundY = getTerrainHeightSampled(dropX, dropZ);
+    const droppedMesh = createGroundWeaponMesh(currentWeapon);
+    droppedMesh.position.set(dropX, groundY + 0.1, dropZ);
+    scene.add(droppedMesh);
+    worldItemsRef.current.push({
+      id: Math.random().toString(36).slice(2),
+      type: "ground_weapon",
+      mesh: droppedMesh,
+      isHeld: false,
+      weaponType: currentWeapon,
+    });
+  }
+
+  // ─── Weapon slot: pick up a ground weapon into the active slot ────────────────
+  function pickUpGroundWeapon(item: WorldItem) {
+    const scene = sceneRef.current;
+    if (!scene || !item.weaponType) return;
+    // First drop whatever is in the active slot
+    dropCurrentWeaponToWorld();
+    // Remove the picked weapon from the world
+    scene.remove(item.mesh);
+    worldItemsRef.current = worldItemsRef.current.filter((wi) => wi !== item);
+    // Update active slot and 3D weapon mesh
+    const newWeapon = item.weaponType;
+    weaponSlotsRef.current[activeSlotRef.current] = newWeapon;
+    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null]);
+    selectedWeaponRef.current = newWeapon;
+    setSelectedWeapon(newWeapon);
+    swapWeaponMesh(newWeapon);
+    if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+    nearestGroundWeaponRef.current = null;
+    setNearGroundWeaponPrompt(null);
+  }
+
+  // ─── Weapon slot: add a weapon to active slot (e.g. from airdrop / sniper tower) ─
+  function addWeaponToActiveSlot(type: WeaponType) {
+    // Drop current weapon before taking the new one
+    dropCurrentWeaponToWorld();
+    weaponSlotsRef.current[activeSlotRef.current] = type;
+    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null]);
+    selectedWeaponRef.current = type;
+    setSelectedWeapon(type);
+    swapWeaponMesh(type);
+    if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+  }
+
   // ─── Flash fox mesh red on hit ───────────────────────────────────────────────
   function flashFoxMesh(mesh: THREE.Group) {
     mesh.traverse((child) => {
@@ -1437,9 +1537,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       weaponMeshRef.current.visible = true;
     }
 
-    // Persist placement (bombs are one-use and not saved to localStorage)
+    // Persist placement (bombs and ground weapons are not saved to localStorage)
     const items: PlacedWorldItemData[] = worldItemsRef.current
-      .filter((wi) => !wi.isHeld && wi.type !== "bomb")
+      .filter((wi) => !wi.isHeld && wi.type !== "bomb" && wi.type !== "ground_weapon")
       .map((wi) => ({
         type: wi.type,
         x: wi.mesh.position.x,
@@ -2804,6 +2904,62 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           },
         };
         worldItemsRef.current.push(bombItem);
+      });
+    }
+
+    // ── Ground weapons scattered across the world ─────────────────────────────
+    // Weapons lying on the ground that can be picked up with [E].
+    // These spawn fresh each session; they are NOT persisted to localStorage.
+    {
+      const GROUND_WEAPON_SPAWNS: Array<{ id: string; x: number; z: number; weaponType: WeaponType }> = [
+        { id: "gw-bow-0",          x:  55,  z: -28,  weaponType: "bow"          }, // open meadow east
+        { id: "gw-crossbow-0",     x: -45,  z:  62,  weaponType: "crossbow"     }, // northwest area
+        { id: "gw-machinegun-0",   x:  90,  z:  30,  weaponType: "machinegun"   }, // east field
+        { id: "gw-shovel-0",       x: -18,  z: -55,  weaponType: "shovel"       }, // south area
+        { id: "gw-sniper-0",       x:  75,  z: -65,  weaponType: "sniper"       }, // south-east ridge
+        { id: "gw-flamethrower-0", x: -80,  z: -30,  weaponType: "flamethrower" }, // west forest
+        { id: "gw-sword-0",        x:  20,  z:  45,  weaponType: "sword"        }, // near windmill
+        { id: "gw-axe-0",          x: -35,  z: -20,  weaponType: "axe"          }, // central woods
+      ];
+
+      GROUND_WEAPON_SPAWNS.forEach(({ id, x, z, weaponType }) => {
+        const groundY = getTerrainHeightSampled(x, z);
+        if (groundY < WATER_LEVEL + LAND_SPAWN_MARGIN) return; // skip underwater positions
+        const wType = weaponType as WeaponType;
+        const group = new THREE.Group();
+        const wMesh =
+          wType === "bow" ? buildBowMesh()
+          : wType === "crossbow" ? buildCrossbowMesh()
+          : wType === "sniper" ? buildSniperMesh()
+          : wType === "axe" ? buildAxeMesh()
+          : wType === "machinegun" ? buildMachineGunMesh()
+          : wType === "flamethrower" ? buildFlamethrowerMesh()
+          : wType === "shovel" ? buildShovelMesh()
+          : buildSwordMesh();
+        wMesh.rotation.x = Math.PI / 2;
+        wMesh.scale.setScalar(0.55);
+        group.add(wMesh);
+        // Subtle glow ring under the weapon
+        const ringGeo = new THREE.RingGeometry(0.3, 0.55, 16);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x44ff88,
+          transparent: true,
+          opacity: 0.55,
+          side: THREE.DoubleSide,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.01;
+        group.add(ring);
+        group.position.set(x, groundY + 0.1, z);
+        scene.add(group);
+        worldItemsRef.current.push({
+          id,
+          type: "ground_weapon",
+          mesh: group,
+          isHeld: false,
+          weaponType: wType,
+        });
       });
     }
 
@@ -4511,10 +4667,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           setOnBoat(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
         } else if (nearSniperPickupRef.current && !possessedSheepRef.current) {
-          // ── Pick up sniper rifle at tower top ────────────────────────────
-          selectedWeaponRef.current = "sniper";
-          setSelectedWeapon("sniper");
-          swapWeaponMesh("sniper");
+          // ── Pick up sniper rifle at tower top into active slot ────────────
+          addWeaponToActiveSlot("sniper");
+        } else if (nearestGroundWeaponRef.current && !heldItemRef.current && !possessedSheepRef.current) {
+          // ── Pick up ground weapon into active slot ────────────────────────
+          pickUpGroundWeapon(nearestGroundWeaponRef.current);
         } else if (heldItemRef.current) {
           // ── Drop held item at player's feet ──────────────────────────────
           dropHeldItem();
@@ -4619,20 +4776,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Digit keys 1–8 — select weapon
+      // Keys 1/2 — select weapon slot; Q — toggle between slots
       if (e.type === "keydown") {
-        const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"];
-        if (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3" || e.code === "Digit4" || e.code === "Digit5" || e.code === "Digit6" || e.code === "Digit7" || e.code === "Digit8") {
-          const idx = parseInt(e.code.replace("Digit", "")) - 1;
-          const newWeapon = WEAPON_ORDER[idx];
+        let targetSlot: 0 | 1 | null = null;
+        if (e.code === "Digit1") targetSlot = 0;
+        else if (e.code === "Digit2") targetSlot = 1;
+        else if (e.code === "KeyQ") targetSlot = activeSlotRef.current === 0 ? 1 : 0;
+
+        if (targetSlot !== null) {
+          const newWeapon = weaponSlotsRef.current[targetSlot];
           if (newWeapon) {
             // Exit scope when switching away from sniper
             if (isScopedRef.current && newWeapon !== "sniper") {
               isScopedRef.current = false;
               setIsScoped(false);
             }
-            setSelectedWeapon(newWeapon);
+            activeSlotRef.current = targetSlot;
+            setActiveSlot(targetSlot);
             selectedWeaponRef.current = newWeapon;
+            setSelectedWeapon(newWeapon);
             swapWeaponMesh(newWeapon);
             if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
           }
@@ -4696,21 +4858,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
-    // ── Mouse wheel — cycle weapons ────────────────────────────────────────────
+    // ── Mouse wheel — toggle between the two weapon slots ─────────────────────
     const onWheel = (e: WheelEvent) => {
       if (!isLockedRef.current) return;
-
-      const WEAPON_ORDER: WeaponType[] = ["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"];
-      const cur = WEAPON_ORDER.indexOf(selectedWeaponRef.current);
-      const curIdx = cur < 0 ? 0 : cur;
-      const next = (curIdx + (e.deltaY > 0 ? 1 : -1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
-      const newWeapon = WEAPON_ORDER[next];
+      void e; // deltaY direction ignored — any scroll toggles slots
+      const otherSlot: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
+      const newWeapon = weaponSlotsRef.current[otherSlot];
+      if (!newWeapon) return; // second slot is empty — nothing to switch to
       if (isScopedRef.current && newWeapon !== "sniper") {
         isScopedRef.current = false;
         setIsScoped(false);
       }
-      setSelectedWeapon(newWeapon);
+      activeSlotRef.current = otherSlot;
+      setActiveSlot(otherSlot);
       selectedWeaponRef.current = newWeapon;
+      setSelectedWeapon(newWeapon);
       swapWeaponMesh(newWeapon);
       if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
     };
@@ -7702,7 +7864,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           beaconMesh.position.set(airdropPos.x, airdropPos.terrainY + 0.05, airdropPos.z);
           scene.add(beaconMesh);
 
-          const loot = pickRandomLoot();
+          const loot = pickAirdropLootArray();
 
           airdropRef.current = {
             mesh: crateMesh,
@@ -7776,19 +7938,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             scene.remove(ad.beaconMesh);
             setNearAirdropPrompt(false);
 
-            // Apply loot effect to player
-            const { loot } = ad;
-            if (loot.type === 'coins') {
-              coinsCollectedRef.current += loot.amount;
-            } else if (loot.type === 'wood') {
-              woodCollectedRef.current += loot.amount;
-            } else if (loot.type === 'health') {
-              playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
-            } else if (loot.type === 'weapon' && loot.weaponType) {
-              swapWeaponMesh(loot.weaponType);
+            // Apply all loot effects to player (weapon + resource bonus)
+            const lootMessages: string[] = [];
+            for (const loot of ad.loot) {
+              if (loot.type === 'coins') {
+                coinsCollectedRef.current += loot.amount;
+              } else if (loot.type === 'wood') {
+                woodCollectedRef.current += loot.amount;
+              } else if (loot.type === 'health') {
+                playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
+              } else if (loot.type === 'weapon' && loot.weaponType) {
+                addWeaponToActiveSlot(loot.weaponType);
+              }
+              lootMessages.push(`${lootEmoji(loot)} ${formatLootMessage(loot)}`);
             }
-
-            const lootMsg = `${lootEmoji(loot)} ${formatLootMessage(loot)}`;
+            const lootMsg = lootMessages.join('\n');
             setAirdropOpenedMsg(lootMsg);
             setTimeout(() => setAirdropOpenedMsg(null), 4500);
             soundManager.playCoinCollect?.();
@@ -8087,33 +8251,50 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               ghost.visible = false;
             }
           }
-          // Nearest pickable is irrelevant while holding
+          // Nearest pickable/weapon is irrelevant while holding an item
           nearestPickableItemRef.current = null;
+          nearestGroundWeaponRef.current = null;
           setNearItemPrompt(null);
+          setNearGroundWeaponPrompt(null);
         } else {
           // Hide ghost when not holding
           if (itemPlacementGhostRef.current) itemPlacementGhostRef.current.visible = false;
           // Find nearest non-held world item within PICKUP_RADIUS
+          // Ground weapons are tracked separately so they can use different pickup logic.
           let bestDist = PICKUP_RADIUS;
           let bestItem: WorldItem | null = null;
+          let bestGroundWeapon: WorldItem | null = null;
+          let bestGroundWeaponDist = PICKUP_RADIUS;
           worldItemsRef.current.forEach((wi) => {
             if (wi.isHeld) return;
             const dx = wi.mesh.position.x - playerPos.x;
             const dz = wi.mesh.position.z - playerPos.z;
             const dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestItem = wi;
+            if (wi.type === "ground_weapon") {
+              if (dist < bestGroundWeaponDist) {
+                bestGroundWeaponDist = dist;
+                bestGroundWeapon = wi;
+              }
+            } else {
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestItem = wi;
+              }
             }
           });
           nearestPickableItemRef.current = bestItem;
+          nearestGroundWeaponRef.current = bestGroundWeapon;
           const nearItem = bestItem as WorldItem | null;
+          const nearWeapon = bestGroundWeapon as WorldItem | null;
           setNearItemPrompt(nearItem ? nearItem.type : null);
+          setNearGroundWeaponPrompt(nearWeapon?.weaponType ?? null);
         }
       } else {
         if (itemPlacementGhostRef.current) itemPlacementGhostRef.current.visible = false;
         nearestPickableItemRef.current = null;
+        nearestGroundWeaponRef.current = null;
         setNearItemPrompt(null);
+        setNearGroundWeaponPrompt(null);
       }
 
       // ── Bunker entrance proximity ─────────────────────────────────────────────
@@ -9593,17 +9774,39 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — all weapons, active one highlighted */}
-          {(["sword", "bow", "crossbow", "sniper", "axe", "machinegun", "flamethrower", "shovel"] as WeaponType[]).map((w, idx) => {
+          {/* Weapon slots HUD — 2 slots max, active one highlighted */}
+          {([0, 1] as const).map((slotIdx) => {
+            const w = weaponSlots[slotIdx];
+            const isActive = activeSlot === slotIdx;
+            if (!w) {
+              // Empty slot
+              return (
+                <div
+                  key={slotIdx}
+                  className="rounded-xl text-xs font-bold flex items-center gap-2"
+                  style={{
+                    width: 168,
+                    padding: "7px 14px",
+                    background: "rgba(0,0,0,0.30)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    color: "rgba(255,255,255,0.18)",
+                  }}
+                >
+                  <span style={{ opacity: 0.35, fontSize: 10 }}>[{slotIdx + 1}]</span>
+                  <span style={{ fontSize: 16 }}>—</span>
+                  <span>Prázdný slot</span>
+                </div>
+              );
+            }
             const cfg = WEAPON_CONFIGS[w];
-            const isActive = selectedWeapon === w;
             const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : w === "shovel" ? "⛏️" : "🎯";
             const onCooldown = isActive && !gameState.attackReady;
             const RING_R = 10;
             const ringCircumference = 2 * Math.PI * RING_R;
             return (
               <div
-                key={w}
+                key={slotIdx}
                 className="rounded-xl text-xs font-bold flex items-center gap-2"
                 style={{
                   width: 168,
@@ -9619,7 +9822,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                   position: "relative",
                 }}
               >
-                <span style={{ opacity: isActive ? 0.8 : 0.4, fontSize: 10 }}>[{idx + 1}]</span>
+                <span style={{ opacity: isActive ? 0.8 : 0.4, fontSize: 10 }}>[{slotIdx + 1}]</span>
                 {/* Weapon icon with cooldown ring overlay */}
                 <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22 }}>
                   <span style={{ position: "relative", zIndex: 1 }}>{emoji}</span>
@@ -9655,6 +9858,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               </div>
             );
           })}
+          {/* Slot switch hint */}
+          <div
+            className="rounded-xl text-xs text-center"
+            style={{
+              width: 168,
+              padding: "5px 14px",
+              background: "rgba(0,0,0,0.25)",
+              backdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.05)",
+              color: "rgba(255,255,255,0.25)",
+            }}
+          >
+            [Q] / Kolečko — změna zbraně
+          </div>
         </div>
       )}
 
@@ -10046,6 +10263,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             {nearItemPrompt === "bomb" ? "💣" : "🎃"} [E] Vzít{" "}
             {nearItemPrompt === "pumpkin" ? "dýni" : nearItemPrompt === "bomb" ? "bombu" : nearItemPrompt}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Ground weapon pickup prompt ═══════════════ */}
+      {nearGroundWeaponPrompt && !heldItemType && !isPossessed && !onBoat && gameState.isLocked && (
+        <div className="fixed bottom-52 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(10,30,10,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(80,220,100,0.55)",
+              boxShadow: "0 0 20px rgba(60,200,80,0.40)",
+            }}
+          >
+            ⚔️ [E] Vzít {WEAPON_CONFIGS[nearGroundWeaponPrompt].label}
+            <span style={{ opacity: 0.65, fontSize: "0.75rem", marginLeft: 8 }}>
+              (nahradí slot {activeSlot + 1})
+            </span>
           </div>
         </div>
       )}
@@ -10835,7 +11073,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               onClick={(e) => {
                 e.stopPropagation();
                 setShowIntro(false);
-                setShowWeaponSelect(true);
+                // Player always starts with axe (slot 1) + sword (slot 2) — no selection screen needed
+                if (IS_MOBILE) {
+                  startMobileGame();
+                } else {
+                  lockPointer();
+                }
               }}
             >
               Hrát!
@@ -10844,8 +11087,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* Weapon selection overlay */}
-      {showWeaponSelect && (
+      {/* Weapon selection overlay — disabled: player always starts with axe + sword */}
+      {false && showWeaponSelect && (
         <WeaponSelect
           onConfirm={(weapon) => {
             setSelectedWeapon(weapon);
