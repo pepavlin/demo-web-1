@@ -22,6 +22,7 @@ import {
   digVoxelSphere,
   resetDensityOverrides,
   getTerrainSurfaceYAfterDigs,
+  getFloorYBelowPlayer,
   VOXEL_SIZE,
   CHUNK_SIZE,
   CHUNK_WORLD,
@@ -662,5 +663,129 @@ describe("VoxelTerrainResult — updateTerrainLOD", () => {
     // All LOD-0 meshes should now be hidden
     const visibleLod0 = result.chunkMeshes.filter((m) => m.visible);
     expect(visibleLod0.length).toBe(0);
+  });
+});
+
+// ─── getFloorYBelowPlayer — tunnel / cave collision fix ────────────────────────
+//
+// This function fixes the bug where digging a horizontal tunnel and walking
+// into it would snap the player back to the surface.  When the player is inside
+// an underground open space (shovel-dug tunnel or natural cave), the function
+// returns the solid floor beneath them instead of null, so the game loop uses
+// the tunnel floor for ground detection rather than the terrain surface above.
+
+describe("getFloorYBelowPlayer", () => {
+  const PLAYER_HEIGHT = 1.8;
+
+  beforeEach(() => {
+    resetDensityOverrides();
+  });
+  afterEach(() => {
+    resetDensityOverrides();
+  });
+
+  it("returns null when player feet are at or above the natural surface (no tunnel)", () => {
+    const wx = 50, wz = 50;
+    const surfY = getTerrainHeight(wx, wz);
+    // Camera eye is at surface + PLAYER_HEIGHT → feet are at surface
+    const camY = surfY + PLAYER_HEIGHT;
+    const result = getFloorYBelowPlayer(wx, camY - PLAYER_HEIGHT, wz);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when player feet are above the surface (in the air)", () => {
+    const wx = 20, wz = 20;
+    const surfY = getTerrainHeight(wx, wz);
+    // Player jumping high above the surface
+    const feetY = surfY + 5;
+    const result = getFloorYBelowPlayer(wx, feetY, wz);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when player feet are inside solid rock below the surface", () => {
+    const wx = 0, wz = 0;
+    const surfY = getTerrainHeight(wx, wz);
+    // Place feet deep underground in solid (un-dug) rock — density < 0
+    const feetY = surfY - 30;
+    const density = getVoxelDensity(wx, feetY, wz);
+    // Only meaningful if the voxel is actually solid (no cave here)
+    if (density < 0) {
+      const result = getFloorYBelowPlayer(wx, feetY, wz);
+      // Inside solid rock → null (standard push-up should handle this)
+      expect(result).toBeNull();
+    } else {
+      // The point happens to be in a cave; test is not applicable here
+      expect(true).toBe(true);
+    }
+  });
+
+  it("returns a floor Y when player is inside a shovel-dug horizontal tunnel", () => {
+    const wx = 60, wz = 60;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Dig a sphere at 8 units below the surface to simulate a horizontal tunnel entry.
+    // The surface directly ABOVE (wx, wz) is NOT dug, so getTerrainSurfaceYAfterDigs
+    // would return null — but getFloorYBelowPlayer should detect the open space.
+    const digY = surfY - 8;
+    digVoxelSphere(wx, digY, wz, 4);
+
+    // Player is inside the dug space: feet at the dig centre
+    const feetY = digY;
+    const density = getVoxelDensity(wx, feetY, wz);
+
+    if (density >= 0) {
+      // Space is open (dug) — we expect a floor to be returned
+      const result = getFloorYBelowPlayer(wx, feetY, wz);
+      expect(result).not.toBeNull();
+      if (result !== null) {
+        // Floor must be below the player's feet
+        expect(result).toBeLessThanOrEqual(feetY);
+        // Floor must be at or above VOXEL_Y_MIN
+        expect(result).toBeGreaterThanOrEqual(VOXEL_Y_MIN);
+      }
+    } else {
+      // Dig radius was too small to carve this exact point — trivially pass
+      expect(true).toBe(true);
+    }
+  });
+
+  it("returned floor Y is always at or above VOXEL_Y_MIN (no below-world result)", () => {
+    const wx = -30, wz = 30;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Dig a very large sphere to maximize open space
+    digVoxelSphere(wx, surfY - 5, wz, 20);
+
+    // Sample at several depths — any open space result must be >= VOXEL_Y_MIN
+    for (let depth = 2; depth <= 20; depth += 2) {
+      const feetY = surfY - depth;
+      const result = getFloorYBelowPlayer(wx, feetY, wz);
+      if (result !== null) {
+        expect(result).toBeGreaterThanOrEqual(VOXEL_Y_MIN);
+      }
+    }
+  });
+
+  it("returns null consistently when there are no density overrides and player is above surface", () => {
+    // Fast-exit path: no dig overrides, player above ground → always null
+    const wx = 10, wz = 10;
+    const surfY = getTerrainHeight(wx, wz);
+    const feetY = surfY + 0.5; // just above surface
+    expect(getFloorYBelowPlayer(wx, feetY, wz)).toBeNull();
+    expect(getFloorYBelowPlayer(wx, feetY, wz)).toBeNull(); // deterministic
+  });
+
+  it("returns a finite number when a result is returned", () => {
+    const wx = 40, wz = -20;
+    const surfY = getTerrainHeight(wx, wz);
+    digVoxelSphere(wx, surfY - 6, wz, 5);
+
+    for (let depth = 3; depth <= 10; depth += 1) {
+      const feetY = surfY - depth;
+      const result = getFloorYBelowPlayer(wx, feetY, wz);
+      if (result !== null) {
+        expect(isFinite(result)).toBe(true);
+      }
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
   generateVoxelTerrainAsync,
   digVoxelSphere,
   getTerrainSurfaceYAfterDigs,
+  getFloorYBelowPlayer,
   type VoxelTerrainResult,
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
@@ -443,11 +444,31 @@ const WEATHER_TRANSITION_SPEED = 0.35; // lerp speed for weather blending (per s
  * base 2D height grid AND any voxel density overrides created by shovel digs
  * or bomb craters.
  *
+ * When `playerCamY` is provided (camera / eye height), the function also
+ * handles the case where the player is inside an underground tunnel or cave:
+ * instead of snapping to the surface above the player, it returns the floor
+ * of the open space the player is standing in. This fixes the bug where
+ * digging a horizontal tunnel would always push the player back to the surface.
+ *
  * Use this instead of `getTerrainHeightSampled` wherever entity or player
  * ground-detection is performed so that dug holes and craters are physically
  * present, not just visual.
+ *
+ * @param x            World X coordinate.
+ * @param z            World Z coordinate.
+ * @param playerCamY   Optional camera Y (eye height). Pass this during player
+ *                     land-physics so underground open spaces are detected.
  */
-function getEffectiveTerrainY(x: number, z: number): number {
+function getEffectiveTerrainY(x: number, z: number, playerCamY?: number): number {
+  // If the player's Y is provided, check if they are inside a tunnel / cave.
+  // getFloorYBelowPlayer returns the actual floor of the open space they are
+  // in, rather than the natural surface above them.
+  if (playerCamY !== undefined) {
+    const feetY = playerCamY - PLAYER_HEIGHT;
+    const tunnelFloor = getFloorYBelowPlayer(x, feetY, z);
+    if (tunnelFloor !== null) return tunnelFloor;
+  }
+
   const afterDigs = getTerrainSurfaceYAfterDigs(x, z);
   if (afterDigs !== null) return afterDigs;
   return getTerrainHeightSampled(x, z);
@@ -6164,6 +6185,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // getEffectiveTerrainY accounts for shovel digs and bomb craters
         // recorded in the voxel density override map so that carved holes
         // are physically present for the player, not just visual.
+        // Water detection intentionally uses the natural surface height (no
+        // playerCamY) so that swimming works correctly over lakes/oceans even
+        // when the player is descending into a dig hole at the water's edge.
         const terrainY = getEffectiveTerrainY(cam.position.x, cam.position.z);
         const isOverWater = terrainY < WATER_LEVEL;
 
@@ -6221,7 +6245,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           cam.position.y += player.velY * dt;
 
           // ── Ground detection: terrain + 3D walkable colliders ────────────────
-          let groundY = terrainY + PLAYER_HEIGHT;
+          // Pass cam.position.y so that tunnel/cave floor detection is active:
+          // when the player is inside a carved underground space, getEffectiveTerrainY
+          // returns the floor of that space instead of the surface above, preventing
+          // the player from being pushed back to the surface while inside a tunnel.
+          const floorTerrainY = getEffectiveTerrainY(cam.position.x, cam.position.z, cam.position.y);
+          let groundY = floorTerrainY + PLAYER_HEIGHT;
 
           // 3D walkable surfaces: building rooftops, wall tops, etc.
           // getWalkableSurfaceY returns the camera height to stand at, or -Infinity if none.

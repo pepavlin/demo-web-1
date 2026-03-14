@@ -535,6 +535,57 @@ export function getTerrainSurfaceYAfterDigs(wx: number, wz: number): number | nu
 }
 
 /**
+ * Returns the floor Y beneath a player who is currently inside an underground
+ * open space (shovel-dug tunnel or natural cave).
+ *
+ * This solves the "tunnel push-out" bug: when the player digs a horizontal
+ * tunnel and walks into it, the natural surface directly above (wx, wz) is
+ * still intact, so `getTerrainSurfaceYAfterDigs` returns null and the player
+ * gets snapped back to the surface.
+ *
+ * Algorithm:
+ * 1. If the player's feet are at or above the natural surface, the player is
+ *    not underground → return null (caller uses standard surface collision).
+ * 2. If the player's feet are below the natural surface but inside solid rock
+ *    (negative density), they are embedded → return null (push-up handled by
+ *    standard collision).
+ * 3. Otherwise the feet are in open underground space (positive density from
+ *    a dig or cave). Scan downward from the feet to find the first solid voxel
+ *    and return that Y as the tunnel floor.
+ *
+ * @param wx      World X coordinate.
+ * @param feetY   World Y of the player's feet (camera Y − PLAYER_HEIGHT).
+ * @param wz      World Z coordinate.
+ * @returns       Floor Y beneath the player if underground in open space,
+ *                or null if normal surface collision should be used.
+ */
+export function getFloorYBelowPlayer(wx: number, feetY: number, wz: number): number | null {
+  const baseY = getTerrainHeight(wx, wz);
+
+  // Player is at or above the natural surface — no tunnel handling needed.
+  if (feetY >= baseY - 0.5) return null;
+
+  // Player is below the natural surface — check if the space is open (air).
+  const densityAtFeet = getVoxelDensity(wx, feetY, wz, baseY);
+  if (densityAtFeet < 0) {
+    // Inside solid rock — let standard push-up logic handle it.
+    return null;
+  }
+
+  // Player is in open underground space (dig or cave).
+  // Scan downward from the feet to find the solid floor.
+  const scanLimit = Math.max(VOXEL_Y_MIN, feetY - 40);
+  let y = feetY - VOXEL_SIZE;
+  while (y > scanLimit) {
+    if (getVoxelDensity(wx, y, wz) < 0) {
+      return y; // solid floor found
+    }
+    y -= VOXEL_SIZE;
+  }
+  return scanLimit; // fallback: deep void floor
+}
+
+/**
  * Initialise the 3D noise generator used for cave carving.
  * Uses a different seed from the 2D terrain noise to keep caves independent
  * of the surface height-map.
