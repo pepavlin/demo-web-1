@@ -2388,6 +2388,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // via the `vColor` varying in the vertex shader.
 
     const terrainMat = new THREE.ShaderMaterial({
+      side: THREE.FrontSide, // backface culling — underground/back-facing triangles are skipped
       uniforms: {
         uSunDir:       { value: new THREE.Vector3(0.58, 0.77, 0.27) },
         uSunColor:     { value: new THREE.Color(1.0, 0.95, 0.80) },

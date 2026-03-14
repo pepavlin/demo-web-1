@@ -52,6 +52,13 @@ export const CHUNK_WORLD = CHUNK_SIZE * VOXEL_SIZE;
  */
 export const TERRAIN_LOD_DISTANCE = 128;
 
+/**
+ * Distance (world units) from the camera beyond which terrain chunks switch to
+ * the lowest-resolution LOD 2 mesh.  Beyond this threshold the very coarse
+ * LOD 2 mesh (4× voxel size, ~16× fewer triangles) is used instead of LOD 1.
+ */
+export const TERRAIN_LOD2_DISTANCE = 220;
+
 /** Minimum Y (world units) for the voxel volume — below the deepest ocean floor. */
 export const VOXEL_Y_MIN = -32;
 
@@ -860,6 +867,8 @@ interface ChunkRecord {
   mesh: THREE.Mesh | null;
   /** LOD 1 — reduced-quality mesh (VOXEL_SIZE=4, CHUNK_SIZE=8, ~4× fewer triangles). */
   meshLod: THREE.Mesh | null;
+  /** LOD 2 — lowest-quality mesh (VOXEL_SIZE=8, CHUNK_SIZE=4, ~16× fewer triangles). */
+  meshLod2: THREE.Mesh | null;
   originX: number;
   originY: number;
   originZ: number;
@@ -962,7 +971,18 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
       group.add(meshLod);
     }
 
-    chunkMap.set(key, { key, mesh, meshLod, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
+    // LOD 2 — lowest quality (starts hidden, shown at very large distances)
+    const geoLod2 = generateChunkGeometry(ox, oy, oz, 4);
+    let meshLod2: THREE.Mesh | null = null;
+    if (geoLod2) {
+      meshLod2 = new THREE.Mesh(geoLod2, material);
+      meshLod2.receiveShadow = true;
+      meshLod2.name = `voxelChunkLod2_${key}`;
+      meshLod2.visible = false;
+      group.add(meshLod2);
+    }
+
+    chunkMap.set(key, { key, mesh, meshLod, meshLod2, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
   }
 
   function refreshChunksAt(
@@ -996,6 +1016,13 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
         record.meshLod = null;
       }
 
+      // Dispose and remove LOD 2
+      if (record.meshLod2) {
+        group.remove(record.meshLod2);
+        record.meshLod2.geometry.dispose();
+        record.meshLod2 = null;
+      }
+
       const newGeo = generateChunkGeometry(originX, originY, originZ, 1);
       if (newGeo) {
         const newMesh = new THREE.Mesh(newGeo, mat);
@@ -1015,18 +1042,31 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
         group.add(newMeshLod);
         record.meshLod = newMeshLod;
       }
+
+      const newGeoLod2 = generateChunkGeometry(originX, originY, originZ, 4);
+      if (newGeoLod2) {
+        const newMeshLod2 = new THREE.Mesh(newGeoLod2, mat);
+        newMeshLod2.receiveShadow = true;
+        newMeshLod2.name = `voxelChunkLod2_${key}`;
+        newMeshLod2.visible = false;
+        group.add(newMeshLod2);
+        record.meshLod2 = newMeshLod2;
+      }
     }
   }
 
   function updateTerrainLOD(camX: number, camZ: number): void {
-    const threshSq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    const thresh1Sq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    const thresh2Sq = TERRAIN_LOD2_DISTANCE * TERRAIN_LOD2_DISTANCE;
     for (const record of chunkMap.values()) {
       const dx = record.centerX - camX;
       const dz = record.centerZ - camZ;
       const distSq = dx * dx + dz * dz;
-      const useLod = distSq > threshSq;
-      if (record.mesh)    record.mesh.visible    = !useLod;
-      if (record.meshLod) record.meshLod.visible  = useLod;
+      const useLod2 = distSq > thresh2Sq;
+      const useLod1 = !useLod2 && distSq > thresh1Sq;
+      if (record.mesh)     record.mesh.visible     = !useLod1 && !useLod2;
+      if (record.meshLod)  record.meshLod.visible   = useLod1;
+      if (record.meshLod2) record.meshLod2.visible  = useLod2;
     }
   }
 
@@ -1096,7 +1136,18 @@ export async function generateVoxelTerrainAsync(
         group.add(meshLod);
       }
 
-      chunkMap.set(key, { key, mesh, meshLod, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
+      // LOD 2 — lowest quality (starts hidden, shown at very large distances)
+      const geoLod2 = generateChunkGeometry(ox, oy, oz, 4);
+      let meshLod2: THREE.Mesh | null = null;
+      if (geoLod2) {
+        meshLod2 = new THREE.Mesh(geoLod2, material);
+        meshLod2.receiveShadow = true;
+        meshLod2.name = `voxelChunkLod2_${key}`;
+        meshLod2.visible = false;
+        group.add(meshLod2);
+      }
+
+      chunkMap.set(key, { key, mesh, meshLod, meshLod2, originX: ox, originY: oy, originZ: oz, centerX: cx0, centerZ: cz0 });
     }
 
     onProgress?.(end, total);
@@ -1134,6 +1185,13 @@ export async function generateVoxelTerrainAsync(
         record.meshLod = null;
       }
 
+      // Dispose and remove LOD 2
+      if (record.meshLod2) {
+        group.remove(record.meshLod2);
+        record.meshLod2.geometry.dispose();
+        record.meshLod2 = null;
+      }
+
       const newGeo = generateChunkGeometry(originX, originY, originZ, 1);
       if (newGeo) {
         const newMesh = new THREE.Mesh(newGeo, mat);
@@ -1153,18 +1211,31 @@ export async function generateVoxelTerrainAsync(
         group.add(newMeshLod);
         record.meshLod = newMeshLod;
       }
+
+      const newGeoLod2 = generateChunkGeometry(originX, originY, originZ, 4);
+      if (newGeoLod2) {
+        const newMeshLod2 = new THREE.Mesh(newGeoLod2, mat);
+        newMeshLod2.receiveShadow = true;
+        newMeshLod2.name = `voxelChunkLod2_${key}`;
+        newMeshLod2.visible = false;
+        group.add(newMeshLod2);
+        record.meshLod2 = newMeshLod2;
+      }
     }
   }
 
   function updateTerrainLOD(camX: number, camZ: number): void {
-    const threshSq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    const thresh1Sq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+    const thresh2Sq = TERRAIN_LOD2_DISTANCE * TERRAIN_LOD2_DISTANCE;
     for (const record of chunkMap.values()) {
       const dx = record.centerX - camX;
       const dz = record.centerZ - camZ;
       const distSq = dx * dx + dz * dz;
-      const useLod = distSq > threshSq;
-      if (record.mesh)    record.mesh.visible    = !useLod;
-      if (record.meshLod) record.meshLod.visible  = useLod;
+      const useLod2 = distSq > thresh2Sq;
+      const useLod1 = !useLod2 && distSq > thresh1Sq;
+      if (record.mesh)     record.mesh.visible     = !useLod1 && !useLod2;
+      if (record.meshLod)  record.meshLod.visible   = useLod1;
+      if (record.meshLod2) record.meshLod2.visible  = useLod2;
     }
   }
 
