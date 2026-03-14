@@ -902,10 +902,19 @@ export interface VoxelTerrainResult {
   chunkMeshes: THREE.Mesh[];
   /**
    * Switch each chunk between its full-quality (LOD 0) and reduced-quality
-   * (LOD 1) mesh based on the camera's current XZ position.
+   * (LOD 1/2) mesh based on the camera's current XZ position and altitude.
+   *
+   * When the camera is elevated (e.g. in an airplane), `camY` triggers an
+   * altitude multiplier that pushes more chunks into lower-resolution LODs —
+   * since high-altitude views cover more of the map at lower pixel density,
+   * coarser geometry is indistinguishable and dramatically reduces GPU load.
+   *
    * Call once per frame (or every few frames) from the game loop.
+   *
+   * @param camY  Optional world-Y of the camera. When omitted altitude
+   *              scaling is disabled (factor = 1).
    */
-  updateTerrainLOD: (camX: number, camZ: number) => void;
+  updateTerrainLOD: (camX: number, camZ: number, camY?: number) => void;
 }
 
 interface ChunkRecord {
@@ -1102,9 +1111,20 @@ export function generateVoxelTerrain(material: THREE.Material): VoxelTerrainResu
     }
   }
 
-  function updateTerrainLOD(camX: number, camZ: number): void {
-    const thresh1Sq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
-    const thresh2Sq = TERRAIN_LOD2_DISTANCE * TERRAIN_LOD2_DISTANCE;
+  function updateTerrainLOD(camX: number, camZ: number, camY?: number): void {
+    // Altitude factor: when the camera is elevated (airplane, rocket) we push
+    // more chunks into coarser LODs. At ground level (camY≤30) factor=1 (no
+    // change). At camY=90 factor=3, so the LOD1 threshold triples from 128→384
+    // and LOD2 from 220→660 — effectively the whole map renders at LOD2 which
+    // removes ~16× the triangles vs LOD0 with no perceptible quality loss at
+    // high altitude where each terrain chunk occupies very few screen pixels.
+    const altFactor = camY !== undefined
+      ? Math.min(3.0, Math.max(1.0, camY / 30.0))
+      : 1.0;
+    const t1 = TERRAIN_LOD_DISTANCE  * altFactor;
+    const t2 = TERRAIN_LOD2_DISTANCE * altFactor;
+    const thresh1Sq = t1 * t1;
+    const thresh2Sq = t2 * t2;
     for (const record of chunkMap.values()) {
       const dx = record.centerX - camX;
       const dz = record.centerZ - camZ;
@@ -1271,9 +1291,20 @@ export async function generateVoxelTerrainAsync(
     }
   }
 
-  function updateTerrainLOD(camX: number, camZ: number): void {
-    const thresh1Sq = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
-    const thresh2Sq = TERRAIN_LOD2_DISTANCE * TERRAIN_LOD2_DISTANCE;
+  function updateTerrainLOD(camX: number, camZ: number, camY?: number): void {
+    // Altitude factor: when the camera is elevated (airplane, rocket) we push
+    // more chunks into coarser LODs. At ground level (camY≤30) factor=1 (no
+    // change). At camY=90 factor=3, so the LOD1 threshold triples from 128→384
+    // and LOD2 from 220→660 — effectively the whole map renders at LOD2 which
+    // removes ~16× the triangles vs LOD0 with no perceptible quality loss at
+    // high altitude where each terrain chunk occupies very few screen pixels.
+    const altFactor = camY !== undefined
+      ? Math.min(3.0, Math.max(1.0, camY / 30.0))
+      : 1.0;
+    const t1 = TERRAIN_LOD_DISTANCE  * altFactor;
+    const t2 = TERRAIN_LOD2_DISTANCE * altFactor;
+    const thresh1Sq = t1 * t1;
+    const thresh2Sq = t2 * t2;
     for (const record of chunkMap.values()) {
       const dx = record.centerX - camX;
       const dz = record.centerZ - camZ;

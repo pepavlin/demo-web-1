@@ -479,6 +479,17 @@ function lerpColor(a: THREE.Color, b: THREE.Color, t: number): THREE.Color {
   );
 }
 
+// ─── Pre-allocated render-loop objects ────────────────────────────────────────
+// These objects are reused every animation frame to avoid per-frame garbage
+// collection pressure.  GC pauses are a common cause of stutter especially
+// when many objects are visible (e.g. high-altitude / whole-map views).
+const _renderStormGrey   = new THREE.Color(0.38, 0.40, 0.45);
+const _renderSkyTemp     = new THREE.Color();
+const _renderCloudWhite  = new THREE.Color(1.0, 1.0, 1.0);
+const _renderCloudStorm  = new THREE.Color(0.28, 0.28, 0.32);
+const _renderCloudTemp   = new THREE.Color();
+const _renderSunDir      = new THREE.Vector3();
+
 function smoothstep(a: number, b: number, t: number): number {
   const x = Math.max(0, Math.min(1, (t - a) / (b - a)));
   return x * x * (3 - 2 * x);
@@ -2412,15 +2423,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.4);
     sun.position.set(100, 150, 80);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    // Shadow map: 1024×1024 is a 4× reduction vs 2048×2048 with barely visible
+    // quality difference at normal play distances.  The key performance win is the
+    // smaller shadow frustum (±120 instead of ±250): only the area around the
+    // player needs to cast/receive shadows, cutting the shadow-render scene to
+    // ~23% of the original area.  The target follows the player every frame so
+    // shadows always cover the player's immediate surroundings.
+    sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 700;
-    sun.shadow.camera.left = -250;
-    sun.shadow.camera.right = 250;
-    sun.shadow.camera.top = 250;
-    sun.shadow.camera.bottom = -250;
+    sun.shadow.camera.far = 500;
+    sun.shadow.camera.left   = -120;
+    sun.shadow.camera.right  =  120;
+    sun.shadow.camera.top    =  120;
+    sun.shadow.camera.bottom = -120;
     sun.shadow.bias = -0.0005;
     scene.add(sun);
+    // The DirectionalLight target must be in the scene for the shadow camera to
+    // track it when we update target.position each frame.
+    scene.add(sun.target);
     sunRef.current = sun;
 
     const fill = new THREE.DirectionalLight(0x8090ff, 0.3);
@@ -4955,6 +4975,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // ── Animation loop ────────────────────────────────────────────────────────
     let elapsed = 0;
     let frameCount = 0; // incremented each frame — used to throttle expensive updates
+
+    // Adaptive pixel ratio: track FPS over a 90-frame window and lower the
+    // pixel ratio when the renderer can't sustain ≥40 fps.  This trades a
+    // little sharpness for a large fill-rate saving (1.5× ratio = 56% of the
+    // pixels of 2×; 1× ratio = 25% of the pixels of 2×).
+    let _fpsWindowStart = performance.now();
+    let _fpsWindowFrames = 0;
+
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
       const now = performance.now();
@@ -4962,6 +4990,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       prevTimeRef.current = now;
       elapsed += dt;
       frameCount++;
+      _fpsWindowFrames++;
+
+      // ── Adaptive pixel ratio (checked every 90 frames ≈ 1.5 s at 60 fps) ───
+      // When sustained FPS falls below 40, reduce pixel ratio to ease GPU fill-
+      // rate pressure.  When FPS recovers above 55, restore the original ratio.
+      // This is the cheapest way to reclaim GPU headroom during whole-map views.
+      if (_fpsWindowFrames >= 90 && rendererRef.current) {
+        const windowMs = now - _fpsWindowStart;
+        const measuredFps = (_fpsWindowFrames / windowMs) * 1000;
+        _fpsWindowStart = now;
+        _fpsWindowFrames = 0;
+        const currentRatio = rendererRef.current.getPixelRatio();
+        const maxRatio = Math.min(window.devicePixelRatio, 2);
+        if (measuredFps < 40 && currentRatio > 1) {
+          rendererRef.current.setPixelRatio(Math.max(1, currentRatio - 0.5));
+        } else if (measuredFps > 55 && currentRatio < maxRatio) {
+          rendererRef.current.setPixelRatio(Math.min(maxRatio, currentRatio + 0.5));
+        }
+      }
 
       // ── Sync player body position in first-person (always matches cam.position) ──
       if (cameraModeRef.current === "first" && cameraRef.current) {
@@ -4997,8 +5044,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               weatherBlendRef.current
             ).cloudDarkness
           : WEATHER_CONFIGS[weatherStateRef.current].cloudDarkness;
-      const stormGrey = new THREE.Color(0.38, 0.40, 0.45);
-      const skyColor = baseSkyColor.clone().lerp(stormGrey, stormBlend * 0.7);
+      // Reuse pre-allocated objects — avoids two THREE.Color allocations per frame.
+      const skyColor = _renderSkyTemp.copy(baseSkyColor).lerp(_renderStormGrey, stormBlend * 0.7);
       // Only update Earth sky/fog visuals when NOT in the station or bunker (fog is null there)
       if (!_inStation && !_inBunker) {
         scene.background = skyColor;
@@ -5017,35 +5064,49 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         );
         sunRef.current.intensity = getSunIntensity(dayFraction);
 
+        // Make the shadow camera track the player so the ±120 shadow frustum
+        // stays centred on whoever is casting and receiving shadows.
+        // This is the key to having a smaller (faster) shadow area without
+        // losing shadow coverage around the player.
+        if (cameraRef.current) {
+          const px = cameraRef.current.position.x;
+          const pz = cameraRef.current.position.z;
+          sunRef.current.target.position.set(px, 0, pz);
+          sunRef.current.target.updateMatrixWorld();
+        }
+
         // ── Volumetric sun disc + corona ────────────────────────────────────
         const sunIntensity = getSunIntensity(dayFraction);
         const isDaytime = sunIntensity > 0;
+        // Compute sun direction once here — reused for disc, corona, and water.
+        // Using the pre-allocated _renderSunDir avoids a .clone() every frame.
+        _renderSunDir.copy(sunRef.current.position).normalize();
         if (sunDiscRef.current) {
-          // Place sun disc on the sky sphere surface along same direction as light
-          const sunDir = sunRef.current.position.clone().normalize();
-          sunDiscRef.current.position.copy(sunDir.multiplyScalar(450));
+          sunDiscRef.current.position.copy(_renderSunDir).multiplyScalar(450);
           sunDiscRef.current.visible = isDaytime;
           // Shift colour toward orange at dawn/dusk, white-yellow at noon
           const mat = sunDiscRef.current.material as THREE.MeshBasicMaterial;
           if (isDaytime) {
             const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
             if (isGoldenHour) {
-              mat.color.set(new THREE.Color(2.2, 0.9, 0.25)); // deep orange HDR
+              mat.color.setRGB(2.2, 0.9, 0.25); // deep orange HDR
             } else {
-              mat.color.set(new THREE.Color(2.0, 1.6, 1.0)); // warm white HDR
+              mat.color.setRGB(2.0, 1.6, 1.0); // warm white HDR
             }
           }
         }
         if (sunCoronaRef.current) {
-          const sunDir2 = sunRef.current.position.clone().normalize();
-          sunCoronaRef.current.position.copy(sunDir2.multiplyScalar(448));
+          // Reuse the already-computed sun direction (no second clone needed).
+          sunCoronaRef.current.position.copy(_renderSunDir).multiplyScalar(448);
           sunCoronaRef.current.visible = isDaytime;
           const coronaMat = sunCoronaRef.current.material as THREE.MeshBasicMaterial;
           if (isDaytime) {
             const isGoldenHour = dayFraction < 0.32 || dayFraction > 0.68;
-            coronaMat.color.set(
-              isGoldenHour ? new THREE.Color(1.1, 0.42, 0.07) : new THREE.Color(1.0, 0.75, 0.35)
-            );
+            if (isGoldenHour) {
+              coronaMat.color.setRGB(1.1, 0.42, 0.07);
+            } else {
+              coronaMat.color.setRGB(1.0, 0.75, 0.35);
+            }
             // Pulse corona opacity subtly over time
             coronaMat.opacity = 0.07 + Math.sin(elapsed * 0.4) * 0.025;
           }
@@ -5154,18 +5215,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           (scene.fog as THREE.FogExp2).density = wCfg.fogDensity;
         }
 
-        // Cloud colour darkening during storms
-        const cloudColor = new THREE.Color(1, 1, 1).lerp(
-          new THREE.Color(0.28, 0.28, 0.32),
-          wCfg.cloudDarkness
-        );
-        cloudsRef.current.forEach((c) => {
-          c.mesh.traverse((obj) => {
-            if (obj instanceof THREE.Mesh) {
-              (obj.material as THREE.MeshLambertMaterial).color.copy(cloudColor);
-            }
+        // Cloud colour darkening during storms.
+        // Only traverse cloud meshes when weather is actively blending (color is
+        // changing) or once every 60 frames for a cheap stability pulse.  When
+        // weather is stable the cloud color hasn't changed, so the expensive
+        // O(clouds × mesh-children) traverse can be skipped entirely.
+        // Also uses pre-allocated color objects to eliminate GC pressure.
+        const cloudChanging = weatherBlendRef.current < 0.999;
+        if (cloudChanging || frameCount % 60 === 0) {
+          _renderCloudTemp.copy(_renderCloudWhite).lerp(_renderCloudStorm, wCfg.cloudDarkness);
+          cloudsRef.current.forEach((c) => {
+            c.mesh.traverse((obj) => {
+              if (obj instanceof THREE.Mesh) {
+                (obj.material as THREE.MeshLambertMaterial).color.copy(_renderCloudTemp);
+              }
+            });
           });
-        });
+        }
 
         // Rain particles – GPU animated: only update lightweight uniforms,
         // no CPU loop and no Float32Array buffer re-upload each frame.
@@ -5265,10 +5331,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // ── Water wave animation ───────────────────────────────────────────────
       if (waterMatRef.current) {
         waterMatRef.current.uniforms.time.value = elapsed;
-        // Keep sun direction in sync with the day/night cycle
+        // Keep sun direction in sync with the day/night cycle.
+        // _renderSunDir was already computed this frame (above) — reuse it.
         if (sunRef.current) {
-          const sd = sunRef.current.position.clone().normalize();
-          waterMatRef.current.uniforms.sunDir.value.copy(sd);
+          waterMatRef.current.uniforms.sunDir.value.copy(_renderSunDir);
         }
         // Tint reflected sky to match current sky colour
         waterMatRef.current.uniforms.skyCol.value.copy(
@@ -9093,12 +9159,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setPlayerLabels([]);
       }
 
-      // ── Terrain LOD: switch chunk quality based on camera distance ──────────
+      // ── Terrain LOD: switch chunk quality based on camera distance & altitude ─
       // Update every 30 frames (~0.5 s at 60 fps) — the LOD transition is
       // imperceptible at that cadence and avoids per-chunk iteration every frame.
+      // camY is passed so the altitude factor can coarsen distant chunks when the
+      // camera is elevated (airplane / rocket), dramatically reducing draw-call
+      // and triangle count when the player looks at the whole map from above.
       if (voxelTerrainRef.current && cameraRef.current && frameCount % 30 === 0) {
         const cam = cameraRef.current;
-        voxelTerrainRef.current.updateTerrainLOD(cam.position.x, cam.position.z);
+        voxelTerrainRef.current.updateTerrainLOD(cam.position.x, cam.position.z, cam.position.y);
       }
 
       // ── Entity sync: broadcast NPC states (host only) ─────────────────────
