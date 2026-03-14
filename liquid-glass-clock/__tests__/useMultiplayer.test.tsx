@@ -359,4 +359,57 @@ describe("useMultiplayer hook", () => {
     act(() => { result.current.sendEntityEvent(event); });
     expect(mockSocket.emit).toHaveBeenCalledWith("entity:event", event);
   });
+
+  // ── crate:spawn (player-join airdrop) ────────────────────────────────────────
+
+  it("registers crate:spawn event listener", () => {
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("crate:spawn");
+  });
+
+  it("calls onCrateSpawn with correct data when crate:spawn fires", () => {
+    const onCrateSpawn = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateSpawn })
+    );
+    const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
+    const payload = { x: 15.5, z: -8.3, playerName: "AliceTest" };
+    act(() => { crateCall![1](payload); });
+    expect(onCrateSpawn).toHaveBeenCalledWith(payload);
+  });
+
+  it("onCrateSpawn receives correct x/z coordinates", () => {
+    const onCrateSpawn = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateSpawn })
+    );
+    const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
+    act(() => { crateCall![1]({ x: 42, z: -7, playerName: "Bob" }); });
+    expect(onCrateSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 42, z: -7 })
+    );
+  });
+
+  it("onCrateSpawn receives playerName from the server payload", () => {
+    const onCrateSpawn = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateSpawn })
+    );
+    const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
+    act(() => { crateCall![1]({ x: 0, z: 0, playerName: "Vojta" }); });
+    expect(onCrateSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({ playerName: "Vojta" })
+    );
+  });
+
+  it("does not throw when crate:spawn fires without onCrateSpawn callback", () => {
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
+    expect(() => act(() => { crateCall![1]({ x: 1, z: 2, playerName: "X" }); })).not.toThrow();
+  });
 });

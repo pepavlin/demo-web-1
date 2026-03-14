@@ -131,6 +131,16 @@ io.on("connection", (socket) => {
     // Broadcast new player to everyone else
     socket.broadcast.emit("player:joined", player);
 
+    // Drop a supply crate from the sky for ALL players whenever someone joins
+    const crateAngle = Math.random() * Math.PI * 2;
+    const crateDist  = 12 + Math.random() * 22; // 12–34 units from map centre
+    io.emit("crate:spawn", {
+      x: Math.cos(crateAngle) * crateDist,
+      z: Math.sin(crateAngle) * crateDist,
+      playerName: player.name,
+    });
+    console.log(`[Airdrop] Crate triggered by ${player.name}`);
+
     console.log(`[WS] ${player.name} joined (total: ${players.size}, host: ${hostId === socket.id ? "YES" : "no"})`);
   });
 
