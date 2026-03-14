@@ -16,7 +16,7 @@ import {
 import type { AirdropLoot } from "@/lib/gameTypes";
 
 describe("airdropSystem constants", () => {
-  test("AIRDROP_INTERVAL is 60s", () => { expect(AIRDROP_INTERVAL).toBe(60); });
+  test("AIRDROP_INTERVAL is 20s (3× more frequent than original 60 s)", () => { expect(AIRDROP_INTERVAL).toBe(20); });
   test("AIRDROP_SPAWN_HEIGHT > 0", () => { expect(AIRDROP_SPAWN_HEIGHT).toBeGreaterThan(0); });
   test("AIRDROP_FALL_SPEED > 0", () => { expect(AIRDROP_FALL_SPEED).toBeGreaterThan(0); });
   test("AIRDROP_OPEN_RADIUS > 0", () => { expect(AIRDROP_OPEN_RADIUS).toBeGreaterThan(0); });
