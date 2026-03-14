@@ -1675,9 +1675,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   function pickUpItem(item: WorldItem) {
     if (!cameraRef.current || !sceneRef.current) return;
     const cam = cameraRef.current;
+    const scene = sceneRef.current;
 
-    // Hide world mesh (item stays in array but is no longer visible in world)
-    item.mesh.visible = false;
+    // Remove world mesh from scene so it truly disappears (not just hidden)
+    scene.remove(item.mesh);
     item.isHeld = true;
     heldItemRef.current = item;
     setHeldItemType(item.type);
@@ -1701,14 +1702,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     const held = heldItemRef.current;
     if (!held || !cameraRef.current || !sceneRef.current) return;
 
-    // Move the world mesh to the target position and show it
+    const scene = sceneRef.current;
+    const cam = cameraRef.current;
+
+    // Re-add the world mesh to the scene at the target position
     held.mesh.position.copy(targetPos);
     held.mesh.rotation.y = targetRotY;
-    held.mesh.visible = true;
+    scene.add(held.mesh);
     held.isHeld = false;
 
     // Remove hand mesh from camera
-    const cam = cameraRef.current;
     if (heldItemHandMeshRef.current) {
       cam.remove(heldItemHandMeshRef.current);
       heldItemHandMeshRef.current = null;
@@ -1775,7 +1778,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     });
 
     // Remove the held bomb item from the world (consumed on throw)
-    held.mesh.visible = false;
+    scene.remove(held.mesh);
     held.isHeld = false;
     worldItemsRef.current = worldItemsRef.current.filter((wi) => wi !== held);
 
