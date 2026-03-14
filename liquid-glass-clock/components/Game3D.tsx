@@ -111,6 +111,7 @@ import {
   AIRDROP_OPEN_RADIUS,
   AIRDROP_DESPAWN_TIME,
 } from "@/lib/airdropSystem";
+import { PhysicsWorld } from "@/lib/physicsSystem";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
@@ -717,8 +718,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const treeCollisionRef = useRef<CylinderCollider3D[]>([]);
   /** All interactive trees (with HP) in the world. */
   const treeDataRef = useRef<TreeData[]>([]);
-  /** Wood log meshes currently lying on the ground waiting to be collected. */
-  const woodLogMeshesRef = useRef<Array<{ mesh: THREE.Group; x: number; z: number; collected: boolean }>>([]);
+  /**
+   * Wood log meshes lying on (or sliding along) the ground.
+   * physicsBodyId: ID registered in physicsWorldRef; present until the body sleeps.
+   * rollAngle: accumulated rolling rotation (radians) for visual rolling effect.
+   */
+  const woodLogMeshesRef = useRef<Array<{
+    mesh: THREE.Group;
+    x: number;
+    z: number;
+    collected: boolean;
+    physicsBodyId: string | undefined;
+    rollAngle: number;
+  }>>([]);
   /** Wood pieces flying through the air after a tree falls — physics-simulated before landing. */
   const flyingWoodPiecesRef = useRef<Array<{ mesh: THREE.Group; velX: number; velY: number; velZ: number }>>([]);
   /** Total wood logs collected this session. */
@@ -774,6 +786,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const caveTorchesRef = useRef<CaveTorchData[]>([]);
   const treasureChestRef = useRef<TreasureChestData | null>(null);
   const spidersDefeatedRef = useRef(0);
+
+  // ─── Physics World ────────────────────────────────────────────────────────────
+  /**
+   * Shared physics simulation world. Initialised lazily in the main useEffect
+   * once the terrain sampler is available. Drives slope-sliding and gravity for
+   * wood logs and airdrop crates.
+   */
+  const physicsWorldRef = useRef<PhysicsWorld | null>(null);
 
   // ─── Airdrop Refs ─────────────────────────────────────────────────────────────
   /** Countdown accumulator — triggers a new airdrop every AIRDROP_INTERVAL seconds. */
@@ -1330,7 +1350,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     const loot = pickAirdropLootArray();
 
-    airdropListRef.current.push({
+    // Register a physics body for the crate.
+    // During the 'falling' phase the parachute dampens descent to AIRDROP_FALL_SPEED;
+    // we achieve this by using very low restitution and high linear damping so the
+    // parachute's drag effect is approximated.  After landing the body slides on
+    // slopes just like a regular rigid box.
+    const crateBodyId = `crate-${Date.now()}`;
+    const adEntry: AirdropData = {
       mesh: crateMesh,
       parachuteMesh: parachute,
       beaconMesh,
@@ -1341,7 +1367,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       despawnTimer: 0,
       beaconAge: 0,
       loot,
-    });
+      physicsBodyId: crateBodyId,
+    };
+    airdropListRef.current.push(adEntry);
+
+    if (physicsWorldRef.current) {
+      physicsWorldRef.current.addBody({
+        id: crateBodyId,
+        position: { x, y: AIRDROP_SPAWN_HEIGHT, z },
+        // Start with a gentle downward velocity (parachute terminal velocity)
+        velocity: { x: 0, y: -AIRDROP_FALL_SPEED, z: 0 },
+        radius: 0.65,        // half-height of the crate box
+        // High damping simulates parachute drag: the body falls at roughly
+        // AIRDROP_FALL_SPEED without accelerating significantly under gravity.
+        linearDamping: 0.92,
+        restitution: 0.05,
+        friction: 0.7,
+        onUpdate: (pos, _vel, _dt) => {
+          if (adEntry.state === 'falling' || adEntry.state === 'landed') {
+            crateMesh.position.set(pos.x, pos.y, pos.z);
+            adEntry.x = pos.x;
+            adEntry.z = pos.z;
+          }
+        },
+        onSleep: () => {
+          // Body has settled — remove the physics body reference
+          adEntry.physicsBodyId = undefined;
+        },
+      });
+    }
 
     setAirdropIncoming(true);
     setTimeout(() => setAirdropIncoming(false), 5000);
@@ -2485,6 +2539,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     renderer.toneMappingExposure = 1.0;
     mountNode.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+
+    // Physics World — initialise with the terrain sampler so bodies can interact
+    // with the procedural landscape (slope-sliding, gravity landing).
+    physicsWorldRef.current = new PhysicsWorld(getTerrainHeightSampled);
 
     // Scene
     const scene = new THREE.Scene();
@@ -7723,26 +7781,92 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             );
           }
 
-          // Launch 2–4 wood log pieces from the tree base with physics — they scatter outward
+          // Launch 2–4 wood log pieces from the tree base.
+          // Each log gets a PhysicsBody so it falls with gravity, bounces, and
+          // slides down slopes before coming to rest.
           const logCount = 2 + Math.floor(Math.random() * 3);
           const baseY = getTerrainHeight(tree.x, tree.z) + 0.5;
+          const physWorld = physicsWorldRef.current;
           for (let i = 0; i < logCount; i++) {
             const angle = (i / logCount) * Math.PI * 2 + Math.random() * 0.5;
             const speed = 2.5 + Math.random() * 3.0;
             const logMesh = buildWoodLogMesh();
             logMesh.position.set(tree.x, baseY, tree.z);
             if (sceneRef.current) sceneRef.current.add(logMesh);
-            flyingWoodPiecesRef.current.push({
-              mesh: logMesh,
-              velX: Math.cos(angle) * speed,
-              velY: 3.0 + Math.random() * 2.5,
-              velZ: Math.sin(angle) * speed,
-            });
+
+            if (physWorld) {
+              // Use physics system for realistic falling + slope sliding
+              const logId = `log-${Date.now()}-${i}`;
+              const logEntry: {
+                mesh: THREE.Group;
+                x: number;
+                z: number;
+                collected: boolean;
+                physicsBodyId: string | undefined;
+                rollAngle: number;
+              } = {
+                mesh: logMesh,
+                x: tree.x,
+                z: tree.z,
+                collected: false,
+                physicsBodyId: logId,
+                rollAngle: 0,
+              };
+              woodLogMeshesRef.current.push(logEntry);
+
+              physWorld.addBody({
+                id: logId,
+                position: { x: tree.x, y: baseY, z: tree.z },
+                velocity: {
+                  x: Math.cos(angle) * speed,
+                  y: 3.0 + Math.random() * 2.5,
+                  z: Math.sin(angle) * speed,
+                },
+                radius: 0.22,
+                restitution: 0.18,
+                friction: 0.55,
+                linearDamping: 0.06,
+                onUpdate: (pos, vel, stepDt) => {
+                  logMesh.position.set(pos.x, pos.y, pos.z);
+                  logEntry.x = pos.x;
+                  logEntry.z = pos.z;
+                  // Roll log around its long axis based on horizontal speed
+                  const hSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+                  logEntry.rollAngle += hSpeed * stepDt / 0.22;
+                  logMesh.rotation.z = logEntry.rollAngle;
+                  // Tilt log slightly in the direction of travel
+                  if (hSpeed > 0.1) {
+                    logMesh.rotation.y = Math.atan2(vel.x, vel.z);
+                  }
+                },
+                onSleep: () => {
+                  // Snap to flat resting pose when settled
+                  logMesh.rotation.x = 0;
+                  logEntry.physicsBodyId = undefined;
+                },
+              });
+            } else {
+              // Fallback: legacy flying piece if physics world not yet ready
+              flyingWoodPiecesRef.current.push({
+                mesh: logMesh,
+                velX: Math.cos(angle) * speed,
+                velY: 3.0 + Math.random() * 2.5,
+                velZ: Math.sin(angle) * speed,
+              });
+            }
           }
         }
       });
 
-      // ── Flying wood piece physics (scatter after tree falls) ────────────────
+      // ── Physics world step ───────────────────────────────────────────────────
+      // Advances all active PhysicsBody simulations (logs, crates, etc.).
+      // Each body's onUpdate callback repositions its Three.js mesh automatically.
+      if (physicsWorldRef.current) {
+        physicsWorldRef.current.update(dt);
+      }
+
+      // ── Legacy flying wood piece physics (fallback, runs only if physics world
+      //    was unavailable when the tree was chopped) ─────────────────────────
       {
         const WOOD_GRAVITY = -10;
         const toRemove: number[] = [];
@@ -7765,6 +7889,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               x: piece.mesh.position.x,
               z: piece.mesh.position.z,
               collected: false,
+              physicsBodyId: undefined,
+              rollAngle: 0,
             });
             toRemove.push(idx);
           }
@@ -7784,6 +7910,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           log.collected = true;
           woodCollectedRef.current++;
           if (sceneRef.current) sceneRef.current.remove(log.mesh);
+          // Unregister physics body so it is no longer simulated
+          if (log.physicsBodyId && physicsWorldRef.current) {
+            physicsWorldRef.current.removeBody(log.physicsBodyId);
+            log.physicsBodyId = undefined;
+          }
         }
       });
 
@@ -8187,12 +8318,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       airdropListRef.current.forEach((ad, idx) => {
         if (ad.state === 'falling') {
-          const currentY = ad.mesh.position.y;
-          const newY = currentY - AIRDROP_FALL_SPEED * dt;
+          // Physics world moves the crate mesh via the onUpdate callback registered
+          // in spawnAirdropCrateAt.  We only need to:
+          //  1. Detect when the crate has reached the terrain (state transition).
+          //  2. Animate the parachute sway and beacon during descent.
 
-          if (newY <= ad.targetY) {
-            // Crate has landed
-            ad.mesh.position.y = ad.targetY;
+          const currentY = ad.mesh.position.y;
+          const hasLanded = currentY <= ad.targetY + 0.1;
+
+          if (hasLanded) {
+            // Crate has landed — transition to sliding/settled state
             ad.state = 'landed';
 
             // Parachute settles — tilt it sideways
@@ -8203,8 +8338,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             setTimeout(() => setAirdropLandedMsg(false), 4000);
             soundManager.playCoinCollect?.();
           } else {
-            ad.mesh.position.y = newY;
-            // Gentle pendulum sway of the parachute during descent
+            // Still falling — animate parachute sway
             ad.beaconAge += dt;
             ad.parachuteMesh.rotation.z = Math.sin(ad.beaconAge * 0.9) * 0.07;
             ad.parachuteMesh.rotation.x = Math.sin(ad.beaconAge * 0.6 + 1.2) * 0.05;
@@ -8212,7 +8346,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           // Beacon pulse during fall
           const beaconMatFalling = ad.beaconMesh.material as THREE.MeshBasicMaterial;
-          beaconMatFalling.opacity = 0.3 + 0.5 * Math.abs(Math.sin((ad.beaconAge) * 2.5));
+          beaconMatFalling.opacity = 0.3 + 0.5 * Math.abs(Math.sin(ad.beaconAge * 2.5));
 
         } else if (ad.state === 'landed') {
           ad.despawnTimer += dt;
@@ -8222,7 +8356,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const beaconMatLanded = ad.beaconMesh.material as THREE.MeshBasicMaterial;
           beaconMatLanded.opacity = 0.2 + 0.4 * Math.abs(Math.sin(ad.beaconAge * 1.5));
 
-          // Check proximity for auto-open
+          // Check proximity using the physics-updated ad.x / ad.z position
           const distToCrate = Math.sqrt(
             (playerPos.x - ad.x) ** 2 + (playerPos.z - ad.z) ** 2,
           );
@@ -8234,6 +8368,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             ad.state = 'opened';
             scene.remove(ad.mesh);
             scene.remove(ad.beaconMesh);
+            // Remove physics body — crate is gone
+            if (ad.physicsBodyId && physicsWorldRef.current) {
+              physicsWorldRef.current.removeBody(ad.physicsBodyId);
+              ad.physicsBodyId = undefined;
+            }
 
             // Apply all loot effects to player (weapon + resource bonus)
             const lootMessages: string[] = [];
@@ -8260,6 +8399,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             // Auto-despawn after timeout
             scene.remove(ad.mesh);
             scene.remove(ad.beaconMesh);
+            if (ad.physicsBodyId && physicsWorldRef.current) {
+              physicsWorldRef.current.removeBody(ad.physicsBodyId);
+              ad.physicsBodyId = undefined;
+            }
             airdropsToRemove.push(idx);
           }
         }
@@ -9503,6 +9646,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Clean up wood logs
       woodLogMeshesRef.current.forEach((log) => scene.remove(log.mesh));
       woodLogMeshesRef.current = [];
+      // Clear all physics bodies
+      if (physicsWorldRef.current) {
+        physicsWorldRef.current.clear();
+        physicsWorldRef.current = null;
+      }
       // Clean up tree sprites (billboard LOD objects)
       treeDataRef.current.forEach((tree) => {
         if (tree.sprite) {
