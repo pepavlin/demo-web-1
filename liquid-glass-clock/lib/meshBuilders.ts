@@ -1529,6 +1529,194 @@ export function buildMachineGunMesh(): THREE.Group {
   return group;
 }
 
+// ─── Wild Flame Mesh ──────────────────────────────────────────────────────────
+// Shared constants for geometry layout (must match between builder & animator).
+const WILD_FLAME_RINGS  = 14; // horizontal rings between base-cap and tip-cap
+const WILD_FLAME_RADIAL = 10; // vertices per ring
+
+/**
+ * Builds a single continuous 3D flame mesh using a custom BufferGeometry.
+ * The flame grows along the +Y axis: base-cap at Y=0, tip-cap at Y=length.
+ *
+ * Vertex colors encode the heat gradient (white-hot → orange → dark-red → black).
+ * With AdditiveBlending, the black tip is invisible, giving a natural fade-out.
+ *
+ * Call `animateWildFlameMesh(mesh, time)` every frame to deform the surface.
+ */
+export function buildWildFlameMesh(length: number, maxRadius: number): THREE.Mesh {
+  const RINGS  = WILD_FLAME_RINGS;
+  const RADIAL = WILD_FLAME_RADIAL;
+
+  const positions: number[] = [];
+  const colors:    number[] = [];
+  const indices:   number[] = [];
+
+  // ── Heat gradient helper ────────────────────────────────────────────────────
+  // t = 0 → base (white-hot), t = 1 → tip (black = invisible in additive)
+  function flameColor(t: number): [number, number, number] {
+    if (t < 0.15) {
+      const s = t / 0.15;
+      return [1, 1, 1 - s];              // white → yellow
+    } else if (t < 0.40) {
+      const s = (t - 0.15) / 0.25;
+      return [1, 1 - s * 0.40, 0];       // yellow → orange
+    } else if (t < 0.70) {
+      const s = (t - 0.40) / 0.30;
+      return [1, 0.60 - s * 0.50, 0];    // orange → red
+    } else {
+      const s = (t - 0.70) / 0.30;
+      return [1 - s, 0.10 * (1 - s), 0]; // red → black
+    }
+  }
+
+  // ── Base-cap center (index 0) ──────────────────────────────────────────────
+  positions.push(0, 0, 0);
+  const [br, bg, bb] = flameColor(0);
+  colors.push(br, bg, bb);
+
+  // ── Ring vertices: 1 … RINGS × RADIAL ─────────────────────────────────────
+  for (let i = 0; i < RINGS; i++) {
+    // t in (0, 1) — exclude exact 0 and 1 (those belong to the caps)
+    const t      = (i + 1) / (RINGS + 1);
+    const radius = Math.pow(Math.sin(t * Math.PI), 0.65) * maxRadius;
+    const y      = t * length;
+    const [cr, cg, cb] = flameColor(t);
+    for (let j = 0; j < RADIAL; j++) {
+      const angle = (j / RADIAL) * Math.PI * 2;
+      positions.push(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+      colors.push(cr, cg, cb);
+    }
+  }
+
+  // ── Tip-cap center (index 1 + RINGS × RADIAL) ──────────────────────────────
+  positions.push(0, length, 0);
+  colors.push(0, 0, 0); // black = invisible
+
+  // ── Indices: base cap ──────────────────────────────────────────────────────
+  for (let j = 0; j < RADIAL; j++) {
+    const curr = 1 + j;
+    const next = 1 + (j + 1) % RADIAL;
+    indices.push(0, next, curr); // CCW when viewed from below
+  }
+
+  // ── Indices: tube sides ────────────────────────────────────────────────────
+  for (let i = 0; i < RINGS - 1; i++) {
+    const rA = 1 + i * RADIAL;
+    const rB = 1 + (i + 1) * RADIAL;
+    for (let j = 0; j < RADIAL; j++) {
+      const a = rA + j,           b = rA + (j + 1) % RADIAL;
+      const c = rB + j,           d = rB + (j + 1) % RADIAL;
+      indices.push(a, c, b);
+      indices.push(b, c, d);
+    }
+  }
+
+  // ── Indices: tip cap ──────────────────────────────────────────────────────
+  const tipIdx        = 1 + RINGS * RADIAL;
+  const lastRingStart = 1 + (RINGS - 1) * RADIAL;
+  for (let j = 0; j < RADIAL; j++) {
+    const curr = lastRingStart + j;
+    const next = lastRingStart + (j + 1) % RADIAL;
+    indices.push(curr, next, tipIdx);
+  }
+
+  // ── Assemble geometry ──────────────────────────────────────────────────────
+  const geo = new THREE.BufferGeometry();
+  const posArr = new Float32Array(positions);
+  geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+  geo.setAttribute("color",    new THREE.BufferAttribute(new Float32Array(colors), 3));
+  geo.setIndex(indices);
+
+  // Store params so animateWildFlameMesh can reconstruct originals each frame
+  geo.userData.origPos          = Float32Array.from(positions);
+  geo.userData.wildFlameLength  = length;
+  geo.userData.wildFlameRadius  = maxRadius;
+
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.92,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = "wildFlame";
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+/**
+ * Deforms a mesh created by `buildWildFlameMesh` to simulate a wild, living
+ * flame.  Must be called every render frame with the current elapsed time.
+ *
+ * Turbulence grows from the stable base toward the chaotic tip, giving the
+ * impression of fuel pressure at the nozzle turning into free-flying fire.
+ */
+export function animateWildFlameMesh(mesh: THREE.Mesh, time: number): void {
+  const geo    = mesh.geometry as THREE.BufferGeometry;
+  const origPos = geo.userData.origPos as Float32Array | undefined;
+  const length  = geo.userData.wildFlameLength as number | undefined;
+  const maxR    = geo.userData.wildFlameRadius  as number | undefined;
+  if (!origPos || length == null || maxR == null) return;
+
+  const RINGS  = WILD_FLAME_RINGS;
+  const RADIAL = WILD_FLAME_RADIAL;
+  const posAttr = geo.attributes.position as THREE.BufferAttribute;
+
+  // Base-cap center — stays fixed at origin
+  posAttr.setXYZ(0, origPos[0], origPos[1], origPos[2]);
+
+  // Ring vertices
+  for (let i = 0; i < RINGS; i++) {
+    const t      = (i + 1) / (RINGS + 1); // same mapping used in builder
+    const origR  = Math.pow(Math.sin(t * Math.PI), 0.65) * maxR;
+    const origY  = t * length;
+
+    // Turbulence amplitude scales from 0 at base to 1 at tip
+    const turb = t * 0.55;
+
+    // Global sway of the whole flame (low-frequency, large amplitude at tip)
+    const swayX = Math.sin(time * 3.8 + i * 0.45) * t * maxR * 0.50;
+    const swayZ = Math.cos(time * 3.8 + i * 0.45 + 1.1) * t * maxR * 0.32;
+
+    for (let j = 0; j < RADIAL; j++) {
+      const vertIdx  = 1 + i * RADIAL + j;
+      const baseAngle = (j / RADIAL) * Math.PI * 2;
+
+      // Radial noise: expand / contract each vertex's distance from axis
+      const rNoise = Math.sin(time * 18 + i * 1.7 + j * 2.4) * origR * 0.42 * turb;
+      const newR   = Math.max(0, origR + rNoise);
+
+      // Angular noise: twist each vertex around the flame axis
+      const angNoise  = Math.cos(time * 11 + i * 1.1 + j * 1.9) * 0.32 * turb;
+      const newAngle  = baseAngle + angNoise;
+
+      // Small Y ripple for a "breathing" length-axis effect
+      const yNoise = Math.sin(time * 8 + i * 0.85 + j * 0.5) * maxR * 0.12 * turb;
+
+      posAttr.setXYZ(
+        vertIdx,
+        Math.cos(newAngle) * newR + swayX,
+        origY + yNoise,
+        Math.sin(newAngle) * newR + swayZ,
+      );
+    }
+  }
+
+  // Tip-cap center — sways at tip amplitude
+  const tipIdx = 1 + RINGS * RADIAL;
+  posAttr.setXYZ(
+    tipIdx,
+    origPos[tipIdx * 3]     + Math.sin(time * 5.2) * maxR * 0.65,
+    origPos[tipIdx * 3 + 1],
+    origPos[tipIdx * 3 + 2] + Math.cos(time * 5.2 + 0.9) * maxR * 0.42,
+  );
+
+  posAttr.needsUpdate = true;
+}
+
 // ─── Flamethrower (Plamenomet) ────────────────────────────────────────────────
 /** Shoulder-mounted flamethrower with fuel tank backpack, nozzle, and pilot flame. */
 export function buildFlamethrowerMesh(): THREE.Group {
@@ -1618,71 +1806,17 @@ export function buildFlamethrowerMesh(): THREE.Group {
   group.add(pilot);
 
   // ── Nozzle flame stream (shown while firing, hidden at rest) ──────────────
-  // Positioned at the nozzle tip; all cones point in -Z (forward/into scene).
-  // rotation.x = -Math.PI/2 maps the cone's +Y apex to the -Z world axis.
+  // Single continuous wild-flame mesh replaces the old multi-cone stack.
+  // The mesh is built along +Y; rotation.x = -PI/2 maps +Y → -Z (forward).
   const nozzleFlameStream = new THREE.Group();
   nozzleFlameStream.name = "nozzleFlameStream";
   nozzleFlameStream.visible = false;
   nozzleFlameStream.position.set(0.01, 0.012, -0.54); // nozzle tip in weapon local space
 
-  const addFlameMat = (hex: number, opacity: number) =>
-    new THREE.MeshBasicMaterial({
-      color: hex,
-      transparent: true,
-      opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
-  // Outer red-orange glow halo (widest, most transparent, longest)
-  const outerFlameGeo = new THREE.ConeGeometry(0.22, 2.0, 12);
-  const outerFlame = new THREE.Mesh(outerFlameGeo, addFlameMat(0xff2200, 0.28));
-  outerFlame.rotation.x = -Math.PI / 2;
-  outerFlame.position.z = -1.0;
-  nozzleFlameStream.add(outerFlame);
-
-  // Mid orange body
-  const midFlameGeo = new THREE.ConeGeometry(0.14, 1.6, 10);
-  const midFlame = new THREE.Mesh(midFlameGeo, addFlameMat(0xff5500, 0.55));
-  midFlame.rotation.x = -Math.PI / 2;
-  midFlame.position.z = -0.8;
-  nozzleFlameStream.add(midFlame);
-
-  // Inner yellow-orange core
-  const coreFlameGeo = new THREE.ConeGeometry(0.08, 1.2, 9);
-  const coreFlame = new THREE.Mesh(coreFlameGeo, addFlameMat(0xffaa00, 0.75));
-  coreFlame.rotation.x = -Math.PI / 2;
-  coreFlame.position.z = -0.6;
-  nozzleFlameStream.add(coreFlame);
-
-  // White-hot inner spine (brightest, tightest, shortest)
-  const spineGeo = new THREE.ConeGeometry(0.035, 0.8, 7);
-  const spine = new THREE.Mesh(spineGeo, addFlameMat(0xffff88, 0.9));
-  spine.rotation.x = -Math.PI / 2;
-  spine.position.z = -0.4;
-  nozzleFlameStream.add(spine);
-
-  // Offset tongue A — slight upward drift
-  const tongueAGeo = new THREE.ConeGeometry(0.06, 1.1, 7);
-  const tongueA = new THREE.Mesh(tongueAGeo, addFlameMat(0xff7700, 0.45));
-  tongueA.rotation.x = -Math.PI / 2 + 0.18;
-  tongueA.position.set(0.0, 0.04, -0.55);
-  nozzleFlameStream.add(tongueA);
-
-  // Offset tongue B — downward drift
-  const tongueBGeo = new THREE.ConeGeometry(0.06, 1.0, 7);
-  const tongueB = new THREE.Mesh(tongueBGeo, addFlameMat(0xff6600, 0.4));
-  tongueB.rotation.x = -Math.PI / 2 - 0.15;
-  tongueB.position.set(0.0, -0.03, -0.5);
-  nozzleFlameStream.add(tongueB);
-
-  // Offset tongue C — side drift
-  const tongueCGeo = new THREE.ConeGeometry(0.05, 0.9, 7);
-  const tongueC = new THREE.Mesh(tongueCGeo, addFlameMat(0xff8800, 0.35));
-  tongueC.rotation.set(-Math.PI / 2, 0, 0.22);
-  tongueC.position.set(0.06, 0.0, -0.45);
-  nozzleFlameStream.add(tongueC);
+  // Main wild flame — length 2.2, maxRadius 0.30
+  const nozzleWildFlame = buildWildFlameMesh(2.2, 0.30);
+  nozzleWildFlame.rotation.x = -Math.PI / 2; // +Y → -Z (forward along barrel)
+  nozzleFlameStream.add(nozzleWildFlame);
 
   // Point light at the nozzle for ambient fire illumination (zero intensity at rest)
   const nozzleLight = new THREE.PointLight(0xff5500, 0, 10);
@@ -1722,71 +1856,14 @@ export function buildFlamethrowerMesh(): THREE.Group {
 }
 
 /**
- * A single flame particle projectile — animated multi-layer fire group using
- * additive blending for a realistic glowing fire look.  Spawned in bursts per
- * shot and oriented toward the travel direction at birth.
- *
- * Layer stack (base → tip, along local +Y = travel direction):
- *   1. Outer red glow  – widest, most transparent (AdditiveBlending)
- *   2. Orange body     – medium opacity
- *   3. Yellow core     – opaque, bright
- *   4. White-hot base  – small sphere at origin (hottest point near nozzle)
- *   5. Flame tongue    – thin cone pointing forward (tip of fire)
+ * A single flame-particle projectile — a continuous wild-flame mesh that
+ * grows along +Y (= travel direction at birth) and is animated every frame
+ * by `animateWildFlameMesh`.  Replaces the old sphere-stack look.
  */
 export function buildFlameParticleMesh(): THREE.Group {
   const group = new THREE.Group();
-
-  // Helper: create an additive-blended material
-  const additiveMat = (hex: number, opacity: number) =>
-    new THREE.MeshBasicMaterial({
-      color: hex,
-      transparent: true,
-      opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-
-  // ── Outer red halo (large, airy) ────────────────────────────────────────────
-  const outerGeo = new THREE.SphereGeometry(0.42, 9, 7);
-  const outer = new THREE.Mesh(outerGeo, additiveMat(0xff2200, 0.28));
-  group.add(outer);
-
-  // ── Orange body ─────────────────────────────────────────────────────────────
-  const midGeo = new THREE.SphereGeometry(0.28, 9, 7);
-  const mid = new THREE.Mesh(midGeo, additiveMat(0xff6600, 0.55));
-  group.add(mid);
-
-  // ── Yellow core ─────────────────────────────────────────────────────────────
-  const coreGeo = new THREE.SphereGeometry(0.16, 8, 6);
-  const core = new THREE.Mesh(coreGeo, additiveMat(0xffcc00, 0.82));
-  group.add(core);
-
-  // ── White-hot center ────────────────────────────────────────────────────────
-  const hotGeo = new THREE.SphereGeometry(0.08, 7, 5);
-  const hot = new THREE.Mesh(hotGeo, additiveMat(0xffffff, 1.0));
-  group.add(hot);
-
-  // ── Forward tongue — elongated cone along +Y (= travel direction) ───────────
-  const tongueGeo = new THREE.ConeGeometry(0.10, 0.65, 8);
-  const tongue = new THREE.Mesh(tongueGeo, additiveMat(0xffaa00, 0.75));
-  tongue.position.y = 0.325;
-  group.add(tongue);
-
-  // ── Side tongue A ────────────────────────────────────────────────────────────
-  const sideAGeo = new THREE.ConeGeometry(0.07, 0.50, 7);
-  const sideA = new THREE.Mesh(sideAGeo, additiveMat(0xff8800, 0.55));
-  sideA.position.set(0.08, 0.22, 0.04);
-  sideA.rotation.z = 0.28;
-  group.add(sideA);
-
-  // ── Side tongue B ────────────────────────────────────────────────────────────
-  const sideBGeo = new THREE.ConeGeometry(0.07, 0.50, 7);
-  const sideB = new THREE.Mesh(sideBGeo, additiveMat(0xff7700, 0.50));
-  sideB.position.set(-0.08, 0.22, -0.04);
-  sideB.rotation.z = -0.28;
-  group.add(sideB);
-
+  // Wild flame: length 0.75, maxRadius 0.26 — oriented along +Y
+  group.add(buildWildFlameMesh(0.75, 0.26));
   return group;
 }
 

@@ -58,6 +58,10 @@ import {
   buildBiolumFlowerMesh,
   buildBiolumMushroomMesh,
   buildBiolumFernMesh,
+  buildWildFlameMesh,
+  buildFlameParticleMesh,
+  buildFlamethrowerMesh,
+  animateWildFlameMesh,
   SNIPER_TOWER_HEIGHT,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
@@ -1837,6 +1841,185 @@ describe("buildBiolumFernMesh", () => {
     const result = buildBiolumFernMesh(rng);
     const hasTransparent = result.emissiveMats.some((mat) => mat.transparent);
     expect(hasTransparent).toBe(true);
+  });
+});
+
+// ─── buildWildFlameMesh ───────────────────────────────────────────────────────
+describe("buildWildFlameMesh", () => {
+  it("returns a THREE.Mesh", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    expect(mesh).toBeInstanceOf(THREE.Mesh);
+  });
+
+  it("mesh name is 'wildFlame'", () => {
+    const mesh = buildWildFlameMesh(1.5, 0.2);
+    expect(mesh.name).toBe("wildFlame");
+  });
+
+  it("geometry has position attribute", () => {
+    const mesh = buildWildFlameMesh(1.0, 0.25);
+    expect(mesh.geometry.attributes.position).toBeDefined();
+  });
+
+  it("geometry has color attribute (for vertex colors)", () => {
+    const mesh = buildWildFlameMesh(1.0, 0.25);
+    expect(mesh.geometry.attributes.color).toBeDefined();
+  });
+
+  it("geometry has at least 100 vertices", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    const count = mesh.geometry.attributes.position.count;
+    expect(count).toBeGreaterThanOrEqual(100);
+  });
+
+  it("geometry has an index buffer (triangle list)", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    expect(mesh.geometry.index).not.toBeNull();
+    expect((mesh.geometry.index?.count ?? 0)).toBeGreaterThan(0);
+  });
+
+  it("stores origPos in geometry.userData for animation", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    expect(mesh.geometry.userData.origPos).toBeInstanceOf(Float32Array);
+  });
+
+  it("stores wildFlameLength and wildFlameRadius in userData", () => {
+    const mesh = buildWildFlameMesh(2.2, 0.30);
+    expect(mesh.geometry.userData.wildFlameLength).toBe(2.2);
+    expect(mesh.geometry.userData.wildFlameRadius).toBeCloseTo(0.30);
+  });
+
+  it("material uses AdditiveBlending and is transparent", () => {
+    const mesh = buildWildFlameMesh(1.0, 0.2);
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    expect(mat.blending).toBe(THREE.AdditiveBlending);
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+  });
+
+  it("tip cap center vertex Y equals the requested length", () => {
+    const length = 3.0;
+    const mesh = buildWildFlameMesh(length, 0.2);
+    const posAttr = mesh.geometry.attributes.position;
+    const tipIdx = posAttr.count - 1;
+    expect(posAttr.getY(tipIdx)).toBeCloseTo(length);
+  });
+
+  it("base center vertex is at origin (0, 0, 0)", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    const posAttr = mesh.geometry.attributes.position;
+    expect(posAttr.getX(0)).toBeCloseTo(0);
+    expect(posAttr.getY(0)).toBeCloseTo(0);
+    expect(posAttr.getZ(0)).toBeCloseTo(0);
+  });
+
+  it("frustumCulled is false (flame should always render)", () => {
+    const mesh = buildWildFlameMesh(1.0, 0.2);
+    expect(mesh.frustumCulled).toBe(false);
+  });
+});
+
+// ─── animateWildFlameMesh ─────────────────────────────────────────────────────
+describe("animateWildFlameMesh", () => {
+  it("modifies position attribute without throwing", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    expect(() => animateWildFlameMesh(mesh, 0.0)).not.toThrow();
+    expect(() => animateWildFlameMesh(mesh, 1.5)).not.toThrow();
+  });
+
+  it("increments position attribute version (needsUpdate mechanism)", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    const posAttr = mesh.geometry.attributes.position as THREE.BufferAttribute;
+    const versionBefore = posAttr.version;
+    animateWildFlameMesh(mesh, 0.5);
+    expect(posAttr.version).toBeGreaterThan(versionBefore);
+  });
+
+  it("base center vertex stays at Y=0 after animation", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    animateWildFlameMesh(mesh, 1.23);
+    const posAttr = mesh.geometry.attributes.position;
+    expect(posAttr.getY(0)).toBeCloseTo(0);
+  });
+
+  it("tip vertex Y stays at the flame length after animation", () => {
+    const length = 2.5;
+    const mesh = buildWildFlameMesh(length, 0.3);
+    animateWildFlameMesh(mesh, 0.77);
+    const posAttr = mesh.geometry.attributes.position;
+    const tipIdx = posAttr.count - 1;
+    expect(posAttr.getY(tipIdx)).toBeCloseTo(length);
+  });
+
+  it("vertex positions change between different time values (turbulence works)", () => {
+    const mesh = buildWildFlameMesh(2.0, 0.3);
+    animateWildFlameMesh(mesh, 0.0);
+    const posAttr = mesh.geometry.attributes.position;
+    // Sample a mid-ring vertex (not base/tip center)
+    const sampleIdx = 5;
+    const x0 = posAttr.getX(sampleIdx);
+
+    animateWildFlameMesh(mesh, 1.0);
+    const x1 = posAttr.getX(sampleIdx);
+
+    // Positions should differ — turbulence is time-dependent
+    expect(x0).not.toBeCloseTo(x1, 5);
+  });
+
+  it("does nothing gracefully when called on a mesh without wildFlame userData", () => {
+    const plainMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    expect(() => animateWildFlameMesh(plainMesh, 1.0)).not.toThrow();
+  });
+});
+
+// ─── buildFlameParticleMesh (wild flame) ─────────────────────────────────────
+describe("buildFlameParticleMesh (wild flame)", () => {
+  it("returns a THREE.Group", () => {
+    const group = buildFlameParticleMesh();
+    expect(group).toBeInstanceOf(THREE.Group);
+  });
+
+  it("contains exactly one child (the wild flame mesh)", () => {
+    const group = buildFlameParticleMesh();
+    expect(group.children.length).toBe(1);
+  });
+
+  it("child is named 'wildFlame'", () => {
+    const group = buildFlameParticleMesh();
+    expect(group.children[0].name).toBe("wildFlame");
+  });
+
+  it("child is a THREE.Mesh", () => {
+    const group = buildFlameParticleMesh();
+    expect(group.children[0]).toBeInstanceOf(THREE.Mesh);
+  });
+});
+
+// ─── buildFlamethrowerMesh — nozzle flame stream ──────────────────────────────
+describe("buildFlamethrowerMesh nozzle flame stream", () => {
+  it("nozzleFlameStream group exists", () => {
+    const group = buildFlamethrowerMesh();
+    const stream = group.getObjectByName("nozzleFlameStream");
+    expect(stream).toBeDefined();
+  });
+
+  it("nozzleFlameStream starts hidden", () => {
+    const group = buildFlamethrowerMesh();
+    const stream = group.getObjectByName("nozzleFlameStream");
+    expect(stream?.visible).toBe(false);
+  });
+
+  it("nozzleFlameStream contains a wildFlame mesh", () => {
+    const group = buildFlamethrowerMesh();
+    const wf = group.getObjectByName("wildFlame");
+    expect(wf).toBeDefined();
+    expect(wf).toBeInstanceOf(THREE.Mesh);
+  });
+
+  it("nozzleFlameStream contains a nozzleLight point light", () => {
+    const group = buildFlamethrowerMesh();
+    const nl = group.getObjectByName("nozzleLight");
+    expect(nl).toBeInstanceOf(THREE.PointLight);
   });
 });
 
