@@ -242,7 +242,35 @@ The weapon mesh is re-parented between two anchors depending on the active camer
 1. Add the type to `WeaponType` in `lib/gameTypes.ts`
 2. Add an entry to `WEAPON_FP_CONFIG` and `WEAPON_TP_CONFIG` in `Game3D.tsx`
 3. Add a mesh builder function and register it in `swapWeaponMesh` / `attachWeaponToAnchor`
-4. No changes needed to the anchor system itself
+4. Add it to the `buildWeaponMeshForType` switch in `Game3D.tsx` (used for remote player display)
+5. No changes needed to the anchor system itself
+
+---
+
+## Remote Player Weapon Display (Multiplayer)
+
+Each player broadcasts their active weapon type and attack state with every position update (`player:update`). Remote player meshes display the correct weapon mesh attached to their `handR` anchor (child of `armR`).
+
+### Synced fields (in `PlayerUpdate`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `weapon` | `string \| undefined` | Active `WeaponType` of the local player |
+| `isAttacking` | `boolean` | True while attacking (bow draw, mouse held) |
+
+### Remote weapon lifecycle
+
+1. **Player joins** — if the join payload includes a `weapon` field, the mesh is immediately attached to `handR`
+2. **Weapon changes** — `handlePlayerUpdated` detects the change (`newWeapon !== data.currentWeapon`), removes the old mesh, builds a new one with `buildWeaponMeshForType()`, and attaches it via `attachWeaponToRemotePlayer()`
+3. **Player leaves** — weapon mesh is removed together with the whole player group
+
+### Attack animations
+
+| Weapon | `isAttacking=true` effect |
+|--------|--------------------------|
+| `bow` | Both arms raise to -1.2 rad (draw pose) — lerps back when released |
+| `crossbow` | Both arms raise to -0.9 rad (aim pose) |
+| `sword` / `axe` | `armR` tilts forward -1.4 rad (swing pose) |
 
 **Bullet spawn position:**
 In third-person, `doAttack()` spawns bullets from `playerBodyPosRef + eye-height offset` (not the camera position) to avoid bullets originating from behind the character.
