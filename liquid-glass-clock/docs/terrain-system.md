@@ -86,16 +86,29 @@ Chunks are generated **once at startup** in `generateVoxelTerrain()`.  Chunks th
 
 ### Terrain LOD (Level of Detail)
 
-Each chunk is generated at **two quality levels** simultaneously:
+Each chunk is generated at **three quality levels** simultaneously:
 
-| LOD | `lodScale` | Voxel Size | Voxels/Side | Triangles (approx.) | Visibility |
-|-----|------------|-----------|-------------|---------------------|------------|
-| 0 (high) | 1 | 2.0 | 16 | ~4× | Distance < `TERRAIN_LOD_DISTANCE` |
-| 1 (low)  | 2 | 4.0 | 8  | ~1× | Distance ≥ `TERRAIN_LOD_DISTANCE` |
+| LOD | `lodScale` | Voxel Size | Voxels/Side | Triangles vs LOD0 | Visibility threshold |
+|-----|------------|-----------|-------------|-------------------|----------------------|
+| 0 (full)   | 1 | 2.0 | 16 | 1× (baseline) | XZ distance < `TERRAIN_LOD_DISTANCE` |
+| 1 (medium) | 2 | 4.0 | 8  | ~¼×            | `TERRAIN_LOD_DISTANCE` ≤ dist < `TERRAIN_LOD2_DISTANCE` |
+| 2 (lowest) | 4 | 8.0 | 4  | ~1/16×         | dist ≥ `TERRAIN_LOD2_DISTANCE` |
 
-`generateChunkGeometry` accepts a `lodScale` parameter (default `1`).  When `lodScale = 2` the effective voxel size doubles and the grid is halved in each axis, producing approximately **4–8× fewer triangles** while covering the same physical chunk volume.
+`generateChunkGeometry` accepts a `lodScale` parameter (default `1`).  When `lodScale = 2` the effective voxel size doubles and the grid is halved in each axis, producing approximately **4–8× fewer triangles** while covering the same physical chunk volume.  At `lodScale = 4` (LOD 2) triangles are reduced by ~16×.
 
-Both LOD meshes are added to the scene group at startup.  Every 30 frames (~0.5 s at 60 fps), `updateTerrainLOD(camX, camZ)` is called from the game loop to toggle `.visible` on each pair of LOD meshes depending on the 2D XZ distance from the camera to the chunk centre.
+All three LOD meshes are added to the scene group at startup.  Every 30 frames (~0.5 s at 60 fps), `updateTerrainLOD(camX, camZ, camY?)` is called from the game loop to toggle `.visible` on the correct mesh for each chunk.
+
+#### Altitude-Aware LOD Scaling
+
+`updateTerrainLOD` accepts an optional `camY` parameter.  When the camera is elevated (e.g. airplane, rocket), an **altitude factor** is applied to both distance thresholds:
+
+```
+altFactor = clamp(camY / 30, 1.0, 3.0)
+effectiveThreshold1 = TERRAIN_LOD_DISTANCE  × altFactor  (128 → 384 at camY ≥ 90)
+effectiveThreshold2 = TERRAIN_LOD2_DISTANCE × altFactor  (220 → 660 at camY ≥ 90)
+```
+
+At high altitude (camY ≥ 90) the whole map renders at LOD 2 (~1/16 triangles), since individual terrain chunks cover very few screen pixels and the quality loss is imperceptible.  At ground level (camY ≤ 30) behaviour is identical to the original flat-threshold approach.
 
 The `chunkMeshes` array on `VoxelTerrainResult` contains **only LOD-0 (full quality) meshes**, as these are the ones used for raycasting (build/terraform).
 
