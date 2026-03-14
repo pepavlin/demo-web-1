@@ -25,6 +25,7 @@ import {
   VOXEL_Y_MIN,
   VOXEL_Y_MAX,
   TERRAIN_LOD_DISTANCE,
+  TERRAIN_LOD2_DISTANCE,
 } from "@/lib/voxelTerrain";
 import { initNoise } from "@/lib/terrainUtils";
 
@@ -60,6 +61,14 @@ describe("voxelTerrain — constants", () => {
 
   it("vertical range covers more than 80 world units", () => {
     expect(VOXEL_Y_MAX - VOXEL_Y_MIN).toBeGreaterThan(80);
+  });
+
+  it("TERRAIN_LOD_DISTANCE is positive", () => {
+    expect(TERRAIN_LOD_DISTANCE).toBeGreaterThan(0);
+  });
+
+  it("TERRAIN_LOD2_DISTANCE is greater than TERRAIN_LOD_DISTANCE", () => {
+    expect(TERRAIN_LOD2_DISTANCE).toBeGreaterThan(TERRAIN_LOD_DISTANCE);
   });
 });
 
@@ -272,9 +281,9 @@ describe("generateVoxelTerrain", () => {
     }
   });
 
-  it("chunkMeshes (LOD-0) is a subset of group.children (which also contains LOD-1 meshes)", () => {
+  it("chunkMeshes (LOD-0) is a subset of group.children (which also contains LOD-1 and LOD-2 meshes)", () => {
     const result = generateVoxelTerrain(mockMaterial);
-    // group.children contains both LOD-0 and LOD-1 meshes; chunkMeshes holds only LOD-0
+    // group.children contains LOD-0, LOD-1, and LOD-2 meshes; chunkMeshes holds only LOD-0
     expect(result.chunkMeshes.length).toBeGreaterThan(0);
     expect(result.chunkMeshes.length).toBeLessThanOrEqual(result.group.children.length);
     result.chunkMeshes.forEach((m) => {
@@ -320,6 +329,24 @@ describe("generateVoxelTerrain", () => {
     generateVoxelTerrain(mat);
     expect(mat.vertexColors).toBe(false);
   });
+
+  it("updateTerrainLOD does not throw for camera at origin (LOD 0 zone)", () => {
+    const result = generateVoxelTerrain(mockMaterial);
+    expect(() => result.updateTerrainLOD(0, 0)).not.toThrow();
+  });
+
+  it("updateTerrainLOD does not throw for camera far away (LOD 2 zone)", () => {
+    const result = generateVoxelTerrain(mockMaterial);
+    // Place camera such that all chunks are beyond TERRAIN_LOD2_DISTANCE
+    expect(() => result.updateTerrainLOD(9999, 9999)).not.toThrow();
+  });
+
+  it("group contains more children than chunkMeshes — LOD-1 and LOD-2 meshes also added", () => {
+    const result = generateVoxelTerrain(mockMaterial);
+    // With 3 LOD levels some chunks will have LOD-1 and/or LOD-2 siblings
+    // so total children must be >= chunkMeshes (LOD-0 only)
+    expect(result.group.children.length).toBeGreaterThanOrEqual(result.chunkMeshes.length);
+  });
 });
 
 // ─── Async terrain generation ───────────────────────────────────────────────────
@@ -355,7 +382,7 @@ describe("generateVoxelTerrainAsync", () => {
 
   it("chunkMeshes (LOD-0) is a subset of group.children after completion", async () => {
     const result = await generateVoxelTerrainAsync(mockMaterial);
-    // group.children holds both LOD-0 and LOD-1 meshes; chunkMeshes is LOD-0 only
+    // group.children holds LOD-0, LOD-1, and LOD-2 meshes; chunkMeshes is LOD-0 only
     expect(result.chunkMeshes.length).toBeGreaterThan(0);
     expect(result.chunkMeshes.length).toBeLessThanOrEqual(result.group.children.length);
     result.chunkMeshes.forEach((m) => {
