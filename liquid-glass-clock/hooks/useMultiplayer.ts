@@ -14,6 +14,8 @@ export interface RemotePlayer {
   pitch: number;
   color: number;
   hp?: number;
+  /** True when the player has paused (pointer unlocked) – rendered as a floating ghost */
+  inactive?: boolean;
 }
 
 export interface PlayerUpdate {
@@ -23,6 +25,8 @@ export interface PlayerUpdate {
   rotY: number;
   pitch: number;
   hp?: number;
+  /** True when the player has paused – other clients render them as a floating ghost */
+  inactive?: boolean;
 }
 
 export interface ChatMessage {

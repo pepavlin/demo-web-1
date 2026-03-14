@@ -991,11 +991,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     isDying: boolean;
     deathTimer: number;
     deathRotY: number;
+    // Ghost / inactive state
+    isInactive: boolean;
+    ghostFloatH: number;      // current levitation height above ground (smoothly animated)
+    groundY: number;          // base Y position (saved when going inactive)
+    wasInactive: boolean;     // tracks transition to restore materials
   }>>(new Map());
+
+  // ─── Local player ghost / inactive refs ──────────────────────────────────────
+  /** True while the local player has paused (pointer unlocked) – game loop keeps running */
+  const playerInactiveRef = useRef(false);
+  /** Current levitation height above the saved ground position (0 when active) */
+  const ghostFloatHeightRef = useRef(0);
+  /** Player Y at the moment of going inactive – used as the ground reference for levitation */
+  const ghostGroundYRef = useRef(0);
   const sendUpdateRef = useRef<((update: PlayerUpdate) => void) | null>(null);
   /** Ref to sendHit — allows calling from inside the animation loop. */
   const sendHitRef = useRef<((targetId: string, damage: number, weaponType: string) => void) | null>(null);
-  const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number; hp: number }>>([]);
+  const [playerLabels, setPlayerLabels] = useState<Array<{ id: string; name: string; x: number; y: number; hp: number; inactive: boolean }>>([]);
   const [mpNotification, setMpNotification] = useState<string | null>(null);
   const mpNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onlinePlayers, setOnlinePlayers] = useState<Array<{ id: string; name: string; color: number }>>([]);
@@ -1054,6 +1067,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         legPhase: 0, prevX: p.x, prevZ: p.z,
         hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
         isDying: false, deathTimer: 0, deathRotY: 0,
+        isInactive: false, ghostFloatH: 0, groundY: meshY, wasInactive: false,
       });
       list.push({ id: p.id, name: p.name, color: p.color });
     });
@@ -1078,6 +1092,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       legPhase: 0, prevX: p.x, prevZ: p.z,
       hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
       isDying: false, deathTimer: 0, deathRotY: 0,
+      isInactive: false, ghostFloatH: 0, groundY: meshY, wasInactive: false,
     });
     setOnlinePlayers((prev) => [...prev, { id: p.id, name: p.name, color: p.color }]);
     showMpNotif(`${p.name} se připojil ke světu`);
@@ -1098,11 +1113,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (!data) return;
     // Update interpolation targets (not position directly — lerp happens in animation loop)
     data.targetX = update.x;
-    data.targetY = update.y - PLAYER_HEIGHT + 0.825;
     data.targetZ = update.z;
     data.targetRotY = update.rotY;
     // Sync HP from position broadcasts (server includes hp in each update)
     if (update.hp !== undefined) data.hp = update.hp;
+
+    // ── Ghost / inactive state ──────────────────────────────────────────────
+    const nowInactive = update.inactive === true;
+    if (nowInactive !== data.isInactive) {
+      data.isInactive = nowInactive;
+      if (!nowInactive) {
+        // Player just returned — save target Y so descent animation has correct base
+        data.groundY = update.y - PLAYER_HEIGHT + 0.825;
+      } else {
+        // Player just went inactive — remember their last ground Y as base for levitation
+        data.groundY = update.y - PLAYER_HEIGHT + 0.825;
+      }
+    }
+    // When inactive, targetY is controlled by ghostFloatH in the render loop; otherwise normal
+    if (!nowInactive) {
+      data.targetY = update.y - PLAYER_HEIGHT + 0.825;
+    }
   }, []);
 
   // ── PvP callbacks ────────────────────────────────────────────────────────────
@@ -4937,15 +4968,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           gameEverStartedRef.current = true;
           soundManager.init();
         } else {
-          // Returning from pause – resume audio and restart the rAF loop
+          // Returning from pause – player de-ghosts; resume audio
+          // NOTE: the RAF loop was NOT cancelled (multiplayer keeps it alive),
+          // so we only need to resume audio and clear the inactive flag.
+          playerInactiveRef.current = false;
           soundManager.resume();
           prevTimeRef.current = performance.now();
+          // Restart loop only if it somehow stopped (first-session edge case)
           restartAnimLoopRef.current?.();
         }
       } else if (gameEverStartedRef.current) {
-        // Game paused – stop the loop and silence all audio
-        cancelAnimationFrame(animFrameRef.current);
+        // Player paused – switch to ghost mode instead of stopping the game loop.
+        // The loop keeps running so other players continue to experience the world.
+        playerInactiveRef.current = true;
+        ghostGroundYRef.current = playerBodyPosRef.current.y;
         soundManager.pause();
+        // Do NOT call cancelAnimationFrame — the world must keep running for others.
       }
     };
     document.addEventListener("pointerlockchange", onLockChange);
@@ -5013,6 +5051,40 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // ── Sync player body position in first-person (always matches cam.position) ──
       if (cameraModeRef.current === "first" && cameraRef.current) {
         playerBodyPosRef.current.copy(cameraRef.current.position);
+      }
+
+      // ── Ghost / inactive player: levitation & position broadcast ─────────────
+      // When the local player is inactive (pointer unlocked / paused) the game
+      // loop keeps running so other players see the world normally.  The inactive
+      // player slowly floats upward, hovers, and broadcasts their ghost position.
+      if (playerInactiveRef.current) {
+        const GHOST_FLOAT_TARGET = 5.0;   // units above ground to levitate
+        const GHOST_RISE_SPEED  = 2.0;    // approach factor (exp lerp)
+        ghostFloatHeightRef.current +=
+          (GHOST_FLOAT_TARGET - ghostFloatHeightRef.current) * Math.min(1, dt * GHOST_RISE_SPEED);
+        const bob = Math.sin(elapsed * 1.4) * 0.18; // gentle hovering oscillation
+        const ghostY = ghostGroundYRef.current + ghostFloatHeightRef.current + bob;
+        playerBodyPosRef.current.y = ghostY;
+        if (cameraRef.current) cameraRef.current.position.y = ghostY;
+
+        // Continue broadcasting position so other clients can animate the ghost
+        sendUpdateRef.current?.({
+          x: playerBodyPosRef.current.x,
+          y: ghostY,
+          z: playerBodyPosRef.current.z,
+          rotY: yawRef.current,
+          pitch: pitchRef.current,
+          inactive: true,
+        });
+      } else if (ghostFloatHeightRef.current > 0.01) {
+        // Returning from ghost state — smoothly descend back to ground
+        const GHOST_LAND_SPEED = 4.0;
+        ghostFloatHeightRef.current *= Math.pow(Math.max(0, 1 - GHOST_LAND_SPEED * dt), 1);
+        const landY = ghostGroundYRef.current + ghostFloatHeightRef.current;
+        playerBodyPosRef.current.y = landY;
+        if (cameraRef.current) cameraRef.current.position.y = landY;
+      } else {
+        ghostFloatHeightRef.current = 0;
       }
 
       // ── Earth-world visual updates (skipped while inside the space station) ──
@@ -6056,6 +6128,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           z: playerBodyPosRef.current.z,
           rotY: yawRef.current,
           pitch: pitchRef.current,
+          inactive: false,
         });
 
         // ── Footstep sounds ─────────────────────────────────────────────────
@@ -6193,6 +6266,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               z: playerBodyPosRef.current.z,
               rotY: yawRef.current,
               pitch: pitchRef.current,
+              inactive: false,
             });
           }
         }
@@ -6312,6 +6386,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             z: playerBodyPosRef.current.z,
             rotY: activeShip.yaw,
             pitch: -0.22,
+            inactive: false,
           });
         }
       }
@@ -8857,6 +8932,73 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             return; // Skip normal interpolation while dying
           }
 
+          // ── Ghost / inactive remote player ──────────────────────────────────
+          if (data.isInactive) {
+            // Apply ghost material on first frame of going inactive
+            if (!data.wasInactive) {
+              data.wasInactive = true;
+              data.ghostFloatH = 0;
+              data.groundY = data.mesh.position.y;
+              data.mesh.traverse((child) => {
+                const m = child as THREE.Mesh;
+                if (m.isMesh && m.material) {
+                  const mat = m.material as THREE.MeshLambertMaterial;
+                  mat.transparent = true;
+                  mat.opacity = 0.4;
+                  mat.emissive = new THREE.Color(0x44aaff);
+                  mat.emissiveIntensity = 0.6;
+                }
+              });
+            }
+
+            // Animate ghost levitation (local ghost height drives the Y)
+            const GHOST_FLOAT_TARGET = 5.0;
+            data.ghostFloatH +=
+              (GHOST_FLOAT_TARGET - data.ghostFloatH) * Math.min(1, dt * 2.0);
+            const bob = Math.sin(elapsed * 1.4) * 0.18;
+            const ghostMeshY = data.groundY + data.ghostFloatH + bob;
+
+            // Smooth XZ interpolation, Y driven by ghost height
+            data.mesh.position.x += (data.targetX - data.mesh.position.x) * lerpFactor;
+            data.mesh.position.y += (ghostMeshY - data.mesh.position.y) * lerpFactor;
+            data.mesh.position.z += (data.targetZ - data.mesh.position.z) * lerpFactor;
+
+            // Gentle slow rotation while hovering
+            data.mesh.rotation.y += dt * 0.4;
+
+            // Arms spread wide (levitation pose)
+            if (data.armL) data.armL.rotation.z =  0.9 + Math.sin(elapsed * 0.8) * 0.1;
+            if (data.armR) data.armR.rotation.z = -0.9 - Math.sin(elapsed * 0.8) * 0.1;
+            if (data.legL) data.legL.rotation.x =  0.15;
+            if (data.legR) data.legR.rotation.x = -0.15;
+
+            data.prevX = data.mesh.position.x;
+            data.prevZ = data.mesh.position.z;
+            return; // skip normal update
+          }
+
+          // Player just returned from inactive → restore materials & descend
+          if (data.wasInactive) {
+            data.wasInactive = false;
+            data.mesh.traverse((child) => {
+              const m = child as THREE.Mesh;
+              if (m.isMesh && m.material) {
+                const mat = m.material as THREE.MeshLambertMaterial;
+                mat.transparent = false;
+                mat.opacity = 1;
+                mat.emissive = new THREE.Color(0x000000);
+                mat.emissiveIntensity = 0;
+              }
+            });
+          }
+
+          // Ghost descent: smoothly bring the mesh back down to ground
+          if (data.ghostFloatH > 0.01) {
+            data.ghostFloatH *= Math.pow(Math.max(0, 1 - 4.0 * dt), 1);
+          } else {
+            data.ghostFloatH = 0;
+          }
+
           const prevX = data.mesh.position.x;
           const prevZ = data.mesh.position.z;
 
@@ -9143,7 +9285,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // ── Remote player name labels ──────────────────────────────────────────
       if (remotePlayersRef.current.size > 0 && cameraRef.current) {
-        const labels: Array<{ id: string; name: string; x: number; y: number; hp: number }> = [];
+        const labels: Array<{ id: string; name: string; x: number; y: number; hp: number; inactive: boolean }> = [];
         remotePlayersRef.current.forEach((data, id) => {
           const pos = data.mesh.position.clone();
           pos.y += 2.2; // above head
@@ -9151,7 +9293,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (projected.z < 1) {
             const sx = (projected.x * 0.5 + 0.5) * window.innerWidth;
             const sy = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-            labels.push({ id, name: data.name, x: sx, y: sy, hp: data.hp });
+            labels.push({ id, name: data.name, x: sx, y: sy, hp: data.hp, inactive: data.isInactive });
           }
         });
         setPlayerLabels(labels);
@@ -10919,42 +11061,53 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               top: label.y,
               transform: "translate(-50%, -50%)",
               zIndex: 55,
+              opacity: label.inactive ? 0.6 : 1,
+              transition: "opacity 0.5s ease",
             }}
           >
-            {/* HP bar */}
-            <div
-              style={{
-                width: 60,
-                height: 5,
-                background: "rgba(0,0,0,0.55)",
-                borderRadius: 3,
-                marginBottom: 3,
-                overflow: "hidden",
-                border: "1px solid rgba(0,0,0,0.4)",
-              }}
-            >
+            {/* HP bar — hidden when ghost */}
+            {!label.inactive && (
               <div
                 style={{
-                  width: `${hpPct}%`,
-                  height: "100%",
-                  background: hpColor,
-                  transition: "width 0.15s ease",
+                  width: 60,
+                  height: 5,
+                  background: "rgba(0,0,0,0.55)",
                   borderRadius: 3,
+                  marginBottom: 3,
+                  overflow: "hidden",
+                  border: "1px solid rgba(0,0,0,0.4)",
                 }}
-              />
-            </div>
+              >
+                <div
+                  style={{
+                    width: `${hpPct}%`,
+                    height: "100%",
+                    background: hpColor,
+                    transition: "width 0.15s ease",
+                    borderRadius: 3,
+                  }}
+                />
+              </div>
+            )}
             {/* Name label */}
             <div
               className="rounded-lg text-white text-xs font-bold px-2 py-1 whitespace-nowrap"
               style={{
-                background: "rgba(5,8,20,0.75)",
-                border: "1px solid rgba(74,158,255,0.4)",
+                background: label.inactive
+                  ? "rgba(20,60,120,0.65)"
+                  : "rgba(5,8,20,0.75)",
+                border: label.inactive
+                  ? "1px solid rgba(100,180,255,0.7)"
+                  : "1px solid rgba(74,158,255,0.4)",
                 backdropFilter: "blur(6px)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                boxShadow: label.inactive
+                  ? "0 0 12px rgba(80,160,255,0.5)"
+                  : "0 2px 8px rgba(0,0,0,0.5)",
                 textAlign: "center",
+                color: label.inactive ? "#a0d4ff" : "white",
               }}
             >
-              {label.name}
+              {label.inactive ? "👻 " : ""}{label.name}{label.inactive ? " (AFK)" : ""}
             </div>
           </div>
         );
