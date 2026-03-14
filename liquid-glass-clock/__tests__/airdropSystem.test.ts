@@ -127,6 +127,31 @@ describe("descent simulation", () => {
   });
 });
 
+describe("targetY landing contract", () => {
+  // The physics system places a body at terrainY + radius.
+  // targetY must therefore be terrainY + CRATE_RADIUS so the landing check
+  //   currentY <= targetY + 0.1
+  // fires correctly.  This test documents that contract.
+
+  const CRATE_RADIUS = 0.65;
+
+  test("targetY = terrainY + CRATE_RADIUS triggers hasLanded check", () => {
+    const terrainY = 5.0;
+    const targetY = terrainY + CRATE_RADIUS; // correct (fixed) value
+    // Physics rest position: terrainY + radius = targetY
+    const restY = terrainY + CRATE_RADIUS;
+    expect(restY).toBeLessThanOrEqual(targetY + 0.1); // check fires ✓
+  });
+
+  test("old targetY = terrainY (without radius) does NOT trigger hasLanded", () => {
+    const terrainY = 5.0;
+    const brokenTargetY = terrainY; // missing radius — the original bug
+    const restY = terrainY + CRATE_RADIUS;
+    // restY (5.65) > brokenTargetY + 0.1 (5.1) → check never fires ✗
+    expect(restY).toBeGreaterThan(brokenTargetY + 0.1);
+  });
+});
+
 describe("pickAirdropLootArray — guaranteed weapon + resource", () => {
   test("always returns array of length 2", () => {
     for (let i = 0; i < 50; i++) {

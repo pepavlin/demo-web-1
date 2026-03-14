@@ -1376,6 +1376,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // we achieve this by using very low restitution and high linear damping so the
     // parachute's drag effect is approximated.  After landing the body slides on
     // slopes just like a regular rigid box.
+    // Half-height of the crate box used as physics radius.
+    // Must match the radius passed to physicsWorldRef.addBody so that
+    // targetY (= terrainY + CRATE_RADIUS) equals the physics rest position.
+    const CRATE_RADIUS = 0.65;
     const crateBodyId = `crate-${Date.now()}`;
     const adEntry: AirdropData = {
       mesh: crateMesh,
@@ -1384,7 +1388,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       state: 'falling',
       x,
       z,
-      targetY: terrainY,
+      // targetY is the Y position at which the crate centre rests on terrain.
+      // Physics places the body at terrainY + radius, so we must include it here
+      // so the hasLanded check (currentY <= targetY + 0.1) fires correctly.
+      targetY: terrainY + CRATE_RADIUS,
       despawnTimer: 0,
       beaconAge: 0,
       loot,
@@ -1398,7 +1405,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         position: { x, y: AIRDROP_SPAWN_HEIGHT, z },
         // Start with a gentle downward velocity (parachute terminal velocity)
         velocity: { x: 0, y: -AIRDROP_FALL_SPEED, z: 0 },
-        radius: 0.65,        // half-height of the crate box
+        radius: CRATE_RADIUS,
         // High damping simulates parachute drag: the body falls at roughly
         // AIRDROP_FALL_SPEED without accelerating significantly under gravity.
         linearDamping: 0.92,
@@ -1412,7 +1419,9 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         },
         onSleep: () => {
-          // Body has settled — remove the physics body reference
+          // Body has settled — remove it from the physics world and clear the ref
+          // so that subsequent cleanup code (open/despawn) does not double-free.
+          physicsWorldRef.current?.removeBody(crateBodyId);
           adEntry.physicsBodyId = undefined;
         },
       });
@@ -8365,6 +8374,35 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (hasLanded) {
             // Crate has landed — transition to sliding/settled state
             ad.state = 'landed';
+
+            // Replace the high-damping parachute-fall body with a low-friction
+            // sliding body so the crate rolls down slopes after landing.
+            if (ad.physicsBodyId && physicsWorldRef.current) {
+              physicsWorldRef.current.removeBody(ad.physicsBodyId);
+              const slideId = `crate-slide-${Date.now()}`;
+              ad.physicsBodyId = slideId;
+              const cp = ad.mesh.position;
+              physicsWorldRef.current.addBody({
+                id: slideId,
+                position: { x: cp.x, y: cp.y, z: cp.z },
+                velocity: { x: 0, y: 0, z: 0 },
+                radius: 0.65,
+                // Light damping + reduced friction → crate slides down slopes,
+                // comes to natural rest via sleep system.
+                linearDamping: 0.15,
+                restitution: 0.08,
+                friction: 0.4,
+                onUpdate: (pos) => {
+                  ad.mesh.position.set(pos.x, pos.y, pos.z);
+                  ad.x = pos.x;
+                  ad.z = pos.z;
+                },
+                onSleep: () => {
+                  physicsWorldRef.current?.removeBody(slideId);
+                  ad.physicsBodyId = undefined;
+                },
+              });
+            }
 
             // Parachute settles — tilt it sideways
             ad.parachuteMesh.rotation.z = Math.PI / 2;

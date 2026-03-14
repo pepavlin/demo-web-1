@@ -425,6 +425,151 @@ describe("dt clamping", () => {
   });
 });
 
+// ─── Crate landing rest position ─────────────────────────────────────────────
+// Regression tests for the airdrop-crate landing bug:
+// the crate must come to rest at terrainY + radius (not terrainY).
+
+describe("Crate landing – rest position includes radius offset", () => {
+  const CRATE_RADIUS = 0.65;
+  const TERRAIN_Y = 3.0;
+
+  it("crate rests at terrainY + radius on flat ground", () => {
+    const world = new PhysicsWorld(() => TERRAIN_Y);
+    const body = world.addBody({
+      id: "crate",
+      position: { x: 0, y: 20, z: 0 },
+      velocity: { x: 0, y: -7, z: 0 },
+      radius: CRATE_RADIUS,
+      linearDamping: 0.92,
+      restitution: 0.05,
+      friction: 0.7,
+    });
+
+    // Simulate until the body sleeps or enough frames pass
+    for (let i = 0; i < 1000; i++) {
+      world.update(0.016);
+      if (body.isSleeping) break;
+    }
+
+    expect(body.isSleeping).toBe(true);
+    // Rest Y must equal terrainY + radius (not terrainY alone)
+    expect(body.position.y).toBeCloseTo(TERRAIN_Y + CRATE_RADIUS, 1);
+  });
+
+  it("hasLanded check with targetY = terrainY + radius fires correctly", () => {
+    // This simulates the fixed Game3D landing check:
+    //   hasLanded = currentY <= ad.targetY + 0.1
+    // where ad.targetY = terrainY + CRATE_RADIUS
+    const targetY = TERRAIN_Y + CRATE_RADIUS; // the fixed value
+
+    const world = new PhysicsWorld(() => TERRAIN_Y);
+    const body = world.addBody({
+      id: "crate",
+      position: { x: 0, y: 20, z: 0 },
+      velocity: { x: 0, y: -7, z: 0 },
+      radius: CRATE_RADIUS,
+      linearDamping: 0.92,
+      restitution: 0.05,
+    });
+
+    let hasLanded = false;
+    for (let i = 0; i < 1000; i++) {
+      world.update(0.016);
+      if (body.position.y <= targetY + 0.1) {
+        hasLanded = true;
+        break;
+      }
+    }
+
+    expect(hasLanded).toBe(true);
+  });
+
+  it("old targetY = terrainY (without radius) never triggers landing", () => {
+    // This reproduces the original bug — targetY without radius means the check
+    // currentY <= terrainY + 0.1 is always false when crate is at terrainY + 0.65.
+    const brokenTargetY = TERRAIN_Y; // missing radius offset
+
+    const world = new PhysicsWorld(() => TERRAIN_Y);
+    const body = world.addBody({
+      id: "crate",
+      position: { x: 0, y: 20, z: 0 },
+      velocity: { x: 0, y: -7, z: 0 },
+      radius: CRATE_RADIUS,
+      linearDamping: 0.92,
+      restitution: 0.05,
+    });
+
+    let hasLanded = false;
+    for (let i = 0; i < 1000; i++) {
+      world.update(0.016);
+      if (body.position.y <= brokenTargetY + 0.1) {
+        hasLanded = true;
+        break;
+      }
+    }
+
+    // With the broken targetY the check never fires → demonstrates the original bug
+    expect(hasLanded).toBe(false);
+  });
+});
+
+// ─── Crate slope sliding ──────────────────────────────────────────────────────
+// Verifies that a crate with low-friction sliding parameters (as used after
+// landing) actually moves downhill on a slope terrain.
+
+describe("Crate slope sliding after landing", () => {
+  it("slides downhill (−X direction) on a ramp when using sliding parameters", () => {
+    // Ramp rises in +X direction: terrainY = x * 0.5 (~26.6° slope).
+    // At friction=0.4 the slide force (gMag*sin θ ≈ 11.2) exceeds friction
+    // (0.4 * gMag*cos θ ≈ 8.9), so the crate rolls downhill.
+    const slopeTerrain: TerrainSampler = (x) => x * 0.5;
+    const CRATE_RADIUS = 0.65;
+    const startX = 10; // high on the ramp
+
+    const world = new PhysicsWorld(slopeTerrain);
+    const body = world.addBody({
+      id: "slide-crate",
+      position: { x: startX, y: slopeTerrain(startX, 0) + CRATE_RADIUS, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      radius: CRATE_RADIUS,
+      // Sliding body parameters (as used in the landing replacement body)
+      linearDamping: 0.15,
+      restitution: 0.08,
+      friction: 0.4,
+    });
+
+    stepWorld(world, 120, 0.016); // ~2 seconds
+
+    // Body must have slid downhill (−X direction on this ramp)
+    expect(body.position.x).toBeLessThan(startX);
+  });
+
+  it("does NOT slide significantly with parachute damping parameters on same slope", () => {
+    // With high friction (0.7) on the same 26.6° slope:
+    // friction force (0.7 * gMag*cos θ ≈ 15.6) > slide force (≈ 11.2) → no movement.
+    const slopeTerrain: TerrainSampler = (x) => x * 0.5;
+    const CRATE_RADIUS = 0.65;
+    const startX = 10;
+
+    const world = new PhysicsWorld(slopeTerrain);
+    const body = world.addBody({
+      id: "para-crate",
+      position: { x: startX, y: slopeTerrain(startX, 0) + CRATE_RADIUS, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      radius: CRATE_RADIUS,
+      // Parachute-drag parameters (high damping + high friction → crate doesn't roll)
+      linearDamping: 0.92,
+      restitution: 0.05,
+      friction: 0.7,
+    });
+
+    stepWorld(world, 60, 0.016);
+
+    // Body barely moved compared to the sliding-param case — stays near startX
+    expect(Math.abs(body.position.x - startX)).toBeLessThan(1.5);
+  });
+});
+
 // ─── Multiple bodies ──────────────────────────────────────────────────────────
 
 describe("Multiple bodies", () => {
