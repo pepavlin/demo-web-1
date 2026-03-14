@@ -10350,102 +10350,119 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — 3 slots max, active one highlighted */}
-          {([0, 1, 2] as const).map((slotIdx) => {
-            const w = weaponSlots[slotIdx];
-            const isActive = activeSlot === slotIdx;
-            if (!w) {
-              // Empty slot
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM CENTER — Minecraft hotbar ═══════════════ */}
+      {gameState.isLocked && (
+        <div
+          className="fixed bottom-5 left-1/2 pointer-events-none select-none"
+          style={{ transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
+        >
+          {/* 3 weapon slots side by side */}
+          <div style={{ display: "flex", gap: 4 }}>
+            {([0, 1, 2] as const).map((slotIdx) => {
+              const w = weaponSlots[slotIdx];
+              const isActive = activeSlot === slotIdx;
+              const cfg = w ? WEAPON_CONFIGS[w] : null;
+              const emoji = !w ? null : w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : w === "shovel" ? "⛏️" : "🎯";
+              const onCooldown = isActive && !gameState.attackReady;
+              const RING_R = 14;
+              const ringCircumference = 2 * Math.PI * RING_R;
               return (
                 <div
                   key={slotIdx}
-                  className="rounded-xl text-xs font-bold flex items-center gap-2"
                   style={{
-                    width: 168,
-                    padding: "7px 14px",
-                    background: "rgba(0,0,0,0.30)",
-                    backdropFilter: "blur(12px)",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    color: "rgba(255,255,255,0.18)",
+                    width: 56,
+                    height: 56,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 2,
+                    background: isActive
+                      ? cfg ? `${cfg.color}22` : "rgba(255,255,255,0.12)"
+                      : "rgba(0,0,0,0.55)",
+                    backdropFilter: "blur(14px)",
+                    border: isActive
+                      ? `2px solid ${cfg ? cfg.color : "rgba(255,255,255,0.7)"}`
+                      : "2px solid rgba(255,255,255,0.12)",
+                    borderRadius: 6,
+                    boxShadow: isActive
+                      ? `0 0 14px ${cfg ? cfg.color + "55" : "rgba(255,255,255,0.3)"},inset 0 1px 0 rgba(255,255,255,0.08)`
+                      : "inset 0 1px 0 rgba(255,255,255,0.04)",
+                    transition: "all 0.15s ease",
+                    position: "relative",
                   }}
                 >
-                  <span style={{ opacity: 0.35, fontSize: 10 }}>[{slotIdx + 1}]</span>
-                  <span style={{ fontSize: 16 }}>—</span>
-                  <span>Prázdný slot</span>
+                  {/* Slot number */}
+                  <span style={{
+                    position: "absolute",
+                    top: 2,
+                    left: 4,
+                    fontSize: 8,
+                    fontWeight: 700,
+                    color: isActive ? (cfg ? cfg.color : "rgba(255,255,255,0.8)") : "rgba(255,255,255,0.25)",
+                    lineHeight: 1,
+                  }}>{slotIdx + 1}</span>
+
+                  {/* Weapon emoji or empty dash */}
+                  {w ? (
+                    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32 }}>
+                      <span style={{ fontSize: 22, lineHeight: 1 }}>{emoji}</span>
+                      {/* Cooldown ring */}
+                      {isActive && (
+                        <svg
+                          width="36" height="36"
+                          viewBox="0 0 36 36"
+                          style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}
+                        >
+                          <circle cx="18" cy="18" r={RING_R} fill="none" stroke={`${cfg!.color}25`} strokeWidth="2" />
+                          {onCooldown && (
+                            <circle
+                              cx="18" cy="18" r={RING_R}
+                              fill="none"
+                              stroke={cfg!.color}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeDasharray={ringCircumference}
+                              strokeDashoffset={ringCircumference * (1 - gameState.cooldownProgress)}
+                              transform="rotate(-90 18 18)"
+                              style={{ transition: "stroke-dashoffset 0.1s linear", opacity: 0.85 }}
+                            />
+                          )}
+                        </svg>
+                      )}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 16, color: "rgba(255,255,255,0.15)" }}>—</span>
+                  )}
+
+                  {/* Weapon label under icon */}
+                  {w && cfg && (
+                    <span style={{
+                      fontSize: 7,
+                      fontWeight: 600,
+                      color: isActive ? cfg.color : "rgba(255,255,255,0.30)",
+                      letterSpacing: "0.02em",
+                      lineHeight: 1,
+                      maxWidth: 50,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}>{cfg.label}</span>
+                  )}
                 </div>
               );
-            }
-            const cfg = WEAPON_CONFIGS[w];
-            const emoji = w === "sword" ? "⚔️" : w === "bow" ? "🏹" : w === "sniper" ? "🔭" : w === "axe" ? "🪓" : w === "machinegun" ? "🔫" : w === "flamethrower" ? "🔥" : w === "shovel" ? "⛏️" : "🎯";
-            const onCooldown = isActive && !gameState.attackReady;
-            const RING_R = 10;
-            const ringCircumference = 2 * Math.PI * RING_R;
-            return (
-              <div
-                key={slotIdx}
-                className="rounded-xl text-xs font-bold flex items-center gap-2"
-                style={{
-                  width: 168,
-                  padding: "7px 14px",
-                  background: isActive ? `${cfg.color}1a` : "rgba(0,0,0,0.40)",
-                  backdropFilter: "blur(12px)",
-                  border: isActive
-                    ? `1px solid ${cfg.color}88`
-                    : "1px solid rgba(255,255,255,0.08)",
-                  color: isActive ? cfg.color : "rgba(255,255,255,0.30)",
-                  boxShadow: isActive ? `0 0 12px ${cfg.color}33` : "none",
-                  transition: "all 0.15s ease",
-                  position: "relative",
-                }}
-              >
-                <span style={{ opacity: isActive ? 0.8 : 0.4, fontSize: 10 }}>[{slotIdx + 1}]</span>
-                {/* Weapon icon with cooldown ring overlay */}
-                <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22 }}>
-                  <span style={{ position: "relative", zIndex: 1 }}>{emoji}</span>
-                  {isActive && (
-                    <svg
-                      width="26" height="26"
-                      viewBox="0 0 26 26"
-                      style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}
-                    >
-                      {/* Track ring */}
-                      <circle cx="13" cy="13" r={RING_R} fill="none" stroke={`${cfg.color}28`} strokeWidth="2" />
-                      {/* Cooldown progress arc */}
-                      {onCooldown && (
-                        <circle
-                          cx="13" cy="13" r={RING_R}
-                          fill="none"
-                          stroke={cfg.color}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeDasharray={ringCircumference}
-                          strokeDashoffset={ringCircumference * (1 - gameState.cooldownProgress)}
-                          transform="rotate(-90 13 13)"
-                          style={{ transition: "stroke-dashoffset 0.1s linear", opacity: 0.85 }}
-                        />
-                      )}
-                    </svg>
-                  )}
-                </span>
-                <span>{cfg.label}</span>
-                {isActive && (
-                  <span style={{ marginLeft: "auto", fontSize: 8, opacity: 0.6 }}>◀</span>
-                )}
-              </div>
-            );
-          })}
-          {/* Slot switch hint */}
-          <div
-            className="rounded-xl text-xs text-center"
-            style={{
-              width: 168,
-              padding: "5px 14px",
-              background: "rgba(0,0,0,0.25)",
-              backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.05)",
-              color: "rgba(255,255,255,0.25)",
-            }}
-          >
+            })}
+          </div>
+          {/* Hint */}
+          <div style={{
+            fontSize: 9,
+            color: "rgba(255,255,255,0.22)",
+            letterSpacing: "0.04em",
+            fontWeight: 500,
+          }}>
             [Q] / Kolečko — změna zbraně
           </div>
         </div>
