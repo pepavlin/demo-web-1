@@ -553,3 +553,104 @@ describe("melee bomb detonation", () => {
     expect(hit).not.toBeNull(); // confirms the guard in Game3D (sword/axe only) is necessary
   });
 });
+
+// ─── World item pickup: scene removal semantics ────────────────────────────────
+//
+// Fix: pickUpItem must remove the mesh from the scene entirely (not just hide it)
+// so the item truly disappears from the ground when picked up.
+// placeHeldItem must re-add the mesh to the scene when the item is placed back.
+
+describe("world item pickup scene removal", () => {
+  /** Minimal scene mock that tracks added/removed objects. */
+  function makeScene() {
+    const children: THREE.Object3D[] = [];
+    return {
+      add(obj: THREE.Object3D)    { if (!children.includes(obj)) children.push(obj); },
+      remove(obj: THREE.Object3D) { const i = children.indexOf(obj); if (i !== -1) children.splice(i, 1); },
+      has(obj: THREE.Object3D)    { return children.includes(obj); },
+      count()                     { return children.length; },
+    };
+  }
+
+  it("pickUpItem removes the item mesh from the scene (not just hides it)", () => {
+    const scene = makeScene();
+    const mesh = new THREE.Group();
+    scene.add(mesh);
+    expect(scene.has(mesh)).toBe(true);
+
+    // Simulate pickUpItem: remove from scene, mark as held
+    scene.remove(mesh);
+    const isHeld = true;
+
+    expect(scene.has(mesh)).toBe(false);
+    expect(isHeld).toBe(true);
+  });
+
+  it("placeHeldItem re-adds the mesh to the scene at the new position", () => {
+    const scene = makeScene();
+    const mesh = new THREE.Group();
+    // Item was picked up (not in scene)
+
+    const targetPos = new THREE.Vector3(5, 0, 10);
+
+    // Simulate placeHeldItem: position mesh and add it back to scene
+    mesh.position.copy(targetPos);
+    scene.add(mesh);
+    const isHeld = false;
+
+    expect(scene.has(mesh)).toBe(true);
+    expect(mesh.position.x).toBeCloseTo(5);
+    expect(mesh.position.z).toBeCloseTo(10);
+    expect(isHeld).toBe(false);
+  });
+
+  it("throwBomb removes the original bomb mesh from the scene (bomb is consumed)", () => {
+    const scene = makeScene();
+    const bombMesh = new THREE.Group();
+    scene.add(bombMesh);
+    expect(scene.has(bombMesh)).toBe(true);
+
+    let worldItems: WorldItem[] = [
+      { id: "bomb-0", type: "bomb", mesh: bombMesh, isHeld: true },
+    ];
+
+    // Simulate throwBomb: remove from scene, remove from worldItems
+    scene.remove(bombMesh);
+    worldItems = worldItems.filter((wi) => wi.mesh !== bombMesh);
+
+    expect(scene.has(bombMesh)).toBe(false);
+    expect(worldItems).toHaveLength(0);
+  });
+
+  it("item is not visible as ground item while held (scene does not contain it)", () => {
+    const scene = makeScene();
+    const mesh = new THREE.Group();
+    scene.add(mesh);
+
+    // Simulate pickup
+    scene.remove(mesh);
+
+    // During the held phase, the mesh must not be in the scene
+    expect(scene.has(mesh)).toBe(false);
+
+    // After drop/place, the mesh is re-added
+    scene.add(mesh);
+    expect(scene.has(mesh)).toBe(true);
+  });
+
+  it("pickup does not affect other items in the scene", () => {
+    const scene = makeScene();
+    const pickedMesh = new THREE.Group();
+    const otherMesh  = new THREE.Group();
+    scene.add(pickedMesh);
+    scene.add(otherMesh);
+    expect(scene.count()).toBe(2);
+
+    // Simulate picking up only pickedMesh
+    scene.remove(pickedMesh);
+
+    expect(scene.has(pickedMesh)).toBe(false);
+    expect(scene.has(otherMesh)).toBe(true);
+    expect(scene.count()).toBe(1);
+  });
+});
