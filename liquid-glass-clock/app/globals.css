@@ -905,3 +905,18 @@ body {
 .avatar-night-bg {
   animation: avatar-lobby-bg 20s ease-in-out infinite;
 }
+
+/* ── PvP kill effects ──────────────────────────────────────────────────────── */
+
+@keyframes killFlashAnim {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes killConfirmAnim {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.85); }
+  12%  { opacity: 1; transform: translateX(-50%) translateY(0)     scale(1.08); }
+  30%  { opacity: 1; transform: translateX(-50%) translateY(0)     scale(1.0);  }
+  75%  { opacity: 1; transform: translateX(-50%) translateY(0)     scale(1.0);  }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px)  scale(1.05); }
+}

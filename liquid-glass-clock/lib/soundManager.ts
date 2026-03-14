@@ -1380,6 +1380,49 @@ class SoundManager {
     this._sheepBufferLoading = false;
     this._paused = false;
   }
+
+  /** Satisfying "kill confirmed" chime when the player eliminates another player. */
+  playKillConfirmed(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Rising two-tone chime — distinct from the downward death cry of NPCs
+    const notes = [
+      { hz: 880, delay: 0,    dur: 0.18, vol: 0.22 },
+      { hz: 1320, delay: 0.14, dur: 0.26, vol: 0.18 },
+    ];
+    notes.forEach(({ hz, delay, dur, vol }) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(hz, t + delay);
+      osc.frequency.exponentialRampToValueAtTime(hz * 1.06, t + delay + dur);
+
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(vol, t + delay);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + delay + dur + 0.05);
+
+      osc.connect(env);
+      env.connect(this.sfxGain!);
+      osc.start(t + delay);
+      osc.stop(t + delay + dur + 0.06);
+    });
+
+    // Short impact noise burst at the start for punch
+    const nSrc = ctx.createBufferSource();
+    nSrc.buffer = this._noiseBuffer(0.06);
+    const nFlt = ctx.createBiquadFilter();
+    nFlt.type = "highpass";
+    nFlt.frequency.value = 4000;
+    const nEnv = ctx.createGain();
+    nEnv.gain.setValueAtTime(0.12, t);
+    nEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+    nSrc.connect(nFlt);
+    nFlt.connect(nEnv);
+    nEnv.connect(this.sfxGain!);
+    nSrc.start(t);
+    nSrc.stop(t + 0.07);
+  }
 }
 
 /** Singleton – import and use directly throughout the game. */

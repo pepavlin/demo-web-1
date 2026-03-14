@@ -894,6 +894,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [bleatingLabel, setBleatingLabel] = useState<string | null>(null);
   const [foxWarning, setFoxWarning] = useState(false);
   const [hitFlash, setHitFlash] = useState(false);
+  const [killConfirm, setKillConfirm] = useState<string | null>(null);
+  const [killFlash, setKillFlash] = useState(false);
   const [isUnderwater, setIsUnderwater] = useState(false);
   const isUnderwaterRef = useRef(false);
   const [isSwimming, setIsSwimming] = useState(false);
@@ -945,6 +947,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // PvP
     hp: number;
     hitFlashTimer: number;
+    // Death animation
+    isDying: boolean;
+    deathTimer: number;
+    deathRotY: number;
   }>>(new Map());
   const sendUpdateRef = useRef<((update: PlayerUpdate) => void) | null>(null);
   /** Ref to sendHit — allows calling from inside the animation loop. */
@@ -1007,6 +1013,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         armR: mesh.getObjectByName("armR") ?? null,
         legPhase: 0, prevX: p.x, prevZ: p.z,
         hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
+        isDying: false, deathTimer: 0, deathRotY: 0,
       });
       list.push({ id: p.id, name: p.name, color: p.color });
     });
@@ -1030,6 +1037,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       armR: mesh.getObjectByName("armR") ?? null,
       legPhase: 0, prevX: p.x, prevZ: p.z,
       hp: p.hp ?? PLAYER_MAX_HP, hitFlashTimer: 0,
+      isDying: false, deathTimer: 0, deathRotY: 0,
     });
     setOnlinePlayers((prev) => [...prev, { id: p.id, name: p.name, color: p.color }]);
     showMpNotif(`${p.name} se připojil ke světu`);
@@ -1080,11 +1088,57 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
   const handleGotKill = useCallback((victimName: string) => {
     showMpNotif(`Zabil jsi ${victimName}!`);
+    soundManager.playKillConfirmed();
+
+    // Trigger kill confirmation UI flash
+    setKillFlash(true);
+    setTimeout(() => setKillFlash(false), 500);
+    setKillConfirm(victimName);
+    setTimeout(() => setKillConfirm(null), 1800);
+
+    // Trigger death animation on the victim's remote mesh
+    remotePlayersRef.current.forEach((data) => {
+      if (data.name === victimName && !data.isDying) {
+        data.isDying = true;
+        data.deathTimer = 0;
+        data.deathRotY = data.mesh.rotation.y;
+        // Spawn blood particles at the victim's position
+        const scene = sceneRef.current;
+        if (scene) {
+          spawnBloodParticles(scene, data.mesh.position.clone());
+        }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMpNotif]);
 
   const handlePlayerHpUpdate = useCallback((id: string, hp: number) => {
     const data = remotePlayersRef.current.get(id);
-    if (data) data.hp = hp;
+    if (!data) return;
+    const prevHp = data.hp;
+    data.hp = hp;
+    // Trigger death animation when a remote player's HP first drops to 0
+    if (hp <= 0 && prevHp > 0 && !data.isDying) {
+      data.isDying = true;
+      data.deathTimer = 0;
+      data.deathRotY = data.mesh.rotation.y;
+      const scene = sceneRef.current;
+      if (scene) spawnBloodParticles(scene, data.mesh.position.clone());
+    }
+    // Reset mesh when player respawns (HP restored)
+    if (hp > 0 && prevHp <= 0) {
+      data.isDying = false;
+      data.deathTimer = 0;
+      data.mesh.rotation.z = 0;
+      data.mesh.visible = true;
+      data.mesh.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh && m.material) {
+          (m.material as THREE.MeshLambertMaterial).opacity = 1;
+          (m.material as THREE.MeshLambertMaterial).transparent = false;
+        }
+      });
+    }
   }, []);
 
   const handleRespawn = useCallback(() => {
@@ -8443,6 +8497,57 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       if (remotePlayersRef.current.size > 0) {
         const lerpFactor = 1 - Math.exp(-12 * dt);
         remotePlayersRef.current.forEach((data) => {
+
+          // ── Death animation (3-phase, mirrors sheep/fox death) ──────────────
+          if (data.isDying) {
+            data.deathTimer += dt;
+            const t = data.deathTimer;
+
+            if (t < 0.35) {
+              // Phase 1: violent shock shake
+              const amp = (0.35 - t) / 0.35;
+              data.mesh.position.x += Math.sin(t * 65) * amp * 0.07;
+              data.mesh.position.z += Math.cos(t * 65) * amp * 0.07;
+              data.mesh.rotation.z = Math.sin(t * 55) * amp * 0.4;
+              // Arms flail outward
+              if (data.armL) data.armL.rotation.z =  amp * 0.8;
+              if (data.armR) data.armR.rotation.z = -amp * 0.8;
+              if (data.legL) data.legL.rotation.x =  amp * 0.6;
+              if (data.legR) data.legR.rotation.x = -amp * 0.6;
+            } else if (t < 1.4) {
+              // Phase 2: spin + tip over
+              const fallT = (t - 0.35) / 1.05;
+              const spinRate = Math.pow(1 - fallT, 1.8) * 12;
+              data.deathRotY += spinRate * dt;
+              data.mesh.rotation.y = data.deathRotY;
+              data.mesh.rotation.z = fallT * (Math.PI / 2) * 1.05;
+              // Bounce
+              data.mesh.position.y += Math.sin(fallT * Math.PI * 2.5) * (1 - fallT) * 0.25 * dt * 60;
+              // Stiffen limbs
+              if (data.armL) data.armL.rotation.z *= 0.9;
+              if (data.armR) data.armR.rotation.z *= 0.9;
+              if (data.legL) data.legL.rotation.x *= 0.9;
+              if (data.legR) data.legR.rotation.x *= 0.9;
+            } else if (t < 2.4) {
+              // Phase 3: fade out while lying flat
+              data.mesh.rotation.z = Math.PI / 2;
+              const fadeT = (t - 1.4) / 1.0;
+              const opacity = Math.max(0, 1 - fadeT);
+              data.mesh.traverse((child) => {
+                const m = child as THREE.Mesh;
+                if (m.isMesh && m.material) {
+                  const mat = m.material as THREE.MeshLambertMaterial;
+                  mat.transparent = true;
+                  mat.opacity = opacity;
+                }
+              });
+            } else {
+              // Animation done — hide mesh until respawn
+              data.mesh.visible = false;
+            }
+            return; // Skip normal interpolation while dying
+          }
+
           const prevX = data.mesh.position.x;
           const prevZ = data.mesh.position.z;
 
@@ -8914,6 +9019,59 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           className="fixed inset-0 pointer-events-none"
           style={{ background: "rgba(220,30,30,0.35)", zIndex: 50 }}
         />
+      )}
+
+      {/* Kill flash overlay — golden vignette when eliminating another player */}
+      {killFlash && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background: "radial-gradient(ellipse at center, transparent 40%, rgba(255,200,0,0.45) 100%)",
+            zIndex: 51,
+            animation: "killFlashAnim 0.5s ease-out forwards",
+          }}
+        />
+      )}
+
+      {/* Kill confirmation banner */}
+      {killConfirm && (
+        <div
+          className="fixed pointer-events-none"
+          style={{
+            top: "28%",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 60,
+            textAlign: "center",
+            animation: "killConfirmAnim 1.8s ease-out forwards",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "2.6rem",
+              fontWeight: 900,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "#FFD700",
+              textShadow: "0 0 18px rgba(255,200,0,0.9), 0 2px 6px rgba(0,0,0,0.8)",
+              lineHeight: 1,
+              marginBottom: 6,
+            }}
+          >
+            ☠ ZABITO!
+          </div>
+          <div
+            style={{
+              fontSize: "1.1rem",
+              fontWeight: 600,
+              color: "rgba(255,255,255,0.85)",
+              textShadow: "0 1px 4px rgba(0,0,0,0.9)",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {killConfirm}
+          </div>
+        </div>
       )}
 
       {/* Underwater tint overlay */}
