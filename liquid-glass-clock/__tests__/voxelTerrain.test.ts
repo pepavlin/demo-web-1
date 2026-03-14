@@ -19,6 +19,9 @@ import {
   generateVoxelTerrain,
   generateVoxelTerrainAsync,
   getVoxelChunkMeshes,
+  digVoxelSphere,
+  resetDensityOverrides,
+  getTerrainSurfaceYAfterDigs,
   VOXEL_SIZE,
   CHUNK_SIZE,
   CHUNK_WORLD,
@@ -27,7 +30,7 @@ import {
   TERRAIN_LOD_DISTANCE,
   TERRAIN_LOD2_DISTANCE,
 } from "@/lib/voxelTerrain";
-import { initNoise } from "@/lib/terrainUtils";
+import { initNoise, getTerrainHeight } from "@/lib/terrainUtils";
 
 // Initialise noise once before all tests
 beforeAll(() => {
@@ -507,6 +510,123 @@ describe("generateChunkGeometry LOD scale", () => {
       expect(geo.attributes.color).toBeDefined();
       expect(geo.attributes.normal).toBeDefined();
     }
+  });
+});
+
+// ─── Dynamic terrain collision: getTerrainSurfaceYAfterDigs ───────────────────
+
+describe("getTerrainSurfaceYAfterDigs", () => {
+  // Always reset overrides before each test to avoid cross-test contamination
+  beforeEach(() => {
+    resetDensityOverrides();
+  });
+  afterEach(() => {
+    resetDensityOverrides();
+  });
+
+  it("returns null when no density overrides exist (fast path)", () => {
+    // Without any digs the function must fast-exit with null
+    const result = getTerrainSurfaceYAfterDigs(0, 0);
+    expect(result).toBeNull();
+  });
+
+  it("returns null at a position far from any dig site", () => {
+    // Dig at (100, surfY, 100) — should not affect (0, 0)
+    const surfY = getTerrainHeight(100, 100);
+    digVoxelSphere(100, surfY, 100, 3);
+
+    // Far away position should be unaffected
+    const result = getTerrainSurfaceYAfterDigs(0, 0);
+    expect(result).toBeNull();
+  });
+
+  it("returns a number (new surface Y) after a shovel dig at the query position", () => {
+    const wx = 50;
+    const wz = 50;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Dig a sphere right at the surface
+    digVoxelSphere(wx, surfY, wz, 4);
+
+    const result = getTerrainSurfaceYAfterDigs(wx, wz);
+    // Should detect the dig and return a new (lower) surface Y
+    expect(result).not.toBeNull();
+    if (result !== null) {
+      // New surface must be below or at the natural surface
+      expect(result).toBeLessThanOrEqual(surfY);
+    }
+  });
+
+  it("new surface Y is lower than natural surface when dug through", () => {
+    const wx = 30;
+    const wz = 70;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Dig deep enough to remove the surface
+    digVoxelSphere(wx, surfY - VOXEL_SIZE, wz, 5);
+
+    const result = getTerrainSurfaceYAfterDigs(wx, wz);
+    expect(result).not.toBeNull();
+    if (result !== null) {
+      // Must be strictly below the original surface
+      expect(result).toBeLessThan(surfY);
+    }
+  });
+
+  it("returns a finite number (not NaN, not Infinity) after a dig", () => {
+    const wx = -20;
+    const wz = 40;
+    const surfY = getTerrainHeight(wx, wz);
+
+    digVoxelSphere(wx, surfY, wz, 3);
+
+    const result = getTerrainSurfaceYAfterDigs(wx, wz);
+    if (result !== null) {
+      expect(isFinite(result)).toBe(true);
+    }
+  });
+
+  it("result is at or above VOXEL_Y_MIN (never returns below the world floor)", () => {
+    const wx = 0;
+    const wz = 0;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Extremely large dig radius — should not return below the world floor
+    digVoxelSphere(wx, surfY, wz, 200);
+
+    const result = getTerrainSurfaceYAfterDigs(wx, wz);
+    if (result !== null) {
+      expect(result).toBeGreaterThanOrEqual(VOXEL_Y_MIN);
+    }
+  });
+
+  it("result does not change when dig is entirely underground (surface stays the same)", () => {
+    const wx = -60;
+    const wz = -40;
+    const surfY = getTerrainHeight(wx, wz);
+
+    // Dig far underground — should not affect the surface
+    digVoxelSphere(wx, surfY - 20, wz, 2);
+
+    // The density override is deep underground; the surface voxel is still solid
+    const result = getTerrainSurfaceYAfterDigs(wx, wz);
+    // Could be null (no change detected) or still close to surfY
+    if (result !== null) {
+      // If detected, must not have moved the surface significantly upward
+      expect(result).toBeLessThanOrEqual(surfY + VOXEL_SIZE);
+    }
+  });
+
+  it("resetDensityOverrides clears all overrides so null is returned again", () => {
+    const wx = 10;
+    const wz = 10;
+    const surfY = getTerrainHeight(wx, wz);
+
+    digVoxelSphere(wx, surfY, wz, 3);
+    expect(getTerrainSurfaceYAfterDigs(wx, wz)).not.toBeNull(); // dig exists
+
+    resetDensityOverrides();
+    expect(getTerrainSurfaceYAfterDigs(wx, wz)).toBeNull(); // cleared
   });
 });
 
