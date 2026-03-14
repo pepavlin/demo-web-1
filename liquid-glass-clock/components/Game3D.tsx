@@ -3298,24 +3298,70 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       });
     }
 
-    // ── Rain Particles ───────────────────────────────────────────────────────
+    // ── Rain Particles (GPU-animated via ShaderMaterial) ─────────────────────
+    // All particle positions are computed on the GPU every frame by the vertex
+    // shader using a per-particle random seed + elapsed time uniform.  This
+    // eliminates the costly CPU loop + Float32Array re-upload that ran every
+    // animation frame with the old PointsMaterial approach.
     {
       const rainGeo = new THREE.BufferGeometry();
+      // Static horizontal offsets (XZ) – Y is computed entirely in the shader
       const positions = new Float32Array(RAIN_DROP_COUNT * 3);
+      const seeds     = new Float32Array(RAIN_DROP_COUNT);
       for (let i = 0; i < RAIN_DROP_COUNT; i++) {
         positions[i * 3]     = (Math.random() - 0.5) * RAIN_SPREAD * 2;
-        positions[i * 3 + 1] = RAIN_Y_MIN + Math.random() * RAIN_HEIGHT_RANGE;
+        positions[i * 3 + 1] = 0; // unused; Y computed in vertex shader
         positions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD * 2;
+        seeds[i] = Math.random(); // unique phase offset per particle
       }
       rainGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-      const rainMat = new THREE.PointsMaterial({
-        color: 0xaaddff,
-        size: 0.18,
+      rainGeo.setAttribute("aSeed",    new THREE.BufferAttribute(seeds, 1));
+
+      const rainMat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime:        { value: 0 },
+          uCameraPos:   { value: new THREE.Vector3() },
+          uSpeed:       { value: RAIN_SPEED },
+          uHeightMin:   { value: RAIN_Y_MIN },
+          uHeightRange: { value: RAIN_HEIGHT_RANGE },
+          uOpacity:     { value: 0 },
+        },
+        vertexShader: /* glsl */`
+          uniform float uTime;
+          uniform vec3  uCameraPos;
+          uniform float uSpeed;
+          uniform float uHeightMin;
+          uniform float uHeightRange;
+          attribute float aSeed;
+
+          void main() {
+            // Continuous fall: each particle cycles through the full height range
+            // independently based on its seed phase + global elapsed time.
+            float t       = fract(aSeed + uTime * uSpeed / uHeightRange);
+            float worldY  = uCameraPos.y + uHeightMin + t * uHeightRange;
+            vec3 worldPos = vec3(uCameraPos.x + position.x, worldY, uCameraPos.z + position.z);
+            vec4 mvPos    = modelViewMatrix * vec4(worldPos, 1.0);
+            gl_Position   = projectionMatrix * mvPos;
+            // Perspective size attenuation – distant rain is naturally smaller
+            gl_PointSize  = max(1.0, 3.0 * (300.0 / -mvPos.z));
+          }
+        `,
+        fragmentShader: /* glsl */`
+          uniform float uOpacity;
+
+          void main() {
+            // Soft circular rain-drop shape via gl_PointCoord
+            vec2  uv   = gl_PointCoord - vec2(0.5);
+            float dist = length(uv);
+            if (dist > 0.5) discard;
+            float alpha = uOpacity * (1.0 - dist * 2.0);
+            gl_FragColor = vec4(0.68, 0.87, 1.0, alpha);
+          }
+        `,
         transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        sizeAttenuation: true,
+        depthWrite:  false,
       });
+
       const rain = new THREE.Points(rainGeo, rainMat);
       rain.visible = false;
       scene.add(rain);
@@ -5121,31 +5167,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           });
         });
 
-        // Rain particles
+        // Rain particles – GPU animated: only update lightweight uniforms,
+        // no CPU loop and no Float32Array buffer re-upload each frame.
         if (rainRef.current) {
           const rainIntensity = wCfg.rainIntensity;
           rainRef.current.visible = rainIntensity > 0.01;
-          const rainMat = rainRef.current.material as THREE.PointsMaterial;
-          rainMat.opacity = Math.min(0.65, rainIntensity * 0.65);
-
           if (rainIntensity > 0.01 && cameraRef.current) {
-            // Move rain with the camera so it always surrounds the player
-            const camPos = cameraRef.current.position;
-            const pos = rainRef.current.geometry.attributes.position as THREE.BufferAttribute;
-            const arr = pos.array as Float32Array;
-            for (let i = 0; i < RAIN_DROP_COUNT; i++) {
-              // Fall downward
-              arr[i * 3 + 1] -= RAIN_SPEED * dt;
-              // Reset to top when below ground level
-              if (arr[i * 3 + 1] < RAIN_Y_MIN) {
-                arr[i * 3]     = camPos.x + (Math.random() - 0.5) * RAIN_SPREAD * 2;
-                arr[i * 3 + 1] = camPos.y + RAIN_HEIGHT_RANGE * 0.5 + Math.random() * RAIN_HEIGHT_RANGE * 0.5;
-                arr[i * 3 + 2] = camPos.z + (Math.random() - 0.5) * RAIN_SPREAD * 2;
-              }
-            }
-            pos.needsUpdate = true;
-            // Keep rain cloud centered on camera
-            rainRef.current.position.set(0, 0, 0);
+            const rainMat = rainRef.current.material as THREE.ShaderMaterial;
+            rainMat.uniforms.uTime.value    = elapsed;
+            rainMat.uniforms.uOpacity.value = Math.min(0.65, rainIntensity * 0.65);
+            rainMat.uniforms.uCameraPos.value.copy(cameraRef.current.position);
           }
         }
 

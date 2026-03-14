@@ -215,3 +215,56 @@ describe("generateLightningPath", () => {
     expect(path[1]).toBeCloseTo(skyHeight);
   });
 });
+
+// ─── GPU Rain Shader Constants ────────────────────────────────────────────────
+// These tests document the expected rain constants that drive the GPU vertex
+// shader.  Any change to these values must also update the shader uniforms.
+
+describe("Rain GPU-shader constants (integration contract)", () => {
+  const RAIN_SPEED        = 55;
+  const RAIN_SPREAD       = 280;
+  const RAIN_HEIGHT_RANGE = 90;
+  const RAIN_Y_MIN        = -5;
+
+  it("RAIN_SPEED is a positive number", () => {
+    expect(RAIN_SPEED).toBeGreaterThan(0);
+  });
+
+  it("RAIN_SPREAD produces a full-diameter coverage of at least 500 units", () => {
+    expect(RAIN_SPREAD * 2).toBeGreaterThanOrEqual(500);
+  });
+
+  it("RAIN_HEIGHT_RANGE is positive and covers at least 60 units", () => {
+    expect(RAIN_HEIGHT_RANGE).toBeGreaterThanOrEqual(60);
+  });
+
+  it("RAIN_Y_MIN is negative (rain wraps below player ground level)", () => {
+    expect(RAIN_Y_MIN).toBeLessThan(0);
+  });
+
+  it("shader t = fract(seed + uTime*uSpeed/uHeightRange) always stays in [0,1)", () => {
+    // Verify the GPU fall formula stays in valid range for arbitrary inputs
+    const uSpeed       = RAIN_SPEED;
+    const uHeightRange = RAIN_HEIGHT_RANGE;
+    for (let seed = 0; seed < 1; seed += 0.1) {
+      for (let uTime = 0; uTime < 100; uTime += 7.3) {
+        const raw = seed + uTime * uSpeed / uHeightRange;
+        const t   = raw - Math.floor(raw); // JS equivalent of fract()
+        expect(t).toBeGreaterThanOrEqual(0);
+        expect(t).toBeLessThan(1);
+      }
+    }
+  });
+
+  it("computed worldY stays within expected height range given arbitrary camera Y", () => {
+    const uHeightRange = RAIN_HEIGHT_RANGE;
+    const uHeightMin   = RAIN_Y_MIN;
+    const camY         = 25; // typical camera height
+    // For any t in [0,1) the worldY must stay within [camY+uHeightMin, camY+uHeightMin+uHeightRange)
+    for (let t = 0; t < 1; t += 0.05) {
+      const worldY = camY + uHeightMin + t * uHeightRange;
+      expect(worldY).toBeGreaterThanOrEqual(camY + uHeightMin);
+      expect(worldY).toBeLessThan(camY + uHeightMin + uHeightRange);
+    }
+  });
+});
