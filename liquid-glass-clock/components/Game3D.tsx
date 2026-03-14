@@ -3252,7 +3252,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
       return cloud;
     }
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < 12; i++) {
       const cloud = makeCloud();
       const angle = Math.random() * Math.PI * 2;
       const dist = 50 + Math.random() * 220;
