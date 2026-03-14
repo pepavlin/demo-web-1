@@ -959,7 +959,7 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
           : "rgba(255,255,255,0.03)",
         border: `1.5px solid ${active ? accentColor : "rgba(255,255,255,0.1)"}`,
         borderRadius: 16,
-        padding: "20px 18px 16px",
+        padding: "16px 14px 14px",
         cursor: "pointer",
         transition: "all 0.25s ease",
         transform: selected ? "scale(1.04)" : hovered ? "scale(1.02)" : "scale(1)",
@@ -1040,19 +1040,6 @@ function WeaponCard({ type, selected, onSelect }: WeaponCardProps) {
         }}
       >
         {cfg.label}
-      </div>
-
-      {/* Description */}
-      <div
-        style={{
-          fontSize: 11,
-          color: "rgba(255,255,255,0.45)",
-          marginBottom: 12,
-          lineHeight: 1.5,
-          minHeight: 34,
-        }}
-      >
-        {meta.description}
       </div>
 
       {/* Stat bars */}
@@ -1167,7 +1154,7 @@ export default function WeaponSelect({ onConfirm }: WeaponSelectProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(8, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 12,
             marginBottom: 24,
           }}
