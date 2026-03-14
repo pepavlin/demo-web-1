@@ -1,9 +1,9 @@
 /**
- * Dual Weapon System Tests
+ * Triple Weapon System Tests
  *
- * Tests for the two-slot weapon system:
- * - Player starts with axe (slot 0) and sword (slot 1)
- * - Max 2 weapons at any time
+ * Tests for the three-slot weapon system:
+ * - Player starts with axe (slot 0) and sword (slot 1), slot 2 empty
+ * - Max 3 weapons at any time
  * - Ground weapons can be picked up, replacing active slot
  * - Airdrops always contain a weapon plus a resource bonus
  */
@@ -162,26 +162,26 @@ describe("pickRandomLoot backward compatibility", () => {
   });
 });
 
-// ─── Dual weapon slot model ────────────────────────────────────────────────
+// ─── Triple weapon slot model ──────────────────────────────────────────────
 
-describe("Dual weapon slot model", () => {
-  type WeaponSlots = [WeaponType, WeaponType | null];
+describe("Triple weapon slot model", () => {
+  type WeaponSlots = [WeaponType, WeaponType | null, WeaponType | null];
 
-  function makeSlots(s0: WeaponType, s1: WeaponType | null): WeaponSlots {
-    return [s0, s1];
+  function makeSlots(s0: WeaponType, s1: WeaponType | null, s2: WeaponType | null = null): WeaponSlots {
+    return [s0, s1, s2];
   }
 
   function switchSlot(
     slots: WeaponSlots,
-    active: 0 | 1,
-    target: 0 | 1
-  ): { slots: WeaponSlots; active: 0 | 1; weapon: WeaponType | null } {
+    active: 0 | 1 | 2,
+    target: 0 | 1 | 2
+  ): { slots: WeaponSlots; active: 0 | 1 | 2; weapon: WeaponType | null } {
     return { slots, active: target, weapon: slots[target] };
   }
 
   function pickUpGroundWeapon(
     slots: WeaponSlots,
-    active: 0 | 1,
+    active: 0 | 1 | 2,
     newWeapon: WeaponType
   ): WeaponSlots {
     const next: WeaponSlots = [...slots] as WeaponSlots;
@@ -189,10 +189,11 @@ describe("Dual weapon slot model", () => {
     return next;
   }
 
-  test("initial slots are axe and sword", () => {
+  test("initial slots are axe, sword, and empty", () => {
     const slots = makeSlots("axe", "sword");
     expect(slots[0]).toBe("axe");
     expect(slots[1]).toBe("sword");
+    expect(slots[2]).toBeNull();
   });
 
   test("switching to slot 1 gives sword", () => {
@@ -200,6 +201,13 @@ describe("Dual weapon slot model", () => {
     const { active, weapon } = switchSlot(slots, 0, 1);
     expect(active).toBe(1);
     expect(weapon).toBe("sword");
+  });
+
+  test("switching to slot 2 gives tertiary weapon", () => {
+    const slots = makeSlots("axe", "sword", "bow");
+    const { active, weapon } = switchSlot(slots, 0, 2);
+    expect(active).toBe(2);
+    expect(weapon).toBe("bow");
   });
 
   test("picking up bow replaces active slot (axe), drops axe", () => {
@@ -216,30 +224,40 @@ describe("Dual weapon slot model", () => {
     expect(newSlots[1]).toBe("crossbow");
   });
 
-  test("max 2 weapons: slots array never exceeds length 2", () => {
-    let slots = makeSlots("axe", "sword");
-    // Pick up various weapons — always 2 slots
+  test("picking up weapon into slot 2 fills tertiary slot", () => {
+    const slots = makeSlots("axe", "sword", null);
+    const newSlots = pickUpGroundWeapon(slots, 2, "sniper");
+    expect(newSlots[0]).toBe("axe");
+    expect(newSlots[1]).toBe("sword");
+    expect(newSlots[2]).toBe("sniper");
+  });
+
+  test("max 3 weapons: slots array never exceeds length 3", () => {
+    let slots = makeSlots("axe", "sword", null);
+    // Pick up various weapons — always 3 slots
     for (const weapon of ["bow", "machinegun", "sniper", "flamethrower"] as WeaponType[]) {
       slots = pickUpGroundWeapon(slots, 0, weapon);
-      expect(slots).toHaveLength(2);
+      expect(slots).toHaveLength(3);
     }
   });
 
-  test("toggle between slots switches active", () => {
-    const slots = makeSlots("axe", "bow");
-    let active: 0 | 1 = 0;
-    // Toggle
-    active = active === 0 ? 1 : 0;
+  test("Q cycles through slots: 0 → 1 → 2 → 0", () => {
+    let active: 0 | 1 | 2 = 0;
+    active = ((active + 1) % 3) as 0 | 1 | 2;
     expect(active).toBe(1);
-    expect(slots[active]).toBe("bow");
-    // Toggle back
-    active = active === 0 ? 1 : 0;
+    active = ((active + 1) % 3) as 0 | 1 | 2;
+    expect(active).toBe(2);
+    active = ((active + 1) % 3) as 0 | 1 | 2;
     expect(active).toBe(0);
-    expect(slots[active]).toBe("axe");
   });
 
   test("empty second slot returns null when accessed", () => {
     const slots = makeSlots("axe", null);
     expect(slots[1]).toBeNull();
+  });
+
+  test("empty third slot returns null when accessed", () => {
+    const slots = makeSlots("axe", "sword", null);
+    expect(slots[2]).toBeNull();
   });
 });

@@ -925,12 +925,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [selectedWeapon, setSelectedWeapon] = useState<WeaponType>("axe");
   const selectedWeaponRef = useRef<WeaponType>("axe");
 
-  // ─── Dual weapon slots (max 2 weapons) ──────────────────────────────────────
-  /** Inventory of 2 weapon slots. Slot 0 = primary (axe), slot 1 = secondary (sword). */
-  const weaponSlotsRef = useRef<[WeaponType, WeaponType | null]>(["axe", "sword"]);
-  const activeSlotRef = useRef<0 | 1>(0);
-  const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null]>(["axe", "sword"]);
-  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
+  // ─── Triple weapon slots (max 3 weapons) ─────────────────────────────────────
+  /** Inventory of 3 weapon slots. Slot 0 = primary (axe), slot 1 = secondary (sword), slot 2 = tertiary. */
+  const weaponSlotsRef = useRef<[WeaponType, WeaponType | null, WeaponType | null]>(["axe", "sword", null]);
+  const activeSlotRef = useRef<0 | 1 | 2>(0);
+  const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null, WeaponType | null]>(["axe", "sword", null]);
+  const [activeSlot, setActiveSlot] = useState<0 | 1 | 2>(0);
 
   // ─── Third-Person Camera Refs ────────────────────────────────────────────────
   const thirdPersonRef    = useRef(false);
@@ -1609,7 +1609,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Update active slot and 3D weapon mesh
     const newWeapon = item.weaponType;
     weaponSlotsRef.current[activeSlotRef.current] = newWeapon;
-    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null]);
+    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null, WeaponType | null]);
     selectedWeaponRef.current = newWeapon;
     setSelectedWeapon(newWeapon);
     swapWeaponMesh(newWeapon);
@@ -1623,7 +1623,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Drop current weapon before taking the new one
     dropCurrentWeaponToWorld();
     weaponSlotsRef.current[activeSlotRef.current] = type;
-    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null]);
+    setWeaponSlots([...weaponSlotsRef.current] as [WeaponType, WeaponType | null, WeaponType | null]);
     selectedWeaponRef.current = type;
     setSelectedWeapon(type);
     swapWeaponMesh(type);
@@ -5086,12 +5086,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         setChatOpen(true);
       }
 
-      // Keys 1/2 — select weapon slot; Q — toggle between slots
+      // Keys 1/2/3 — select weapon slot; Q — cycle through slots
       if (e.type === "keydown") {
-        let targetSlot: 0 | 1 | null = null;
+        let targetSlot: 0 | 1 | 2 | null = null;
         if (e.code === "Digit1") targetSlot = 0;
         else if (e.code === "Digit2") targetSlot = 1;
-        else if (e.code === "KeyQ") targetSlot = activeSlotRef.current === 0 ? 1 : 0;
+        else if (e.code === "Digit3") targetSlot = 2;
+        else if (e.code === "KeyQ") targetSlot = ((activeSlotRef.current + 1) % 3) as 0 | 1 | 2;
 
         if (targetSlot !== null) {
           const newWeapon = weaponSlotsRef.current[targetSlot];
@@ -5175,11 +5176,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     };
     document.addEventListener("pointerlockchange", onLockChange);
 
-    // ── Mouse wheel — toggle between the two weapon slots ─────────────────────
+    // ── Mouse wheel — cycle through weapon slots ───────────────────────────────
     const onWheel = (e: WheelEvent) => {
       if (!isLockedRef.current) return;
-      void e; // deltaY direction ignored — any scroll toggles slots
-      const otherSlot: 0 | 1 = activeSlotRef.current === 0 ? 1 : 0;
+      const direction = e.deltaY > 0 ? 1 : -1;
+      // Cycle through slots that have a weapon
+      let nextSlot = activeSlotRef.current;
+      for (let i = 1; i <= 3; i++) {
+        const candidate = ((activeSlotRef.current + direction * i + 3) % 3) as 0 | 1 | 2;
+        if (weaponSlotsRef.current[candidate]) { nextSlot = candidate; break; }
+      }
+      const otherSlot = nextSlot as 0 | 1 | 2;
       const newWeapon = weaponSlotsRef.current[otherSlot];
       if (!newWeapon) return; // second slot is empty — nothing to switch to
       if (isScopedRef.current && newWeapon !== "sniper") {
@@ -10314,8 +10321,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             {gameState.attackReady ? "⚔️  [F] Útok" : "⚔️  Nabíjení…"}
           </div>
 
-          {/* Weapon slots HUD — 2 slots max, active one highlighted */}
-          {([0, 1] as const).map((slotIdx) => {
+          {/* Weapon slots HUD — 3 slots max, active one highlighted */}
+          {([0, 1, 2] as const).map((slotIdx) => {
             const w = weaponSlots[slotIdx];
             const isActive = activeSlot === slotIdx;
             if (!w) {

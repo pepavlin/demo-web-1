@@ -1,13 +1,14 @@
 # Weapon System
 
-The game features 8 distinct weapons with a **dual-slot inventory system** (max 2 weapons held at once). Each has a unique combat style, 3D model, and procedurally synthesised audio.
+The game features 8 distinct weapons with a **triple-slot inventory system** (max 3 weapons held at once). Each has a unique combat style, 3D model, and procedurally synthesised audio.
 
-## Dual Weapon Slot System
+## Triple Weapon Slot System
 
-Players can hold a **maximum of 2 weapons** at any time:
+Players can hold a **maximum of 3 weapons** at any time:
 
 - **Slot 1** — Primary weapon (starts with: Sekera/Axe)
 - **Slot 2** — Secondary weapon (starts with: Meč/Sword)
+- **Slot 3** — Tertiary weapon (starts empty, can be filled by picking up ground weapons)
 
 ### Controls
 
@@ -15,8 +16,9 @@ Players can hold a **maximum of 2 weapons** at any time:
 |-------|--------|
 | `[1]` | Select Slot 1 (primary weapon) |
 | `[2]` | Select Slot 2 (secondary weapon) |
-| `[Q]` | Toggle between Slot 1 and Slot 2 |
-| Scroll wheel | Toggle between slots |
+| `[3]` | Select Slot 3 (tertiary weapon) |
+| `[Q]` | Cycle to next slot (0 → 1 → 2 → 0) |
+| Scroll wheel | Cycle through slots with a weapon |
 | `[E]` near ground weapon | Pick up weapon into active slot (current weapon drops to ground) |
 
 ### Starting Loadout
@@ -24,8 +26,9 @@ Players can hold a **maximum of 2 weapons** at any time:
 Players always start with:
 - **Slot 1:** Sekera (Axe) — good against trees (3× damage multiplier)
 - **Slot 2:** Meč (Sword) — fast melee combat
+- **Slot 3:** Empty — pick up any ground weapon to fill it
 
-No weapon selection screen is shown — the dual loadout is fixed at game start.
+No weapon selection screen is shown — the starting loadout is fixed at game start.
 
 ### Picking Up Weapons
 
@@ -171,14 +174,14 @@ export interface WeaponConfig {
 }
 ```
 
-### Dual Slot State (`components/Game3D.tsx`)
+### Triple Slot State (`components/Game3D.tsx`)
 
 ```typescript
 // Slot inventory
-const weaponSlotsRef = useRef<[WeaponType, WeaponType | null]>(["axe", "sword"]);
-const activeSlotRef = useRef<0 | 1>(0);
-const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null]>(["axe", "sword"]);
-const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
+const weaponSlotsRef = useRef<[WeaponType, WeaponType | null, WeaponType | null]>(["axe", "sword", null]);
+const activeSlotRef = useRef<0 | 1 | 2>(0);
+const [weaponSlots, setWeaponSlots] = useState<[WeaponType, WeaponType | null, WeaponType | null]>(["axe", "sword", null]);
+const [activeSlot, setActiveSlot] = useState<0 | 1 | 2>(0);
 ```
 
 Key functions:
@@ -188,7 +191,7 @@ Key functions:
 
 ### Selection UI (`components/WeaponSelect.tsx`)
 
-> **Note:** The weapon selection screen is no longer shown at game start. Players always begin with Axe (slot 1) and Sword (slot 2). `WeaponSelect` remains in the codebase for potential future use.
+> **Note:** The weapon selection screen is no longer shown at game start. Players always begin with Axe (slot 1), Sword (slot 2), and an empty slot 3. `WeaponSelect` remains in the codebase for potential future use.
 
 - Animated SVG previews for each weapon (idle animation, attack animation)
 - Czech descriptions and stat bars per weapon
