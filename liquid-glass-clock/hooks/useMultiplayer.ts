@@ -43,6 +43,16 @@ export interface ChatMessage {
   ts: number;
 }
 
+/** Data emitted by the server when a supply crate should be dropped. */
+export interface CrateSpawnData {
+  /** World-space X coordinate of the landing position. */
+  x: number;
+  /** World-space Z coordinate of the landing position. */
+  z: number;
+  /** Name of the player whose connection triggered the drop. */
+  playerName: string;
+}
+
 export interface UseMultiplayerOptions {
   playerName: string;
   onInit?: (players: Record<string, RemotePlayer>, hostId: string | null) => void;
@@ -75,6 +85,11 @@ export interface UseMultiplayerOptions {
    * `hostId` is the socket id of the new host (or null if no players remain).
    */
   onHostChanged?: (hostId: string | null) => void;
+  /**
+   * Called when the server triggers a supply-crate drop (fires for every client
+   * whenever any player joins the game).
+   */
+  onCrateSpawn?: (data: CrateSpawnData) => void;
 }
 
 export interface UseMultiplayerReturn {
@@ -109,6 +124,7 @@ export function useMultiplayer({
   onEntityBatch,
   onEntityEvent,
   onHostChanged,
+  onCrateSpawn,
 }: UseMultiplayerOptions): UseMultiplayerReturn {
   const socketRef = useRef<Socket | null>(null);
   const lastUpdateTimeRef = useRef(0);
@@ -126,6 +142,7 @@ export function useMultiplayer({
   const onEntityBatchRef = useRef(onEntityBatch);
   const onEntityEventRef = useRef(onEntityEvent);
   const onHostChangedRef = useRef(onHostChanged);
+  const onCrateSpawnRef  = useRef(onCrateSpawn);
 
   // Update all callback refs in a single effect — avoids many separate render-phase effects
   useEffect(() => {
@@ -142,6 +159,7 @@ export function useMultiplayer({
     onEntityBatchRef.current    = onEntityBatch;
     onEntityEventRef.current    = onEntityEvent;
     onHostChangedRef.current    = onHostChanged;
+    onCrateSpawnRef.current     = onCrateSpawn;
   });
 
   useEffect(() => {
@@ -215,6 +233,11 @@ export function useMultiplayer({
 
     socket.on("host:changed", ({ hostId }: { hostId: string | null }) => {
       onHostChangedRef.current?.(hostId);
+    });
+
+    // ── Supply crate drop (server-broadcast on every player join) ─────────────
+    socket.on("crate:spawn", (data: CrateSpawnData) => {
+      onCrateSpawnRef.current?.(data);
     });
 
     return () => {

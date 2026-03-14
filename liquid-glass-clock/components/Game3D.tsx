@@ -98,6 +98,7 @@ import {
   testOBBXZ,
 } from "@/lib/collisionSystem";
 import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData, AirdropData } from "@/lib/gameTypes";
+import type { CrateSpawnData } from "@/hooks/useMultiplayer";
 import {
   pickRandomLoot,
   pickAirdropLootArray,
@@ -777,8 +778,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   // ─── Airdrop Refs ─────────────────────────────────────────────────────────────
   /** Countdown accumulator — triggers a new airdrop every AIRDROP_INTERVAL seconds. */
   const airdropTimerRef = useRef(0);
-  /** Active airdrop crate (only one at a time). */
-  const airdropRef = useRef<AirdropData | null>(null);
+  /** All currently active airdrop crates (timer-based + player-join triggered). */
+  const airdropListRef = useRef<AirdropData[]>([]);
 
   // ─── Blood Particle Refs ──────────────────────────────────────────────────────
   const bloodParticlesRef = useRef<BloodParticle[]>([]);
@@ -1296,6 +1297,66 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     entitySyncManagerRef.current.applyEvent(event);
   }, []);
 
+  // ─── Airdrop helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Spawns a supply crate above position (x, z) and registers it in
+   * airdropListRef so the animation loop handles its descent and loot.
+   */
+  const spawnAirdropCrateAt = useCallback((x: number, z: number) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    const terrainY = getTerrainHeightSampled(x, z);
+
+    const crateMesh = buildAirdropCrateMesh();
+    const parachute = buildParachuteMesh(3.0);
+    parachute.position.set(0, 1.2, 0);
+    crateMesh.add(parachute);
+    crateMesh.position.set(x, AIRDROP_SPAWN_HEIGHT, z);
+    scene.add(crateMesh);
+
+    const beaconGeo = new THREE.RingGeometry(2.5, 3.0, 32);
+    const beaconMat = new THREE.MeshBasicMaterial({
+      color: 0xff4400,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+    beaconMesh.rotation.x = -Math.PI / 2;
+    beaconMesh.position.set(x, terrainY + 0.05, z);
+    scene.add(beaconMesh);
+
+    const loot = pickAirdropLootArray();
+
+    airdropListRef.current.push({
+      mesh: crateMesh,
+      parachuteMesh: parachute,
+      beaconMesh,
+      state: 'falling',
+      x,
+      z,
+      targetY: terrainY,
+      despawnTimer: 0,
+      beaconAge: 0,
+      loot,
+    });
+
+    setAirdropIncoming(true);
+    setTimeout(() => setAirdropIncoming(false), 5000);
+  }, []);
+
+  /**
+   * Called when the server emits `crate:spawn` — fires for every connected
+   * client whenever any player joins.  Drops a crate at the server-chosen
+   * coordinates and shows a notification.
+   */
+  const handleCrateSpawn = useCallback((data: CrateSpawnData) => {
+    spawnAirdropCrateAt(data.x, data.z);
+    showMpNotif(`📦 Zásoby pro ${data.playerName} padají z nebe!`);
+  }, [spawnAirdropCrateAt, showMpNotif]);
+
   /** Handle host reassignment — update isHost and notify sync manager. */
   const handleHostChanged = useCallback((newHostId: string | null) => {
     // When the host disconnects, the server promotes the next player.
@@ -1324,6 +1385,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     onEntityBatch: handleEntityBatch,
     onEntityEvent: handleEntityEvent,
     onHostChanged: handleHostChanged,
+    onCrateSpawn: handleCrateSpawn,
   });
 
   // Keep sendChat in a ref so it can be called from event handlers
@@ -8099,8 +8161,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // ── Airdrop System ──────────────────────────────────────────────────────
       airdropTimerRef.current += dt;
 
-      // Spawn a new airdrop every AIRDROP_INTERVAL seconds (if none active)
-      if (airdropTimerRef.current >= AIRDROP_INTERVAL && !airdropRef.current) {
+      // Spawn a new periodic airdrop every AIRDROP_INTERVAL seconds
+      if (airdropTimerRef.current >= AIRDROP_INTERVAL) {
         airdropTimerRef.current = 0;
 
         const airdropPos = findAirdropLandingPosition(
@@ -8112,53 +8174,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         );
 
         if (airdropPos) {
-          const crateMesh  = buildAirdropCrateMesh();
-          const parachute  = buildParachuteMesh(3.0);
-
-          // Parachute sits on top of the crate (crate is 1.2 units tall)
-          parachute.position.set(0, 1.2, 0);
-          crateMesh.add(parachute);
-
-          // Start high above the landing position
-          crateMesh.position.set(airdropPos.x, AIRDROP_SPAWN_HEIGHT, airdropPos.z);
-          scene.add(crateMesh);
-
-          // Flashing beacon ring projected onto the terrain below
-          const beaconGeo = new THREE.RingGeometry(2.5, 3.0, 32);
-          const beaconMat = new THREE.MeshBasicMaterial({
-            color: 0xff4400,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.6,
-          });
-          const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
-          beaconMesh.rotation.x = -Math.PI / 2;
-          beaconMesh.position.set(airdropPos.x, airdropPos.terrainY + 0.05, airdropPos.z);
-          scene.add(beaconMesh);
-
-          const loot = pickAirdropLootArray();
-
-          airdropRef.current = {
-            mesh: crateMesh,
-            parachuteMesh: parachute,
-            beaconMesh,
-            state: 'falling',
-            x: airdropPos.x,
-            z: airdropPos.z,
-            targetY: airdropPos.terrainY,
-            despawnTimer: 0,
-            beaconAge: 0,
-            loot,
-          };
-
-          setAirdropIncoming(true);
-          setTimeout(() => setAirdropIncoming(false), 5000);
+          spawnAirdropCrateAt(airdropPos.x, airdropPos.z);
         }
       }
 
-      // Update active airdrop
-      const ad = airdropRef.current;
-      if (ad) {
+      // Update all active airdrop crates
+      let anyNearAirdrop = false;
+      const airdropsToRemove: number[] = [];
+
+      airdropListRef.current.forEach((ad, idx) => {
         if (ad.state === 'falling') {
           const currentY = ad.mesh.position.y;
           const newY = currentY - AIRDROP_FALL_SPEED * dt;
@@ -8200,15 +8224,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             (playerPos.x - ad.x) ** 2 + (playerPos.z - ad.z) ** 2,
           );
 
-          // Show proximity prompt when within 2× open radius
-          setNearAirdropPrompt(distToCrate < AIRDROP_OPEN_RADIUS * 2);
+          if (distToCrate < AIRDROP_OPEN_RADIUS * 2) anyNearAirdrop = true;
 
           if (distToCrate < AIRDROP_OPEN_RADIUS) {
             // Open the crate
             ad.state = 'opened';
             scene.remove(ad.mesh);
             scene.remove(ad.beaconMesh);
-            setNearAirdropPrompt(false);
 
             // Apply all loot effects to player (weapon + resource bonus)
             const lootMessages: string[] = [];
@@ -8229,22 +8251,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             setTimeout(() => setAirdropOpenedMsg(null), 4500);
             soundManager.playCoinCollect?.();
 
-            airdropRef.current = null;
+            airdropsToRemove.push(idx);
 
           } else if (ad.despawnTimer >= AIRDROP_DESPAWN_TIME) {
             // Auto-despawn after timeout
             scene.remove(ad.mesh);
             scene.remove(ad.beaconMesh);
-            setNearAirdropPrompt(false);
-            airdropRef.current = null;
+            airdropsToRemove.push(idx);
           }
-        } else {
-          // Not landed — no proximity prompt
-          setNearAirdropPrompt(false);
         }
-      } else {
-        setNearAirdropPrompt(false);
+      });
+
+      if (airdropsToRemove.length > 0) {
+        airdropListRef.current = airdropListRef.current.filter((_, i) => !airdropsToRemove.includes(i));
       }
+      setNearAirdropPrompt(anyNearAirdrop);
 
       // Update spiders defeated in HUD
       if (spidersDefeatedRef.current > 0) {
@@ -9358,9 +9379,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           cooldownProgress: Math.max(0, Math.min(1, playerAttackCooldownRef.current / WEAPON_CONFIGS[selectedWeaponRef.current].cooldown)),
         }));
         setAirdropCountdown(airdropTimerRef.current);
-        const adCurrent = airdropRef.current;
-        setAirdropPhase(adCurrent ? (adCurrent.state === 'falling' ? 'falling' : adCurrent.state === 'landed' ? 'landed' : null) : null);
-        setAirdropDespawnTimer(adCurrent?.despawnTimer ?? 0);
+        const activeCrates = airdropListRef.current;
+        const anyFalling = activeCrates.some(c => c.state === 'falling');
+        const anyLanded  = activeCrates.some(c => c.state === 'landed');
+        setAirdropPhase(activeCrates.length > 0 ? (anyFalling ? 'falling' : anyLanded ? 'landed' : null) : null);
+        const nearestLanded = activeCrates.filter(c => c.state === 'landed').sort((a, b) => a.despawnTimer - b.despawnTimer)[0];
+        setAirdropDespawnTimer(nearestLanded?.despawnTimer ?? 0);
       }
 
       const bleatingNear = sheepListRef.current.find(
@@ -9464,6 +9488,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         (p.mesh.material as THREE.MeshLambertMaterial).dispose();
       });
       bloodParticlesRef.current = [];
+      // Clean up active airdrop crates
+      airdropListRef.current.forEach((ad) => {
+        scene.remove(ad.mesh);
+        scene.remove(ad.beaconMesh);
+      });
+      airdropListRef.current = [];
       // Clean up flying wood pieces still in the air
       flyingWoodPiecesRef.current.forEach((p) => scene.remove(p.mesh));
       flyingWoodPiecesRef.current = [];
