@@ -35,7 +35,7 @@ Each state has a configured minimum and maximum duration (seconds). When the tim
 **Refs added:**
 | Ref | Purpose |
 |-----|---------|
-| `rainRef` | Three.js `Points` object with 4,500 rain drop particles |
+| `rainRef` | Three.js `Points` object with GPU-shader rain (4,500 particles on desktop / 1,200 on mobile) |
 | `lightningBoltRef` | Three.js `Line` object rebuilt each lightning strike |
 | `weatherStateRef` | Current active `WeatherState` |
 | `weatherPrevStateRef` | Previous state for blending |
@@ -58,7 +58,7 @@ Each state has a configured minimum and maximum duration (seconds). When the tim
 7. Lerp cloud mesh colours toward dark grey based on `wCfg.cloudDarkness`
 8. Dim/hide sun disc and corona based on `wCfg.cloudDarkness`
 9. Tint sky toward `#616166` proportional to `cloudDarkness × 0.7`
-10. Animate rain particles (fall, wrap at bottom, follow camera)
+10. Update rain shader uniforms (`uTime`, `uCameraPos`, `uOpacity`) – GPU handles all fall/wrap animation, no CPU loop or buffer upload
 11. During stormy weather: tick `lightningTimerRef`; on expiry rebuild bolt geometry, spike `lightningFlashRef`, schedule thunder sound via `soundManager.playThunder()` (delayed 1–4 s)
 12. Decay `lightningFlashRef`; while active, boost ambient dramatically for flash effect
 
@@ -72,12 +72,28 @@ Thunder is synthesised procedurally in `soundManager.playThunder()`:
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `RAIN_DROP_COUNT` | 4500 | Number of rain particle points |
-| `RAIN_SPEED` | 55 units/s | Fall velocity |
+| `RAIN_DROP_COUNT` | 4500 (desktop) / 1200 (mobile) | Number of rain particle points |
+| `RAIN_SPEED` | 55 units/s | Fall velocity (passed as `uSpeed` shader uniform) |
 | `RAIN_SPREAD` | 280 | Horizontal radius centred on camera |
 | `RAIN_HEIGHT_RANGE` | 90 | Vertical spawn range above camera |
 | `LIGHTNING_FLASH_DURATION` | 0.18 s | Flash opacity decay time |
 | `WEATHER_TRANSITION_SPEED` | 0.35/s | Blend lerp rate |
+
+## Rain Rendering – GPU ShaderMaterial
+
+Rain is rendered using a `THREE.ShaderMaterial` instead of the previous `PointsMaterial`.
+The static position buffer (XZ offsets, Y = 0) and a per-particle `aSeed` attribute are written **once** at scene setup and never touched again.
+
+**Vertex shader** computes the animated world-space Y position every frame on the GPU:
+```glsl
+float t      = fract(aSeed + uTime * uSpeed / uHeightRange);
+float worldY = uCameraPos.y + uHeightMin + t * uHeightRange;
+```
+
+**Fragment shader** draws a soft circular raindrop using `gl_PointCoord`.
+
+Per-frame CPU work drops from iterating 4,500 particles + re-uploading ~54 KB to three trivial uniform writes (`uTime`, `uOpacity`, `uCameraPos`).
+Perspective size attenuation (`300.0 / -mvPos.z`) is computed in the vertex shader so distant rain is naturally smaller, replicating the `sizeAttenuation: true` behaviour of `PointsMaterial`.
 
 ## Tests
 
