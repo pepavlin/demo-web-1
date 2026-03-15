@@ -157,6 +157,18 @@ export interface PhysicsBodyOptions {
   linearDamping?: number;
 
   /**
+   * Optional maximum downward fall speed (world units / s, positive magnitude).
+   * When set, the body's vertical velocity is clamped to `-maxFallSpeed` while
+   * in the air — simulating parachute terminal velocity.  Without this, gravity
+   * accelerates the body freely regardless of linearDamping (which only affects
+   * horizontal movement in air).
+   *
+   * Example: `maxFallSpeed: 2.5` keeps a parachuted crate descending at most
+   * 2.5 u/s even though gravity would otherwise accelerate it to much higher speeds.
+   */
+  maxFallSpeed?: number;
+
+  /**
    * Called every simulation step (even while in the air) with the body's
    * current position, velocity, and the simulation dt so the consumer can
    * sync a Three.js Object3D and accumulate rolling rotation.
@@ -185,6 +197,7 @@ export class PhysicsBody {
   readonly restitution: number;
   readonly friction: number;
   readonly linearDamping: number;
+  readonly maxFallSpeed: number | undefined;
 
   isOnGround: boolean = false;
   isSleeping: boolean = false;
@@ -204,6 +217,7 @@ export class PhysicsBody {
     this.restitution = opts.restitution ?? 0.15;
     this.friction = opts.friction ?? 0.55;
     this.linearDamping = opts.linearDamping ?? 0.08;
+    this.maxFallSpeed = opts.maxFallSpeed;
     this.onUpdate = opts.onUpdate;
     this.onSleep = opts.onSleep;
   }
@@ -394,6 +408,14 @@ export class PhysicsWorld {
 
       // Apply gravity
       vel.y += PHYSICS_GRAVITY * dt;
+
+      // Clamp downward speed to maxFallSpeed (parachute terminal velocity).
+      // linearDamping is only applied to horizontal movement in air, so without
+      // this clamp a body would freely accelerate to very high fall speeds under
+      // gravity despite having a high damping value.
+      if (body.maxFallSpeed !== undefined && vel.y < -body.maxFallSpeed) {
+        vel.y = -body.maxFallSpeed;
+      }
 
       // Light air drag on horizontal movement
       const dampFactor = Math.pow(1 - body.linearDamping * 0.3, dt);

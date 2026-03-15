@@ -570,6 +570,85 @@ describe("Crate slope sliding after landing", () => {
   });
 });
 
+// ─── maxFallSpeed – parachute terminal velocity ───────────────────────────────
+// Verifies that the maxFallSpeed clamp prevents gravity from accelerating a
+// body beyond the configured terminal velocity while in the air.
+
+describe("maxFallSpeed – parachute terminal velocity", () => {
+  it("clamps downward velocity to maxFallSpeed after many frames in the air", () => {
+    const world = new PhysicsWorld(flatTerrain);
+    const MAX_SPEED = 2.5;
+    const body = world.addBody({
+      id: "chute",
+      position: { x: 0, y: 200, z: 0 },
+      velocity: { x: 0, y: -MAX_SPEED, z: 0 },
+      maxFallSpeed: MAX_SPEED,
+    });
+
+    // Simulate 5 seconds — without the clamp gravity would push vy to ≈ -127.5
+    stepWorld(world, 500, 0.01);
+
+    // Body must still be falling slowly (not free-falling under full gravity)
+    expect(body.velocity.y).toBeGreaterThanOrEqual(-MAX_SPEED - 0.01);
+  });
+
+  it("allows normal fall when no maxFallSpeed is set", () => {
+    const world = new PhysicsWorld(flatTerrain);
+    const body = world.addBody({
+      id: "free",
+      position: { x: 0, y: 200, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      // no maxFallSpeed
+    });
+
+    // After 1 second the body should be falling much faster than 2.5 u/s
+    stepWorld(world, 100, 0.01);
+
+    expect(body.velocity.y).toBeLessThan(-2.5);
+  });
+
+  it("body with maxFallSpeed descends at constant rate and reaches the ground", () => {
+    const TERRAIN_Y = 0;
+    const SPAWN_HEIGHT = 50;
+    const MAX_SPEED = 2.5;
+    const RADIUS = 0.65;
+
+    const world = new PhysicsWorld(() => TERRAIN_Y);
+    const body = world.addBody({
+      id: "para-crate",
+      position: { x: 0, y: SPAWN_HEIGHT, z: 0 },
+      velocity: { x: 0, y: -MAX_SPEED, z: 0 },
+      radius: RADIUS,
+      maxFallSpeed: MAX_SPEED,
+      linearDamping: 0.92,
+      restitution: 0.05,
+      friction: 0.7,
+    });
+
+    // Simulate long enough for the crate to reach the ground
+    // At 2.5 u/s from height 50, it takes 20 seconds
+    stepWorld(world, 2200, 0.01);
+
+    expect(body.isOnGround).toBe(true);
+    expect(body.position.y).toBeCloseTo(TERRAIN_Y + RADIUS, 1);
+  });
+
+  it("maxFallSpeed does not prevent upward movement", () => {
+    const world = new PhysicsWorld(flatTerrain);
+    const body = world.addBody({
+      id: "up",
+      position: { x: 0, y: 5, z: 0 },
+      velocity: { x: 0, y: 10, z: 0 }, // launched upward
+      maxFallSpeed: 2.5,
+    });
+
+    world.update(0.016);
+
+    // The body must still have positive (upward) vy after one step
+    expect(body.velocity.y).toBeGreaterThan(0);
+  });
+});
+
 // ─── Multiple bodies ──────────────────────────────────────────────────────────
 
 describe("Multiple bodies", () => {

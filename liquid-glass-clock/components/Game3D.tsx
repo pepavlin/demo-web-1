@@ -1411,11 +1411,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       physicsWorldRef.current.addBody({
         id: crateBodyId,
         position: { x, y: AIRDROP_SPAWN_HEIGHT, z },
-        // Start with a gentle downward velocity (parachute terminal velocity)
+        // Start with the parachute terminal velocity immediately.
         velocity: { x: 0, y: -AIRDROP_FALL_SPEED, z: 0 },
         radius: CRATE_RADIUS,
-        // High damping simulates parachute drag: the body falls at roughly
-        // AIRDROP_FALL_SPEED without accelerating significantly under gravity.
+        // maxFallSpeed clamps the vertical velocity so gravity cannot accelerate
+        // the crate beyond AIRDROP_FALL_SPEED — the physics engine only applies
+        // linearDamping to horizontal movement in-air, so without this the crate
+        // would free-fall at full gravity speed despite having a parachute.
+        maxFallSpeed: AIRDROP_FALL_SPEED,
         linearDamping: 0.92,
         restitution: 0.05,
         friction: 0.7,
