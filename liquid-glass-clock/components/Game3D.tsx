@@ -167,6 +167,8 @@ const MOVE_SPEED = 6;
 const SPRINT_SPEED = 12;
 const GRAVITY = -25;
 const JUMP_FORCE = 10;
+/** Terminal descent speed while parachuting (same as airdrop crate, units/s). */
+const PARACHUTE_FALL_SPEED = 7;
 // World-population counts — reduced on mobile to stay within memory budget
 const SHEEP_COUNT = IS_MOBILE ? 40 : 200;
 const FOX_COUNT   = IS_MOBILE ? 4  : 12;
@@ -683,6 +685,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const coinsRef = useRef<CoinData[]>([]);
   const keysRef = useRef<Record<string, boolean>>({});
   const playerRef = useRef({ velY: 0, onGround: false });
+  /** True while the player is descending under a parachute after jumping from the airplane. */
+  const isParachutingRef = useRef(false);
   const yawRef = useRef(0);
   const pitchRef = useRef(0);
   const prevTimeRef = useRef(performance.now());
@@ -978,6 +982,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [rocketArrived, setRocketArrived] = useState(false);
   const [nearAirplanePrompt, setNearAirplanePrompt] = useState(false);
   const [onAirplane, setOnAirplane] = useState(false);
+  const [isParachuting, setIsParachuting] = useState(false);
   const [nearSniperPickup, setNearSniperPickup] = useState(false);
   const [isScoped, setIsScoped] = useState(false);
   const [inSpaceStation, setInSpaceStation] = useState(false);
@@ -4888,14 +4893,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           // ── Exit airplane — parachute player to ground ─────────────────────
           const ad = airplaneDataRef.current;
           if (ad && cameraRef.current) {
-            // Drop player below airplane, let normal gravity take over
+            // Drop player below airplane; parachute caps descent to PARACHUTE_FALL_SPEED
             const ex = ad.position.x + 4;
             const ez = ad.position.z;
             const ey = ad.position.y;
             cameraRef.current.position.set(ex, ey, ez);
             playerBodyPosRef.current.copy(cameraRef.current.position);
-            playerRef.current.velY = -2;
+            playerRef.current.velY = -PARACHUTE_FALL_SPEED;
             playerRef.current.onGround = false;
+            // Activate parachute — clamps fall speed in land-physics loop
+            isParachutingRef.current = true;
+            setIsParachuting(true);
             // Leave airplane flying on autopilot (keep going straight)
             ad.state = 'flying';
           }
@@ -6251,6 +6259,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             soundManager.playJump();
           }
           player.velY += GRAVITY * dt;
+          // Parachute: clamp terminal velocity so the player drifts down slowly
+          if (isParachutingRef.current && player.velY < -PARACHUTE_FALL_SPEED) {
+            player.velY = -PARACHUTE_FALL_SPEED;
+          }
           cam.position.y += player.velY * dt;
 
           // ── Ground detection: terrain + 3D walkable colliders ────────────────
@@ -6304,6 +6316,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             cam.position.y = groundY;
             player.velY = 0;
             player.onGround = true;
+            // Parachute landing: deactivate once the player touches the ground
+            if (isParachutingRef.current) {
+              isParachutingRef.current = false;
+              setIsParachuting(false);
+            }
           }
         }
 
@@ -11779,6 +11796,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           >
             ✈️ Letadlo&nbsp;·&nbsp;
             <span style={{ color: "#86efac" }}>W Plyn · S/X Výška · A/D Zatočit · Shift Turbo · [E] Vyskočit</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — Parachuting banner ═══════════════ */}
+      {isParachuting && gameState.isLocked && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(5,20,40,0.93)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(100,160,255,0.50)",
+              boxShadow: "0 0 22px rgba(80,140,255,0.40)",
+            }}
+          >
+            🪂 Padák aktivní — pomalu klesáš na zem
           </div>
         </div>
       )}
