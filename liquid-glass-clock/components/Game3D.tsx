@@ -24,6 +24,8 @@ import {
   digVoxelSphere,
   getTerrainSurfaceYAfterDigs,
   getFloorYBelowPlayer,
+  resolveVoxelTerrainCapsule,
+  getVoxelCeilingY,
   type VoxelTerrainResult,
 } from "@/lib/voxelTerrain";
 import { createTerrainTexture } from "@/lib/terrainTextures";
@@ -467,7 +469,7 @@ function getEffectiveTerrainY(x: number, z: number, playerCamY?: number): number
   // in, rather than the natural surface above them.
   if (playerCamY !== undefined) {
     const feetY = playerCamY - PLAYER_HEIGHT;
-    const tunnelFloor = getFloorYBelowPlayer(x, feetY, z);
+    const tunnelFloor = getFloorYBelowPlayer(x, feetY, z, PLAYER_HEIGHT);
     if (tunnelFloor !== null) return tunnelFloor;
   }
 
@@ -6198,6 +6200,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           cam.position.z = result.z;
         }
 
+        // ── Capsule vs voxel terrain: tunnel wall push-out ────────────────────
+        // Applies only when underground (feetY < natural surface) so it has
+        // zero cost during normal surface movement. Uses a capsule-shaped probe
+        // (8 horizontal directions × 3 heights) to push the player out of solid
+        // voxels — this gives proper capsule collision inside tunnels and caves.
+        {
+          const capsuleResult = resolveVoxelTerrainCapsule(
+            cam.position.x, cam.position.y, cam.position.z,
+            PLAYER_RADIUS, PLAYER_HEIGHT,
+          );
+          cam.position.x = capsuleResult.x;
+          cam.position.z = capsuleResult.z;
+        }
+
         const player = playerRef.current;
         // getEffectiveTerrainY accounts for shovel digs and bomb craters
         // recorded in the voxel density override map so that carved holes
@@ -6321,6 +6337,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               isParachutingRef.current = false;
               setIsParachuting(false);
             }
+          }
+
+          // ── Tunnel ceiling collision ────────────────────────────────────────
+          // When inside a dug tunnel or cave, clamp camera Y so the player
+          // cannot jump or rise through solid rock above them. Only active
+          // underground; Infinity is returned on the open surface so the check
+          // is a no-op when the player is above ground.
+          const ceilingY = getVoxelCeilingY(
+            cam.position.x, cam.position.y, cam.position.z, PLAYER_HEIGHT,
+          );
+          if (cam.position.y > ceilingY) {
+            cam.position.y = ceilingY;
+            if (player.velY > 0) player.velY = 0; // kill upward momentum on ceiling hit
           }
         }
 
