@@ -169,7 +169,8 @@ const MOVE_SPEED = 6;
 const SPRINT_SPEED = 12;
 const GRAVITY = -25;
 const JUMP_FORCE = 10;
-/** Terminal descent speed while parachuting (same as airdrop crate, units/s). */
+/** Terminal descent speed while the player is parachuting after jumping from the airplane (units/s).
+ *  Note: airdrop crates use AIRDROP_FALL_SPEED (2.5 u/s) which is intentionally much slower. */
 const PARACHUTE_FALL_SPEED = 7;
 // World-population counts — reduced on mobile to stay within memory budget
 const SHEEP_COUNT = IS_MOBILE ? 40 : 200;

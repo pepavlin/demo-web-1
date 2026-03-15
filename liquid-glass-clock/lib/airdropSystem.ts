@@ -15,10 +15,12 @@ import type { AirdropLoot, AirdropLootType, WeaponType } from "./gameTypes";
 export const AIRDROP_INTERVAL = 40; // 2× less frequent (was 20 s)
 
 /** Y coordinate from which the crate starts falling. */
-export const AIRDROP_SPAWN_HEIGHT = 80;
+export const AIRDROP_SPAWN_HEIGHT = 200;
 
-/** Descent speed in world units per second (parachute dampening). */
-export const AIRDROP_FALL_SPEED = 7;
+/** Descent speed in world units per second (parachute dampening).
+ *  Kept intentionally low — the crate has a parachute so it should
+ *  drift down slowly and visibly for a long time. */
+export const AIRDROP_FALL_SPEED = 2.5;
 
 /** Horizontal distance (min / max) from the player where a crate can land. */
 export const AIRDROP_SPAWN_DIST_MIN = 35;

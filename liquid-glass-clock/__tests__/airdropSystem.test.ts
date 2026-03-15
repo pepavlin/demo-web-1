@@ -122,8 +122,14 @@ describe("descent simulation", () => {
     while (y > targetY) { y -= AIRDROP_FALL_SPEED * delta; if (y < targetY) { y = targetY; break; } }
     expect(y).toBe(targetY);
   });
-  test("descent takes > 3 seconds", () => {
-    expect((AIRDROP_SPAWN_HEIGHT - 2) / AIRDROP_FALL_SPEED).toBeGreaterThan(3);
+  test("descent takes > 30 seconds (parachute should fall slowly)", () => {
+    // The crate has a parachute — it must drift down slowly and for a long time.
+    // AIRDROP_SPAWN_HEIGHT=200, AIRDROP_FALL_SPEED=2.5 → ~79 s of visible descent.
+    expect((AIRDROP_SPAWN_HEIGHT - 2) / AIRDROP_FALL_SPEED).toBeGreaterThan(30);
+  });
+  test("fall speed is gentle (≤ 3 units/s)", () => {
+    // Ensures nobody accidentally cranks up the speed and breaks the slow-drift look.
+    expect(AIRDROP_FALL_SPEED).toBeLessThanOrEqual(3);
   });
 });
 
