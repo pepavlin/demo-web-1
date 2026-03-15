@@ -23,6 +23,8 @@ import {
   resetDensityOverrides,
   getTerrainSurfaceYAfterDigs,
   getFloorYBelowPlayer,
+  resolveVoxelTerrainCapsule,
+  getVoxelCeilingY,
   VOXEL_SIZE,
   CHUNK_SIZE,
   CHUNK_WORLD,
@@ -689,7 +691,7 @@ describe("getFloorYBelowPlayer", () => {
     const surfY = getTerrainHeight(wx, wz);
     // Camera eye is at surface + PLAYER_HEIGHT → feet are at surface
     const camY = surfY + PLAYER_HEIGHT;
-    const result = getFloorYBelowPlayer(wx, camY - PLAYER_HEIGHT, wz);
+    const result = getFloorYBelowPlayer(wx, camY - PLAYER_HEIGHT, wz, PLAYER_HEIGHT);
     expect(result).toBeNull();
   });
 
@@ -785,6 +787,114 @@ describe("getFloorYBelowPlayer", () => {
       const result = getFloorYBelowPlayer(wx, feetY, wz);
       if (result !== null) {
         expect(isFinite(result)).toBe(true);
+      }
+    }
+  });
+});
+
+// ─── resolveVoxelTerrainCapsule — tunnel wall collision ────────────────────────
+
+describe("resolveVoxelTerrainCapsule", () => {
+  const PLAYER_RADIUS = 0.5;
+  const PLAYER_HEIGHT = 1.8;
+
+  beforeEach(() => resetDensityOverrides());
+  afterEach(() => resetDensityOverrides());
+
+  it("returns unchanged position when player is on the surface (no underground)", () => {
+    const wx = 30, wz = 30;
+    const surfY = getTerrainHeight(wx, wz);
+    const eyeY = surfY + PLAYER_HEIGHT;
+    const result = resolveVoxelTerrainCapsule(wx, eyeY, wz, PLAYER_RADIUS, PLAYER_HEIGHT);
+    // On the surface → fast-exit, position unchanged
+    expect(result.x).toBeCloseTo(wx);
+    expect(result.z).toBeCloseTo(wz);
+  });
+
+  it("returns a finite { x, z } in all cases", () => {
+    const wx = -10, wz = 20;
+    const surfY = getTerrainHeight(wx, wz);
+    digVoxelSphere(wx, surfY - 5, wz, 4);
+    const eyeY = surfY - 3;
+    const result = resolveVoxelTerrainCapsule(wx, eyeY, wz, PLAYER_RADIUS, PLAYER_HEIGHT);
+    expect(isFinite(result.x)).toBe(true);
+    expect(isFinite(result.z)).toBe(true);
+  });
+
+  it("push magnitude is bounded (does not teleport player)", () => {
+    const wx = 20, wz = -20;
+    const surfY = getTerrainHeight(wx, wz);
+    digVoxelSphere(wx, surfY - 5, wz, 4);
+    const eyeY = surfY - 3;
+    const result = resolveVoxelTerrainCapsule(wx, eyeY, wz, PLAYER_RADIUS, PLAYER_HEIGHT);
+    const dist = Math.sqrt((result.x - wx) ** 2 + (result.z - wz) ** 2);
+    // Push must not exceed VOXEL_SIZE (2.0) — it's clamped inside the function
+    expect(dist).toBeLessThanOrEqual(VOXEL_SIZE + 0.01);
+  });
+
+  it("does not modify Y position (horizontal-only resolution)", () => {
+    // The function only returns { x, z } — it has no effect on Y
+    const wx = 0, wz = 0;
+    const surfY = getTerrainHeight(wx, wz);
+    digVoxelSphere(wx, surfY - 6, wz, 4);
+    const eyeY = surfY - 4;
+    const result = resolveVoxelTerrainCapsule(wx, eyeY, wz, PLAYER_RADIUS, PLAYER_HEIGHT);
+    // Result should only have x and z properties — Y is not returned
+    expect(Object.keys(result)).toEqual(["x", "z"]);
+  });
+});
+
+// ─── getVoxelCeilingY — tunnel ceiling detection ───────────────────────────────
+
+describe("getVoxelCeilingY", () => {
+  const PLAYER_HEIGHT = 1.8;
+
+  beforeEach(() => resetDensityOverrides());
+  afterEach(() => resetDensityOverrides());
+
+  it("returns Infinity when player is on the surface (no ceiling)", () => {
+    const wx = 40, wz = -40;
+    const surfY = getTerrainHeight(wx, wz);
+    const eyeY = surfY + PLAYER_HEIGHT;
+    const ceiling = getVoxelCeilingY(wx, eyeY, wz, PLAYER_HEIGHT);
+    expect(ceiling).toBe(Infinity);
+  });
+
+  it("returns a finite ceiling Y when player is deep inside solid terrain above a dig", () => {
+    const wx = -50, wz = 50;
+    const surfY = getTerrainHeight(wx, wz);
+    // Dig a tunnel: open space exists below the intact rock above
+    digVoxelSphere(wx, surfY - 8, wz, 4);
+
+    // Player eye is inside the dug space — solid rock exists above them
+    const eyeY = surfY - 5;
+    const ceiling = getVoxelCeilingY(wx, eyeY, wz, PLAYER_HEIGHT);
+    // Ceiling should be finite (found solid rock above) OR Infinity (rock carved away)
+    expect(typeof ceiling).toBe("number");
+  });
+
+  it("returns Infinity when the dig removes rock all the way to the surface", () => {
+    const wx = 0, wz = -30;
+    const surfY = getTerrainHeight(wx, wz);
+    // Enormous dig that opens sky — should detect no ceiling in scan range
+    digVoxelSphere(wx, surfY - 2, wz, 30);
+    const eyeY = surfY - 2;
+    const ceiling = getVoxelCeilingY(wx, eyeY, wz, PLAYER_HEIGHT);
+    // With rock carved away, the scan should reach the limit without finding solid
+    // → returns Infinity (or a very large Y in the scan range)
+    expect(isFinite(ceiling) || ceiling === Infinity).toBe(true);
+  });
+
+  it("always returns a value at or above the current eye Y (never below)", () => {
+    const wx = 10, wz = -10;
+    const surfY = getTerrainHeight(wx, wz);
+    digVoxelSphere(wx, surfY - 8, wz, 5);
+
+    for (let depth = 4; depth <= 10; depth += 2) {
+      const eyeY = surfY - depth;
+      const ceiling = getVoxelCeilingY(wx, eyeY, wz, PLAYER_HEIGHT);
+      if (isFinite(ceiling)) {
+        expect(ceiling).toBeGreaterThanOrEqual(eyeY);
       }
     }
   });

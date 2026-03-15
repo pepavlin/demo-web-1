@@ -544,45 +544,197 @@ export function getTerrainSurfaceYAfterDigs(wx: number, wz: number): number | nu
  * gets snapped back to the surface.
  *
  * Algorithm:
- * 1. If the player's feet are at or above the natural surface, the player is
+ * 1. If the player's feet are clearly above the natural surface, the player is
  *    not underground → return null (caller uses standard surface collision).
- * 2. If the player's feet are below the natural surface but inside solid rock
- *    (negative density), they are embedded → return null (push-up handled by
- *    standard collision).
- * 3. Otherwise the feet are in open underground space (positive density from
- *    a dig or cave). Scan downward from the feet to find the first solid voxel
- *    and return that Y as the tunnel floor.
+ * 2. Sample density at multiple heights within the player capsule (feet, waist,
+ *    chest). If ANY sample is in open underground space (positive density),
+ *    the player is inside a tunnel or cave — proceed to floor detection.
+ *    Sampling multiple heights prevents false-negatives at tunnel entrances
+ *    where the feet voxel might straddle the boundary of a dug sphere.
+ * 3. Scan downward with fine steps (VOXEL_SIZE/2) to find the first solid
+ *    voxel below the player and return that Y as the tunnel floor.
  *
- * @param wx      World X coordinate.
- * @param feetY   World Y of the player's feet (camera Y − PLAYER_HEIGHT).
- * @param wz      World Z coordinate.
- * @returns       Floor Y beneath the player if underground in open space,
- *                or null if normal surface collision should be used.
+ * @param wx           World X coordinate.
+ * @param feetY        World Y of the player's feet (camera Y − playerHeight).
+ * @param wz           World Z coordinate.
+ * @param playerHeight Full capsule height (eye-to-feet). Default: 1.8
+ * @returns            Floor Y beneath the player if underground in open space,
+ *                     or null if normal surface collision should be used.
  */
-export function getFloorYBelowPlayer(wx: number, feetY: number, wz: number): number | null {
+export function getFloorYBelowPlayer(
+  wx: number,
+  feetY: number,
+  wz: number,
+  playerHeight = 1.8,
+): number | null {
   const baseY = getTerrainHeight(wx, wz);
 
-  // Player is at or above the natural surface — no tunnel handling needed.
-  if (feetY >= baseY - 0.5) return null;
+  // Player is clearly above or at the natural surface — no tunnel handling.
+  // Use a margin of one full voxel to avoid triggering on slight depressions.
+  if (feetY >= baseY) return null;
 
-  // Player is below the natural surface — check if the space is open (air).
-  const densityAtFeet = getVoxelDensity(wx, feetY, wz, baseY);
-  if (densityAtFeet < 0) {
-    // Inside solid rock — let standard push-up logic handle it.
+  // Multi-height density sampling: check feet, waist and chest positions.
+  // If any height is underground AND in open space, the player is in a tunnel.
+  // This prevents the "entrance boundary" failure where the feet voxel is at
+  // the edge of a dug sphere and still reads as solid.
+  const sampleHeights = [
+    feetY,
+    feetY + playerHeight * 0.45,   // waist
+    feetY + playerHeight * 0.80,   // chest
+  ];
+
+  let inOpenSpace = false;
+  for (const sampleY of sampleHeights) {
+    if (sampleY >= baseY) continue; // above surface at this height, skip
+    const density = getVoxelDensity(wx, sampleY, wz, baseY);
+    if (density >= 0) {
+      inOpenSpace = true;
+      break;
+    }
+  }
+
+  if (!inOpenSpace) {
+    // All sampled heights are inside solid rock — standard push-up handles it.
     return null;
   }
 
-  // Player is in open underground space (dig or cave).
-  // Scan downward from the feet to find the solid floor.
+  // Player is in open underground space (dig or natural cave).
+  // Scan downward from the feet using fine steps for accurate floor detection.
+  const FINE_STEP = VOXEL_SIZE * 0.5; // 1.0 world unit — half the voxel size
   const scanLimit = Math.max(VOXEL_Y_MIN, feetY - 40);
-  let y = feetY - VOXEL_SIZE;
+  let y = feetY - FINE_STEP;
   while (y > scanLimit) {
     if (getVoxelDensity(wx, y, wz) < 0) {
-      return y; // solid floor found
+      return y + FINE_STEP; // return the last open Y (floor surface)
     }
-    y -= VOXEL_SIZE;
+    y -= FINE_STEP;
   }
   return scanLimit; // fallback: deep void floor
+}
+
+// ─── Capsule vs Voxel Terrain Collision ───────────────────────────────────────
+
+/**
+ * 8 unit directions used for capsule horizontal collision sampling.
+ * Cardinal (±X, ±Z) + diagonal axes.
+ */
+const _CAPSULE_DIRS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0], [-1, 0], [0, 1], [0, -1],
+  [0.707, 0.707], [-0.707, 0.707],
+  [0.707, -0.707], [-0.707, -0.707],
+];
+
+/**
+ * Push the player horizontally out of solid voxel terrain (tunnel walls).
+ *
+ * This implements the horizontal component of capsule-vs-terrain collision:
+ * it samples the terrain density at `playerRadius` distance in 8 directions
+ * around the player at three heights (near-feet, waist, chest). Whenever a
+ * solid voxel is detected at a direction, the player is pushed back by a
+ * corrective impulse in the opposite direction.
+ *
+ * Only activates when the player is underground (feetY < natural surface Y)
+ * so it has zero overhead on the open surface.
+ *
+ * @param px            Player world X (camera position)
+ * @param py            Player world Y (camera/eye position)
+ * @param pz            Player world Z (camera position)
+ * @param playerRadius  Capsule horizontal radius (world units)
+ * @param playerHeight  Eye-to-feet capsule height (world units)
+ * @returns             New { x, z } after push-out (unchanged if no collision)
+ */
+export function resolveVoxelTerrainCapsule(
+  px: number,
+  py: number,
+  pz: number,
+  playerRadius: number,
+  playerHeight: number,
+): { x: number; z: number } {
+  const feetY = py - playerHeight;
+  const baseY = getTerrainHeight(px, pz);
+
+  // Fast-exit: only resolve collisions when the player is underground.
+  if (feetY >= baseY - VOXEL_SIZE) return { x: px, z: pz };
+
+  const checkHeights = [
+    feetY + 0.3,               // near feet
+    feetY + playerHeight * 0.45, // waist
+    feetY + playerHeight * 0.80, // chest
+  ];
+
+  let pushX = 0;
+  let pushZ = 0;
+
+  for (const [dx, dz] of _CAPSULE_DIRS) {
+    const sampleX = px + dx * playerRadius;
+    const sampleZ = pz + dz * playerRadius;
+
+    let hasSolid = false;
+    for (const sampleY of checkHeights) {
+      const sampleBaseY = getTerrainHeight(sampleX, sampleZ);
+      if (sampleY >= sampleBaseY) continue; // above natural surface — no solid wall here
+      const density = getVoxelDensity(sampleX, sampleY, sampleZ, sampleBaseY);
+      if (density < 0) {
+        hasSolid = true;
+        break;
+      }
+    }
+
+    if (hasSolid) {
+      // Accumulate push-back away from this solid wall
+      pushX -= dx * playerRadius * 0.5;
+      pushZ -= dz * playerRadius * 0.5;
+    }
+  }
+
+  // Clamp push magnitude to avoid overshooting (max = one voxel per frame)
+  const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ);
+  if (pushLen > VOXEL_SIZE) {
+    const scale = VOXEL_SIZE / pushLen;
+    pushX *= scale;
+    pushZ *= scale;
+  }
+
+  return { x: px + pushX, z: pz + pushZ };
+}
+
+/**
+ * Returns the maximum camera Y the player can occupy without clipping through
+ * a solid voxel ceiling above them.
+ *
+ * Scans upward from the eye position in fine steps until the first solid voxel
+ * is encountered. Returns `Infinity` when no ceiling is found (open sky).
+ *
+ * @param px            Player world X
+ * @param eyeY          Player camera/eye Y
+ * @param pz            Player world Z
+ * @param playerHeight  Eye-to-feet capsule height
+ * @returns             Maximum allowed eye Y (Infinity if no ceiling found)
+ */
+export function getVoxelCeilingY(
+  px: number,
+  eyeY: number,
+  pz: number,
+  playerHeight: number,
+): number {
+  const feetY  = eyeY - playerHeight;
+  const baseY  = getTerrainHeight(px, pz);
+
+  // Only active when underground
+  if (feetY >= baseY) return Infinity;
+
+  const FINE_STEP  = VOXEL_SIZE * 0.5;
+  const scanLimit  = Math.min(VOXEL_Y_MAX, eyeY + playerHeight * 2);
+
+  let y = eyeY + FINE_STEP;
+  while (y <= scanLimit) {
+    if (getVoxelDensity(px, y, pz, baseY) < 0) {
+      // Ceiling found — clamp eye so there is at least a tiny gap
+      return y - FINE_STEP * 0.5;
+    }
+    y += FINE_STEP;
+  }
+  return Infinity;
 }
 
 /**
