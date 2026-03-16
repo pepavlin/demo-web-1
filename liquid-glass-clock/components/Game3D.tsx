@@ -1115,6 +1115,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [chatOpen, setChatOpen] = useState(false);
   const sendChatRef = useRef<((text: string) => void) | null>(null);
 
+  // ─── Controls hint (shown briefly at game start, toggled by ? button) ─────────
+  const [showControlsHint, setShowControlsHint] = useState(false);
+  const controlsHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Auto-show controls hint when game starts, hide after 8 s ───────────────
+  useEffect(() => {
+    if (gameStarted) {
+      setShowControlsHint(true);
+      if (controlsHintTimerRef.current) clearTimeout(controlsHintTimerRef.current);
+      controlsHintTimerRef.current = setTimeout(() => setShowControlsHint(false), 8000);
+    }
+    return () => {
+      if (controlsHintTimerRef.current) clearTimeout(controlsHintTimerRef.current);
+    };
+  }, [gameStarted]);
+
   // ─── Show a multiplayer notification for 4 seconds ───────────────────────────
   const showMpNotif = useCallback((msg: string) => {
     setMpNotification(msg);
@@ -11326,27 +11342,99 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
-      {/* ═══════════════ BOTTOM CENTER — Controls hint ═══════════════ */}
-      {gameState.isLocked && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 pointer-events-none select-none">
-          <div
-            className="rounded-xl text-white text-xs"
+      {/* ═══════════════ BOTTOM LEFT — Controls hint + ? toggle ═══════════════ */}
+      {gameStarted && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: IS_MOBILE ? 155 : 20,
+            left: IS_MOBILE ? 10 : 20,
+            zIndex: 82,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 6,
+          }}
+        >
+          {/* Controls panel — visible only when showControlsHint */}
+          {gameState.isLocked && showControlsHint && (
+            <div
+              className="rounded-xl text-white text-xs select-none"
+              style={{
+                padding: "10px 14px",
+                background: "rgba(5,8,20,0.72)",
+                backdropFilter: "blur(10px)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                color: "rgba(255,255,255,0.55)",
+                maxWidth: IS_MOBILE ? 260 : 420,
+                lineHeight: 1.7,
+                pointerEvents: "none",
+              }}
+            >
+              {IS_MOBILE ? (
+                <>
+                  <span>🕹 <strong style={{ color: "rgba(255,255,255,0.85)" }}>Joystick</strong> – pohyb</span>
+                  &nbsp;·&nbsp;
+                  <span>👆 <strong style={{ color: "rgba(255,255,255,0.85)" }}>Táhni vpravo</strong> – pohled</span>
+                  &nbsp;·&nbsp;
+                  <span><strong style={{ color: "#4ade80" }}>↑</strong> skok</span>
+                  &nbsp;·&nbsp;
+                  <span><strong style={{ color: "#f87171" }}>⚔</strong> útok</span>
+                  &nbsp;·&nbsp;
+                  <span><strong style={{ color: "#60a5fa" }}>E</strong> interakce</span>
+                  &nbsp;·&nbsp;
+                  <span><strong style={{ color: "#fbbf24" }}>💨</strong> sprint</span>
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: "rgba(255,255,255,0.75)" }}>WASD</strong> pohyb &nbsp;·&nbsp;
+                  <strong style={{ color: "rgba(255,255,255,0.75)" }}>Myš</strong> pohled &nbsp;·&nbsp;
+                  <strong style={{ color: "rgba(255,255,255,0.75)" }}>Mezerník</strong> skok &nbsp;·&nbsp;
+                  <strong style={{ color: "rgba(255,255,255,0.75)" }}>Shift</strong> sprint &nbsp;·&nbsp;
+                  <strong style={{ color: "rgba(255,255,255,0.75)" }}>Esc</strong> pauza &nbsp;·&nbsp;
+                  <span style={{ color: "#f87171" }}>[F]/Drž klik</span> útok &nbsp;·&nbsp;
+                  <span style={{ color: "#60a5fa" }}>[E]</span> interakce &nbsp;·&nbsp;
+                  <span style={{ color: "#34d399" }}>[T]</span> chat &nbsp;·&nbsp;
+                  <span style={{ color: "#fbbf24" }}>[V]</span> {cameraMode === "first" ? "1. osoba" : "3. osoba"} &nbsp;·&nbsp;
+                  <span style={{ color: "#c084fc" }}>IMPLEMENT</span> návrh
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ? button — always visible while game is running */}
+          <button
+            onClick={() => {
+              if (controlsHintTimerRef.current) clearTimeout(controlsHintTimerRef.current);
+              setShowControlsHint((v) => {
+                if (!v) {
+                  controlsHintTimerRef.current = setTimeout(() => setShowControlsHint(false), 8000);
+                }
+                return !v;
+              });
+            }}
+            title="Ovládání"
             style={{
-              padding: "10px 20px",
-              background: "rgba(5,8,20,0.60)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(255,255,255,0.07)",
-              color: "rgba(255,255,255,0.45)",
+              width: 32,
+              height: 32,
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              color: "rgba(255,255,255,0.6)",
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: "pointer",
+              backdropFilter: "blur(6px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              zIndex: 82,
             }}
           >
-            WASD – pohyb &nbsp;·&nbsp; Myš – pohled &nbsp;·&nbsp; Mezerník – skok &nbsp;·&nbsp;
-            Shift – sprint &nbsp;·&nbsp; Esc – pauza &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#f87171", opacity: 1 }}>[F]/Drž klik</span> – útok &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#60a5fa", opacity: 1 }}>[E]</span> – vstoupit do ovce &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#34d399", opacity: 1 }}>[T]</span> – chat &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#fbbf24", opacity: 1 }}>[V]</span> – {cameraMode === "first" ? "1. osoba" : "3. osoba"} &nbsp;·&nbsp;{" "}
-            <span style={{ color: "#c084fc", opacity: 1 }}>IMPLEMENT</span> – návrh
-          </div>
+            ?
+          </button>
         </div>
       )}
 
