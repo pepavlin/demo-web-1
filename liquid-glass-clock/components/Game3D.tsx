@@ -2278,6 +2278,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
     if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current || inBunkerRef.current) return;
     if (heldItemRef.current) return; // holding an item — must place it first
+    if (!weaponSlotsRef.current[activeSlotRef.current]) return; // empty slot — no weapon to attack with
 
     const weaponCfg = WEAPON_CONFIGS[selectedWeaponRef.current];
 
@@ -4819,6 +4820,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
           return;
         }
+        if (!weaponSlotsRef.current[activeSlotRef.current]) return; // empty slot — nothing to do
         if (selectedWeaponRef.current === "bow") {
           // Bow: start charging on press — fire on release
           isBowChargingRef.current = true;
@@ -5391,28 +5393,37 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         handleInventoryClose();
       }
 
-      // Keys 1/2/3 — select weapon slot; Q — cycle through slots
+      // Keys 1/2/3 — select weapon slot directly (including empty); Q — cycle through occupied slots only
       if (e.type === "keydown") {
         let targetSlot: 0 | 1 | 2 | null = null;
         if (e.code === "Digit1") targetSlot = 0;
         else if (e.code === "Digit2") targetSlot = 1;
         else if (e.code === "Digit3") targetSlot = 2;
-        else if (e.code === "KeyQ") targetSlot = ((activeSlotRef.current + 1) % 3) as 0 | 1 | 2;
+        else if (e.code === "KeyQ") {
+          // Q cycles only through occupied slots
+          for (let i = 1; i <= 3; i++) {
+            const candidate = ((activeSlotRef.current + i) % 3) as 0 | 1 | 2;
+            if (weaponSlotsRef.current[candidate]) { targetSlot = candidate; break; }
+          }
+        }
 
         if (targetSlot !== null) {
           const newWeapon = weaponSlotsRef.current[targetSlot];
+          // Exit scope when switching away from sniper
+          if (isScopedRef.current && newWeapon !== "sniper") {
+            isScopedRef.current = false;
+            setIsScoped(false);
+          }
+          activeSlotRef.current = targetSlot;
+          setActiveSlot(targetSlot);
           if (newWeapon) {
-            // Exit scope when switching away from sniper
-            if (isScopedRef.current && newWeapon !== "sniper") {
-              isScopedRef.current = false;
-              setIsScoped(false);
-            }
-            activeSlotRef.current = targetSlot;
-            setActiveSlot(targetSlot);
             selectedWeaponRef.current = newWeapon;
             setSelectedWeapon(newWeapon);
             swapWeaponMesh(newWeapon);
             if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+          } else {
+            // Empty slot selected via 1/2/3 — hide weapon mesh (bare hands)
+            if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
           }
         }
       }

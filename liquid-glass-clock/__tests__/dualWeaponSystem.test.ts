@@ -260,4 +260,49 @@ describe("Triple weapon slot model", () => {
     const slots = makeSlots("axe", "sword", null);
     expect(slots[2]).toBeNull();
   });
+
+  test("selecting empty slot 2 updates active slot even when weapon is null", () => {
+    const slots = makeSlots("axe", "sword", null);
+    // Direct slot selection (key 3) should switch active slot regardless
+    const { active, weapon } = switchSlot(slots, 0, 2);
+    expect(active).toBe(2);
+    expect(weapon).toBeNull();
+  });
+
+  test("attack should be blocked when active slot is empty", () => {
+    const slots = makeSlots("axe", "sword", null);
+    // Simulate: active slot 2 is empty → no attack
+    const activeSlot: 0 | 1 | 2 = 2;
+    const canAttack = slots[activeSlot] !== null;
+    expect(canAttack).toBe(false);
+  });
+
+  test("attack is allowed when active slot has a weapon", () => {
+    const slots = makeSlots("axe", "sword", "bow");
+    const activeSlot: 0 | 1 | 2 = 2;
+    const canAttack = slots[activeSlot] !== null;
+    expect(canAttack).toBe(true);
+  });
+
+  test("Q cycling skips empty slots and only lands on occupied ones", () => {
+    const slots = makeSlots("axe", "sword", null);
+    // Starting at slot 0, Q should cycle to slot 1 (skip slot 2 which is empty)
+    let active: 0 | 1 | 2 = 0;
+    let nextSlot: 0 | 1 | 2 | null = null;
+    for (let i = 1; i <= 3; i++) {
+      const candidate = ((active + i) % 3) as 0 | 1 | 2;
+      if (slots[candidate]) { nextSlot = candidate; break; }
+    }
+    expect(nextSlot).toBe(1); // slot 1 has sword, slot 2 is empty
+
+    // Starting at slot 1, Q should cycle back to slot 0 (skip empty slot 2)
+    active = 1;
+    nextSlot = null;
+    for (let i = 1; i <= 3; i++) {
+      const candidate = ((active + i) % 3) as 0 | 1 | 2;
+      if (slots[candidate]) { nextSlot = candidate; break; }
+    }
+    // slot 2 is empty, so should skip to slot 0
+    expect(nextSlot).toBe(0);
+  });
 });
