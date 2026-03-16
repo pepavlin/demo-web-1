@@ -56,6 +56,12 @@ describe("RocketState type", () => {
 // ── Space station room collision logic ────────────────────────────────────────
 describe("Space station room collision", () => {
   // Mirror the collision check from Game3D.tsx
+  // Updated for new (bigger) room layout:
+  //   Airlock:         X:-8.. 8, Z: -8..  8
+  //   Main Corridor:   X: 8..45, Z: -6..  6
+  //   Bridge:          X:45..90, Z:-22.. 22
+  //   Crew Quarters:   X:18..48, Z:  6.. 32
+  //   Engineering Bay: X:18..48, Z:-32.. -6
   const SPACE_STATION_WORLD_X = 0;
   const SPACE_STATION_WORLD_Z = 0;
   const PLAYER_RADIUS = 0.5;
@@ -90,10 +96,17 @@ describe("Space station room collision", () => {
   });
 
   it("a position in the bridge (X=45, Z=0) is inside the station", () => {
+    // X=45 is the boundary between corridor (X:8..45) and bridge (X:45..90);
+    // PLAYER_RADIUS expansion means both rooms contain this point.
     expect(isInRoom(rooms, 45, 0)).toBe(true);
   });
 
+  it("a position deep inside the bridge (X=70, Z=0) is inside the station", () => {
+    expect(isInRoom(rooms, 70, 0)).toBe(true);
+  });
+
   it("a position in crew quarters (X=18, Z=12) is inside the station", () => {
+    // X=18 is at the crew-quarters minX boundary; PLAYER_RADIUS covers it.
     expect(isInRoom(rooms, 18, 12)).toBe(true);
   });
 
@@ -195,17 +208,17 @@ describe("Auto-docking: rocket arrives → immediate space station entry", () =>
   });
 
   it("airlock zone check: player at (0, 0) local is near airlock", () => {
-    // Mirror the airlock detection from Game3D.tsx
+    // Mirror the airlock detection from Game3D.tsx (threshold = 7.5 for new X:-8..8 airlock)
     const playerLocalX = 0;
     const playerLocalZ = 0;
-    const nearAirlock = Math.abs(playerLocalX) <= 5.5 && Math.abs(playerLocalZ) <= 5.5;
+    const nearAirlock = Math.abs(playerLocalX) <= 7.5 && Math.abs(playerLocalZ) <= 7.5;
     expect(nearAirlock).toBe(true);
   });
 
   it("airlock zone check: player at (10, 0) local is NOT near airlock", () => {
     const playerLocalX = 10;
     const playerLocalZ = 0;
-    const nearAirlock = Math.abs(playerLocalX) <= 5.5 && Math.abs(playerLocalZ) <= 5.5;
+    const nearAirlock = Math.abs(playerLocalX) <= 7.5 && Math.abs(playerLocalZ) <= 7.5;
     expect(nearAirlock).toBe(false);
   });
 
@@ -292,14 +305,14 @@ describe("Space station sliding doors", () => {
     const { doors } = buildSpaceStationInterior();
     const doorPositions = doors.map((d) => ({ x: d.localPos.x, z: d.localPos.z }));
 
-    // Airlock → Corridor door at X=5
-    expect(doorPositions.some((p) => Math.abs(p.x - 5) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
-    // Corridor → Bridge door at X=35
-    expect(doorPositions.some((p) => Math.abs(p.x - 35) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
-    // Corridor → Crew Quarters door at Z=3
-    expect(doorPositions.some((p) => Math.abs(p.x - 19) < 0.01 && Math.abs(p.z - 3) < 0.01)).toBe(true);
-    // Corridor → Engineering Bay door at Z=-3
-    expect(doorPositions.some((p) => Math.abs(p.x - 19) < 0.01 && Math.abs(p.z + 3) < 0.01)).toBe(true);
+    // Airlock → Corridor door at X=8
+    expect(doorPositions.some((p) => Math.abs(p.x - 8) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
+    // Corridor → Bridge door at X=45
+    expect(doorPositions.some((p) => Math.abs(p.x - 45) < 0.01 && Math.abs(p.z) < 0.01)).toBe(true);
+    // Corridor → Crew Quarters door at X=30, Z=6
+    expect(doorPositions.some((p) => Math.abs(p.x - 30) < 0.01 && Math.abs(p.z - 6) < 0.01)).toBe(true);
+    // Corridor → Engineering Bay door at X=30, Z=-6
+    expect(doorPositions.some((p) => Math.abs(p.x - 30) < 0.01 && Math.abs(p.z + 6) < 0.01)).toBe(true);
   });
 
   it("door animation lerp: progress=0 means panels at closed position", () => {
