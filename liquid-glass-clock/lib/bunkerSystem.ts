@@ -21,6 +21,9 @@ export const BUNKER_ENTRY_RADIUS = 5.0;
 /** Radius around the exit ladder within which [E] exit prompt appears. */
 export const BUNKER_EXIT_RADIUS = 3.0;
 
+/** Radius around a chest within which [E] open prompt appears. */
+export const BUNKER_CHEST_OPEN_RADIUS = 2.2;
+
 /**
  * World-space Y at which the bunker interior group is placed.
  * Must be far above the exterior world so fog hides it completely.
@@ -52,6 +55,15 @@ export interface BunkerConfig {
   name: string;
 }
 
+export interface BunkerChestPosition {
+  /** Local X position inside the bunker (relative to group origin). */
+  localX: number;
+  /** Local Z position inside the bunker (relative to group origin). */
+  localZ: number;
+  /** Y rotation for the chest mesh (radians). */
+  rotY: number;
+}
+
 export interface BunkerInteriorResult {
   group: THREE.Group;
   /** Walkable AABB rooms (local coords, relative to group origin). */
@@ -62,6 +74,12 @@ export interface BunkerInteriorResult {
   animatedMeshes: Array<{ mesh: THREE.Mesh; type: "monitor" | "server_led" | "vent" }>;
   /** Local-space position of the exit ladder (where exit prompt appears). */
   exitLocalPos: THREE.Vector3;
+  /**
+   * Positions for treasure chests to be placed inside the bunker.
+   * Game3D.tsx reads these to build and manage chest meshes independently,
+   * so that chest opened-state can be tracked per bunker visit.
+   */
+  chestLocalPositions: BunkerChestPosition[];
 }
 
 // ─── World Positions ──────────────────────────────────────────────────────────
@@ -880,6 +898,15 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
       lights,
       animatedMeshes,
       exitLocalPos,
+      /**
+       * Two chest positions inside the bunker:
+       *   1. Container 1 (Entry)  – right wall, mid-section  Z ≈ 8.5
+       *   2. Container 2 (Lab)    – left wall, near end       Z ≈ 22.0
+       */
+      chestLocalPositions: [
+        { localX:  1.2, localZ:  8.5, rotY: -Math.PI / 2 },
+        { localX: -1.2, localZ: 22.0, rotY:  Math.PI / 2 },
+      ],
     };
   }
 }
