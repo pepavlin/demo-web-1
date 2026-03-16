@@ -13,6 +13,7 @@ import {
   modifyTerrainHeight,
   findBestElevatedPosition,
   findPositionsInSectors,
+  findCoastalPositions,
   WORLD_SIZE,
   WATER_LEVEL,
   LAND_SPAWN_MARGIN,
@@ -311,10 +312,10 @@ const POSSESS_CAM_HEIGHT = 0.9; // camera height above sheep mesh origin when po
 
 // ─── Lighthouse Constants ─────────────────────────────────────────────────────
 // These are `let` so the terrain-analysis block can relocate them to the best
-// dry-land coastal position after the height grid is initialised.  The initial
-// values are only used as fallbacks if the search fails (extremely unlikely).
-let LIGHTHOUSE_X = -95;
-let LIGHTHOUSE_Z = 85;
+// coastal position after the height grid is initialised.  The initial values
+// are only used as fallbacks if the coastal search fails (extremely unlikely).
+let LIGHTHOUSE_X = 95;
+let LIGHTHOUSE_Z = -85;
 
 // ─── City Constants ────────────────────────────────────────────────────────────
 /** World-space centre of the procedural city (northeast area) */
@@ -2641,12 +2642,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       SNIPER_TOWER_Z = sniperPos.z;
     }
 
-    // Ruins + Lighthouse — place in two OPPOSITE sectors of the 75-115 unit ring
-    // so they are always on safe land and well separated from each other.
-    // Using findPositionsInSectors(2, …) guarantees one position per sector half.
+    // Ruins — place on safe elevated land in sector 0 (0°–180°).
     const remotePositions = findPositionsInSectors(2, 75, 115, WATER_LEVEL + LAND_SPAWN_MARGIN, 8.0);
     const ruinsDynamicPos  = remotePositions[0] ?? null;
-    const lighthouseDynPos = remotePositions[1] ?? null;
+
+    // Lighthouse — placed right at the water's edge (coastal position) in the
+    // OPPOSITE sector (180°–360°) so it always faces the sea from the far side
+    // of the map.  findCoastalPositions only accepts shoreline tiles where at
+    // least one adjacent grid cell is below WATER_LEVEL.
+    const coastalPositions = findCoastalPositions(2, 65, 120);
+    const lighthouseDynPos = coastalPositions[1] ?? coastalPositions[0] ?? null;
     if (lighthouseDynPos) {
       LIGHTHOUSE_X = lighthouseDynPos.x;
       LIGHTHOUSE_Z = lighthouseDynPos.z;

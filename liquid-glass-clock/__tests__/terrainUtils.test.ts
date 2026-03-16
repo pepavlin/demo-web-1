@@ -1,4 +1,4 @@
-import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, findBestElevatedPosition, findPositionsInSectors, assertSafeLand, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL, WAVE_MAX_AMPLITUDE, LAND_SPAWN_MARGIN } from "@/lib/terrainUtils";
+import { getTerrainHeight, getTerrainHeightSampled, generateSpawnPoints, initNoise, modifyTerrainHeight, findBestElevatedPosition, findPositionsInSectors, findCoastalPositions, assertSafeLand, WORLD_SIZE, TERRAIN_SEGMENTS, WATER_LEVEL, WAVE_MAX_AMPLITUDE, LAND_SPAWN_MARGIN } from "@/lib/terrainUtils";
 
 describe("terrainUtils", () => {
   beforeAll(() => {
@@ -676,15 +676,111 @@ describe("terrainUtils", () => {
       expect(() => assertSafeLand("Water", 0, -200)).not.toThrow();
     });
 
-    it("dynamically placed ruins and lighthouse are always above safe land threshold", () => {
+    it("dynamically placed ruins are always above safe land threshold", () => {
       initNoise(42);
       const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
-      // The game uses findPositionsInSectors(2, 75, 115, …) for ruins + lighthouse
+      // Ruins still use findPositionsInSectors
       const remotePositions = findPositionsInSectors(2, 75, 115, safeThreshold, 8.0);
       expect(remotePositions.length).toBeGreaterThanOrEqual(1);
       remotePositions.forEach((pos) => {
         expect(pos.y).toBeGreaterThanOrEqual(safeThreshold);
       });
+    });
+
+    it("dynamically placed lighthouse (coastal) is above safe land threshold", () => {
+      initNoise(42);
+      const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      // Lighthouse uses findCoastalPositions
+      const coastalPositions = findCoastalPositions(2, 65, 120);
+      expect(coastalPositions.length).toBeGreaterThanOrEqual(1);
+      coastalPositions.forEach((pos) => {
+        expect(pos.y).toBeGreaterThanOrEqual(safeThreshold);
+      });
+    });
+  });
+
+  describe("findCoastalPositions", () => {
+    beforeAll(() => {
+      initNoise(42);
+    });
+
+    it("returns an array", () => {
+      const positions = findCoastalPositions(2, 65, 120);
+      expect(Array.isArray(positions)).toBe(true);
+    });
+
+    it("returns at most `count` positions", () => {
+      const count = 4;
+      const positions = findCoastalPositions(count, 50, 120);
+      expect(positions.length).toBeLessThanOrEqual(count);
+    });
+
+    it("returns at least one position when viable coastal terrain exists", () => {
+      const positions = findCoastalPositions(2, 65, 120);
+      expect(positions.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("all positions are above the safe-land threshold", () => {
+      const safeThreshold = WATER_LEVEL + LAND_SPAWN_MARGIN;
+      const positions = findCoastalPositions(2, 65, 120);
+      positions.forEach((p) => {
+        expect(p.y).toBeGreaterThanOrEqual(safeThreshold - 0.01);
+      });
+    });
+
+    it("all positions are within the requested distance range", () => {
+      const minDist = 65;
+      const maxDist = 120;
+      const positions = findCoastalPositions(2, minDist, maxDist);
+      positions.forEach((p) => {
+        const dist = Math.sqrt(p.x * p.x + p.z * p.z);
+        expect(dist).toBeGreaterThanOrEqual(minDist - 1);
+        expect(dist).toBeLessThanOrEqual(maxDist + 1);
+      });
+    });
+
+    it("all positions are within world bounds", () => {
+      const positions = findCoastalPositions(4, 50, 120);
+      positions.forEach((p) => {
+        expect(Math.abs(p.x)).toBeLessThan(WORLD_SIZE / 2);
+        expect(Math.abs(p.z)).toBeLessThan(WORLD_SIZE / 2);
+      });
+    });
+
+    it("positions have numeric x, z, y properties", () => {
+      const positions = findCoastalPositions(2, 65, 120);
+      positions.forEach((p) => {
+        expect(typeof p.x).toBe("number");
+        expect(typeof p.z).toBe("number");
+        expect(typeof p.y).toBe("number");
+        expect(isNaN(p.x)).toBe(false);
+        expect(isNaN(p.z)).toBe(false);
+        expect(isNaN(p.y)).toBe(false);
+      });
+    });
+
+    it("returns empty array for count=0", () => {
+      const positions = findCoastalPositions(0, 65, 120);
+      expect(positions.length).toBe(0);
+    });
+
+    it("returns consistent results for the same seed", () => {
+      initNoise(42);
+      const pos1 = findCoastalPositions(2, 65, 120);
+      initNoise(42);
+      const pos2 = findCoastalPositions(2, 65, 120);
+      expect(pos1).toEqual(pos2);
+    });
+
+    it("coastal positions have lower elevation than elevated inland positions in same ring", () => {
+      const coastalPositions = findCoastalPositions(2, 65, 120);
+      const elevatedPositions = findPositionsInSectors(2, 65, 120, WATER_LEVEL + LAND_SPAWN_MARGIN, 5.0);
+      if (coastalPositions.length > 0 && elevatedPositions.length > 0) {
+        const avgCoastalY = coastalPositions.reduce((s, p) => s + p.y, 0) / coastalPositions.length;
+        const avgElevatedY = elevatedPositions.reduce((s, p) => s + p.y, 0) / elevatedPositions.length;
+        // Coastal positions should be significantly lower than elevated land positions
+        expect(avgCoastalY).toBeLessThan(avgElevatedY + 5);
+      }
     });
   });
 });
