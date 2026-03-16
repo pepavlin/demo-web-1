@@ -1,47 +1,84 @@
 # Airdrop System
 
-Every 5 minutes a supply crate drops from the sky on a parachute, lands near the player, and contains random loot.
+Every 40 seconds a supply crate drops from the sky on a parachute, lands near the host player, and contains random loot.  The spawn is **server-authoritative**: all connected clients receive the same world coordinates at the same moment so every player sees the identical crate.
 
 ## Overview
 
-The airdrop system adds a recurring world event: a military supply crate falls from altitude 80 with a parachute, lands at a random position 35–65 units from the player, and can be looted by walking up to it.  Only one airdrop is active at a time.  An unopened crate despawns after 120 seconds.
+The airdrop system adds a recurring world event: a military supply crate falls from altitude 200 with a parachute, lands at a random position 35–65 units from the host player, and can be looted by walking up to it.  Multiple crates can be active simultaneously.  An unopened crate despawns after 120 seconds.
+
+### Multiplayer Synchronisation
+
+Periodic airdrop spawning is controlled **entirely by the server** (`server.mjs`):
+
+1. The server runs a `setInterval` at `AIRDROP_INTERVAL_MS = 40 000 ms`.
+2. On each tick it picks a landing position relative to the host player's last known coordinates (or map centre if unavailable) and emits `crate:spawn` to **all** clients with the same `{x, z}`.
+3. The server also emits `crate:timer { elapsed: 0 }` to reset every client's HUD countdown simultaneously.
+4. When a new player joins they receive `crate:timer { elapsed: <seconds since last drop> }` so their countdown immediately shows the correct value.
+5. A separate **welcome crate** is dropped for every connecting player (`playerName` set); periodic drops use an empty `playerName`.
+
+Clients never spawn periodic airdrops locally — they only spawn crates in response to `crate:spawn` socket events.
 
 ## Files
 
 | File | Role |
 |------|------|
+| `server.mjs` | **Server-side periodic timer** — emits `crate:spawn` and `crate:timer` to all clients |
 | `lib/airdropSystem.ts` | Constants, loot table, `pickRandomLoot()`, `findAirdropLandingPosition()` |
 | `lib/gameTypes.ts` | `AirdropData`, `AirdropState`, `AirdropLoot`, `AirdropLootType` types |
 | `lib/meshBuilders.ts` | `buildAirdropCrateMesh()`, `buildParachuteMesh()` |
-| `components/Game3D.tsx` | Game loop integration: timer, spawn, descent, loot application |
+| `components/Game3D.tsx` | Game loop integration: spawn on `crate:spawn` event, descent, loot application |
+| `hooks/useMultiplayer.ts` | `onCrateSpawn` and `onCrateTimer` callbacks wired to socket events |
 | `__tests__/airdropSystem.test.ts` | Unit tests |
+| `__tests__/useMultiplayer.test.tsx` | Socket event tests incl. `crate:timer` |
 
 ## Life Cycle
 
 ```
-[timer reaches 300 s]
+[server setInterval fires every 40 s]
         │
         ▼
-   findAirdropLandingPosition()   ← random pos near player, above water
+  server: pick {x,z} 35–65 u from host player
+  server: io.emit("crate:spawn", { x, z, playerName: "" })
+  server: io.emit("crate:timer", { elapsed: 0 })
+        │
+        ▼  (every connected client)
+  handleCrateSpawn(x, z)
+  spawnAirdropCrateAt(x, z)      ← same coords on all clients
+  airdropTimerRef.current = 0    ← HUD countdown reset via handleCrateTimer
         │
         ▼
-  Spawn crate + parachute at Y=80
+  Spawn crate + parachute at Y=200
   Spawn beacon ring on terrain
-  Show "Zásobovací bedna!" notification
+  Show "Zásobovací bedna padá z nebe!" notification
         │
-        ▼  (falling — ~11 s)
-  Crate descends at 7 units/s
+        ▼  (falling — ~79 s at 2.5 u/s)
+  Crate descends at 2.5 units/s (parachute dampening via physics maxFallSpeed)
   Parachute sways gently
   Beacon pulses
         │
         ▼  (landed)
-  Parachute settles sideways
+  Physics body replaced with slide body
   Show "Bedna přistála!" notification
   Beacon pulses slowly
         │
    player within 3.2 u?
    ├─ YES → open crate → apply loot → show loot notification → despawn
    └─ NO  → wait up to 120 s → auto-despawn
+```
+
+### Player-Join Welcome Crate (separate from periodic)
+
+```
+[player joins]
+        │
+        ▼
+  server: io.emit("crate:spawn", { x, z, playerName: "PlayerName" })
+  server: socket.emit("crate:timer", { elapsed: <seconds since last periodic drop> })
+        │
+        ▼  (every connected client)
+  handleCrateSpawn(x, z)
+  Show "📦 Zásoby pro PlayerName padají z nebe!"
+  (joining player's HUD countdown is synced to current server timer)
 ```
 
 ## Loot System — Guaranteed Weapon + Resource Bonus
@@ -88,18 +125,28 @@ export function pickRandomLoot(rng?: () => number): AirdropLoot
 `AirdropData.loot` is now `AirdropLoot[]` (array) instead of a single `AirdropLoot`.
 The game loop iterates over all loot items and applies each one.
 
-## Constants (`lib/airdropSystem.ts`)
+## Constants
+
+### `lib/airdropSystem.ts` (client-side)
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `AIRDROP_INTERVAL` | 300 s | Seconds between airdrops |
-| `AIRDROP_SPAWN_HEIGHT` | 80 | Starting Y (sky) |
-| `AIRDROP_FALL_SPEED` | 7 u/s | Parachute descent speed |
+| `AIRDROP_INTERVAL` | 40 s | Must match server `AIRDROP_INTERVAL_MS / 1000` for HUD sync |
+| `AIRDROP_SPAWN_HEIGHT` | 200 | Starting Y (sky) |
+| `AIRDROP_FALL_SPEED` | 2.5 u/s | Parachute terminal velocity (via physics maxFallSpeed) |
 | `AIRDROP_OPEN_RADIUS` | 3.2 u | Player proximity required to open |
 | `AIRDROP_DESPAWN_TIME` | 120 s | Auto-despawn if unopened |
-| `AIRDROP_SPAWN_DIST_MIN` | 35 u | Minimum distance from player |
-| `AIRDROP_SPAWN_DIST_MAX` | 65 u | Maximum distance from player |
-| `AIRDROP_SPAWN_ATTEMPTS` | 12 | Max tries to find valid land position |
+| `AIRDROP_SPAWN_DIST_MIN` | 35 u | Minimum distance from reference player (server-side) |
+| `AIRDROP_SPAWN_DIST_MAX` | 65 u | Maximum distance from reference player (server-side) |
+| `AIRDROP_SPAWN_ATTEMPTS` | 12 | Max tries to find valid land position (client helper only) |
+
+### `server.mjs` (server-side)
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `AIRDROP_INTERVAL_MS` | 40 000 ms | Server interval — drives the synchronized periodic timer |
+| `AIRDROP_DIST_MIN` | 35 u | Matches `AIRDROP_SPAWN_DIST_MIN` |
+| `AIRDROP_DIST_MAX` | 65 u | Matches `AIRDROP_SPAWN_DIST_MAX` |
 
 ## Data Types (`lib/gameTypes.ts`)
 
@@ -156,19 +203,23 @@ interface AirdropData {
 ## Game Loop Integration (`components/Game3D.tsx`)
 
 **Refs**
-- `airdropTimerRef` — accumulates `delta` each frame; resets at spawn
-- `airdropRef` — active `AirdropData | null`
+- `airdropTimerRef` — elapsed seconds since last drop; clamped to `AIRDROP_INTERVAL`.  Used for the HUD countdown display only — **never triggers local spawns**.  Updated by server `crate:timer` events via `handleCrateTimer`.
+- `airdropListRef` — list of all active `AirdropData` entries
+
+**Socket callbacks**
+- `handleCrateSpawn(data)` — spawns the crate mesh + physics body at `{data.x, data.z}`, shows notification.  `data.playerName` empty = periodic drop; non-empty = welcome crate.
+- `handleCrateTimer(elapsed)` — sets `airdropTimerRef.current = elapsed` to sync HUD countdown.
 
 **State (React)**
-- `airdropCountdown` — elapsed seconds, updated at HUD refresh rate (~2 Hz)
+- `airdropCountdown` — value of `airdropTimerRef`, updated at HUD refresh rate (~2 Hz)
 - `airdropPhase` — `'falling' | 'landed' | null`
 - `airdropDespawnTimer` — seconds since landing
 - `airdropIncoming` / `airdropLandedMsg` / `airdropOpenedMsg` — notifications
 
 **HUD elements**
-- Countdown to next drop (bottom-left stats panel)
+- `AIRDROP_INTERVAL - airdropCountdown` s countdown to next drop (bottom-left stats panel)
 - "Bedna padá!" / "Přistála!" status in stats panel
-- "Zásobovací bedna!" announcement banner (top-centre)
+- "📦 Zásobovací bedna padá z nebe!" announcement notification (top-centre)
 - "Přijdi blíž a otevři zásobovací bednu" proximity prompt (bottom-centre)
 - "Bedna otevřena!" loot reward overlay (centre)
 

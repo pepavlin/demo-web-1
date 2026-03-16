@@ -105,7 +105,6 @@ import type { CrateSpawnData } from "@/hooks/useMultiplayer";
 import {
   pickRandomLoot,
   pickAirdropLootArray,
-  findAirdropLandingPosition,
   formatLootMessage,
   lootEmoji,
   AIRDROP_INTERVAL,
@@ -1459,14 +1458,27 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   }, []);
 
   /**
-   * Called when the server emits `crate:spawn` — fires for every connected
-   * client whenever any player joins.  Drops a crate at the server-chosen
-   * coordinates and shows a notification.
+   * Called when the server emits `crate:spawn`.
+   * Fired for every connected client either:
+   *  - when any player joins (welcome crate, playerName is set), or
+   *  - when the server's periodic timer fires (synchronized drop, playerName is empty).
    */
   const handleCrateSpawn = useCallback((data: CrateSpawnData) => {
     spawnAirdropCrateAt(data.x, data.z);
-    showMpNotif(`📦 Zásoby pro ${data.playerName} padají z nebe!`);
+    const msg = data.playerName
+      ? `📦 Zásoby pro ${data.playerName} padají z nebe!`
+      : `📦 Zásobovací bedna padá z nebe!`;
+    showMpNotif(msg);
   }, [spawnAirdropCrateAt, showMpNotif]);
+
+  /**
+   * Called when the server emits `crate:timer`.
+   * Updates the local HUD countdown so it stays in sync with the server's
+   * periodic airdrop schedule regardless of when the player joined.
+   */
+  const handleCrateTimer = useCallback((elapsed: number) => {
+    airdropTimerRef.current = elapsed;
+  }, []);
 
   /** Handle host reassignment — update isHost and notify sync manager. */
   const handleHostChanged = useCallback((newHostId: string | null) => {
@@ -1497,6 +1509,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     onEntityEvent: handleEntityEvent,
     onHostChanged: handleHostChanged,
     onCrateSpawn: handleCrateSpawn,
+    onCrateTimer: handleCrateTimer,
   });
 
   // Keep sendChat in a ref so it can be called from event handlers
@@ -8404,23 +8417,15 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       }
 
       // ── Airdrop System ──────────────────────────────────────────────────────
+      // The periodic airdrop is now managed server-side so all players receive
+      // the same crate:spawn event at the same time with the same coordinates.
+      // The local timer is only kept for the HUD countdown display; it no longer
+      // triggers any local crate spawns.  Timer resets are pushed via crate:timer
+      // events from the server (handled by handleCrateTimer).
       airdropTimerRef.current += dt;
-
-      // Spawn a new periodic airdrop every AIRDROP_INTERVAL seconds
-      if (airdropTimerRef.current >= AIRDROP_INTERVAL) {
-        airdropTimerRef.current = 0;
-
-        const airdropPos = findAirdropLandingPosition(
-          playerPos.x,
-          playerPos.z,
-          getTerrainHeightSampled,
-          WATER_LEVEL,
-          1.0,
-        );
-
-        if (airdropPos) {
-          spawnAirdropCrateAt(airdropPos.x, airdropPos.z);
-        }
+      // Clamp so the display never goes negative even if dt accumulates slightly past the interval.
+      if (airdropTimerRef.current > AIRDROP_INTERVAL) {
+        airdropTimerRef.current = AIRDROP_INTERVAL;
       }
 
       // Update all active airdrop crates

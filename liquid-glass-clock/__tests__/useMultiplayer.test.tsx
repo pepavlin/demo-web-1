@@ -412,4 +412,57 @@ describe("useMultiplayer hook", () => {
     const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
     expect(() => act(() => { crateCall![1]({ x: 1, z: 2, playerName: "X" }); })).not.toThrow();
   });
+
+  // ── crate:timer (HUD countdown sync) ─────────────────────────────────────────
+
+  it("registers crate:timer event listener", () => {
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const registeredEvents = mockSocket.on.mock.calls.map((c) => c[0]);
+    expect(registeredEvents).toContain("crate:timer");
+  });
+
+  it("calls onCrateTimer with elapsed seconds when crate:timer fires", () => {
+    const onCrateTimer = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateTimer })
+    );
+    const timerCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:timer");
+    act(() => { timerCall![1]({ elapsed: 18.5 }); });
+    expect(onCrateTimer).toHaveBeenCalledWith(18.5);
+  });
+
+  it("calls onCrateTimer with elapsed=0 when periodic drop resets the countdown", () => {
+    const onCrateTimer = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateTimer })
+    );
+    const timerCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:timer");
+    // Server resets all HUD countdowns to 0 after each periodic drop
+    act(() => { timerCall![1]({ elapsed: 0 }); });
+    expect(onCrateTimer).toHaveBeenCalledWith(0);
+  });
+
+  it("does not throw when crate:timer fires without onCrateTimer callback", () => {
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer" })
+    );
+    const timerCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:timer");
+    expect(() => act(() => { timerCall![1]({ elapsed: 20 }); })).not.toThrow();
+  });
+
+  it("crate:spawn with empty playerName represents a periodic (server-scheduled) drop", () => {
+    // Periodic drops use an empty playerName so the client can show a generic
+    // notification rather than "Zásoby pro <player> padají z nebe!".
+    const onCrateSpawn = jest.fn();
+    renderHook(() =>
+      useMultiplayer({ playerName: "TestPlayer", onCrateSpawn })
+    );
+    const crateCall = mockSocket.on.mock.calls.find((c) => c[0] === "crate:spawn");
+    act(() => { crateCall![1]({ x: 30, z: 45, playerName: "" }); });
+    expect(onCrateSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({ playerName: "" })
+    );
+  });
 });

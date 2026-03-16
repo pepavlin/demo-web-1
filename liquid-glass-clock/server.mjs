@@ -50,6 +50,15 @@ const io = new Server(httpServer, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
+// ── Airdrop synchronisation ───────────────────────────────────────────────────
+// The server owns the periodic airdrop timer so every client sees the same
+// crate drop at the same time and at the same world coordinates.
+const AIRDROP_INTERVAL_MS = 40_000; // matches client AIRDROP_INTERVAL (40 s)
+const AIRDROP_DIST_MIN    = 35;      // min distance from reference player
+const AIRDROP_DIST_MAX    = 65;      // max distance from reference player
+/** Timestamp of the most-recent periodic airdrop spawn (used for timer sync). */
+let airdropLastSpawnMs = Date.now();
+
 // ── Player state ─────────────────────────────────────────────────────────────
 // Map<socketId, { id, name, x, y, z, rotY, pitch, color, hp, joinTime }>
 const players = new Map();
@@ -131,7 +140,7 @@ io.on("connection", (socket) => {
     // Broadcast new player to everyone else
     socket.broadcast.emit("player:joined", player);
 
-    // Drop a supply crate from the sky for ALL players whenever someone joins
+    // Drop a welcome supply crate for ALL players whenever someone joins.
     const crateAngle = Math.random() * Math.PI * 2;
     const crateDist  = 12 + Math.random() * 22; // 12–34 units from map centre
     io.emit("crate:spawn", {
@@ -139,7 +148,12 @@ io.on("connection", (socket) => {
       z: Math.sin(crateAngle) * crateDist,
       playerName: player.name,
     });
-    console.log(`[Airdrop] Crate triggered by ${player.name}`);
+    console.log(`[Airdrop] Welcome crate triggered by ${player.name}`);
+
+    // Sync the periodic airdrop countdown for the newly joined player so their
+    // HUD shows the correct time remaining until the next scheduled drop.
+    const elapsedS = (Date.now() - airdropLastSpawnMs) / 1000;
+    socket.emit("crate:timer", { elapsed: elapsedS });
 
     console.log(`[WS] ${player.name} joined (total: ${players.size}, host: ${hostId === socket.id ? "YES" : "no"})`);
   });
@@ -247,6 +261,30 @@ io.on("connection", (socket) => {
     }
   });
 });
+
+// ── Periodic airdrop ──────────────────────────────────────────────────────────
+// Fires every AIRDROP_INTERVAL_MS.  The server chooses the landing position
+// relative to the current host's last-known coordinates (or map centre when the
+// host position is not yet available) and broadcasts an identical `crate:spawn`
+// event to ALL connected clients so every player sees the same drop at the same
+// time.  A `crate:timer` event is then broadcast to reset every client's HUD
+// countdown to zero.
+setInterval(() => {
+  if (players.size === 0) return;
+
+  // Use the host player as the spatial reference; fall back to map centre.
+  const refPlayer = players.get(hostId) ?? players.values().next().value;
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = AIRDROP_DIST_MIN + Math.random() * (AIRDROP_DIST_MAX - AIRDROP_DIST_MIN);
+  const x     = (refPlayer?.x ?? 0) + Math.cos(angle) * dist;
+  const z     = (refPlayer?.z ?? 0) + Math.sin(angle) * dist;
+
+  io.emit("crate:spawn", { x, z, playerName: "" }); // empty = periodic, not player-join
+  io.emit("crate:timer", { elapsed: 0 });            // reset all HUD countdowns
+  airdropLastSpawnMs = Date.now();
+
+  console.log(`[Airdrop] Periodic crate at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+}, AIRDROP_INTERVAL_MS);
 
 httpServer.listen(port, hostname, () => {
   console.log(`> Ready on http://${hostname}:${port}`);
