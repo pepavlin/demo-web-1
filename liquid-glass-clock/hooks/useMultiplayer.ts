@@ -86,10 +86,20 @@ export interface UseMultiplayerOptions {
    */
   onHostChanged?: (hostId: string | null) => void;
   /**
-   * Called when the server triggers a supply-crate drop (fires for every client
-   * whenever any player joins the game).
+   * Called when the server triggers a supply-crate drop.  Fires for every
+   * connected client whenever any player joins (welcome crate) or when the
+   * server's periodic airdrop timer fires (synchronized drop).
    */
   onCrateSpawn?: (data: CrateSpawnData) => void;
+  /**
+   * Called when the server sends a timer-sync event.  `elapsed` is the number
+   * of seconds that have passed since the last periodic airdrop.  Clients
+   * should update their HUD countdown accordingly.
+   *
+   * Sent to ALL clients when a periodic airdrop fires (elapsed = 0) and only
+   * to the newly joined client when they connect (elapsed = time since last drop).
+   */
+  onCrateTimer?: (elapsed: number) => void;
 }
 
 export interface UseMultiplayerReturn {
@@ -125,6 +135,7 @@ export function useMultiplayer({
   onEntityEvent,
   onHostChanged,
   onCrateSpawn,
+  onCrateTimer,
 }: UseMultiplayerOptions): UseMultiplayerReturn {
   const socketRef = useRef<Socket | null>(null);
   const lastUpdateTimeRef = useRef(0);
@@ -143,6 +154,7 @@ export function useMultiplayer({
   const onEntityEventRef = useRef(onEntityEvent);
   const onHostChangedRef = useRef(onHostChanged);
   const onCrateSpawnRef  = useRef(onCrateSpawn);
+  const onCrateTimerRef  = useRef(onCrateTimer);
 
   // Update all callback refs in a single effect — avoids many separate render-phase effects
   useEffect(() => {
@@ -160,6 +172,7 @@ export function useMultiplayer({
     onEntityEventRef.current    = onEntityEvent;
     onHostChangedRef.current    = onHostChanged;
     onCrateSpawnRef.current     = onCrateSpawn;
+    onCrateTimerRef.current     = onCrateTimer;
   });
 
   useEffect(() => {
@@ -238,6 +251,13 @@ export function useMultiplayer({
     // ── Supply crate drop (server-broadcast on every player join) ─────────────
     socket.on("crate:spawn", (data: CrateSpawnData) => {
       onCrateSpawnRef.current?.(data);
+    });
+
+    // ── Airdrop HUD timer sync ─────────────────────────────────────────────────
+    // Server sends elapsed = 0 to all clients when a periodic drop fires, and
+    // sends the actual elapsed seconds to a newly-joining client only.
+    socket.on("crate:timer", ({ elapsed }: { elapsed: number }) => {
+      onCrateTimerRef.current?.(elapsed);
     });
 
     return () => {

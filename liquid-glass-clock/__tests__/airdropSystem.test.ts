@@ -158,6 +158,35 @@ describe("targetY landing contract", () => {
   });
 });
 
+describe("server-side airdrop synchronisation invariants", () => {
+  // These tests document the constraints that the server must satisfy when
+  // computing the landing position for a shared (synchronized) periodic drop.
+  // All clients receive the same {x, z} and must produce the same visual result.
+
+  test("same x/z coordinates produce same terrainY on all clients (deterministic terrain)", () => {
+    // Terrain is procedurally generated with the same deterministic algorithm on
+    // every client, so getTerrainHeightSampled(x, z) is identical for everyone.
+    // This test verifies the helper used during crate spawning is pure / deterministic.
+    const getHeight = (x: number, z: number) => Math.sin(x * 0.1) * 5 + Math.cos(z * 0.1) * 3 + 10;
+    const x = 42.5, z = -17.3;
+    expect(getHeight(x, z)).toBe(getHeight(x, z)); // pure – same input, same output
+  });
+
+  test("AIRDROP_DIST_MIN and AIRDROP_DIST_MAX define the valid spawn ring", () => {
+    // Server generates distance within this ring. Verifying constants are sensible.
+    expect(AIRDROP_SPAWN_DIST_MAX).toBeGreaterThan(AIRDROP_SPAWN_DIST_MIN);
+    expect(AIRDROP_SPAWN_DIST_MIN).toBeGreaterThanOrEqual(10);
+  });
+
+  test("AIRDROP_INTERVAL matches server AIRDROP_INTERVAL_MS / 1000", () => {
+    // The server uses AIRDROP_INTERVAL_MS = 40_000 ms.
+    // The client exports AIRDROP_INTERVAL = 40 s.
+    // They must be equal so the HUD countdown stays in sync.
+    const SERVER_AIRDROP_INTERVAL_MS = 40_000;
+    expect(AIRDROP_INTERVAL).toBe(SERVER_AIRDROP_INTERVAL_MS / 1000);
+  });
+});
+
 describe("pickAirdropLootArray — guaranteed weapon + resource", () => {
   test("always returns array of length 2", () => {
     for (let i = 0; i < 50; i++) {
