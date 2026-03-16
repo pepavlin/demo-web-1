@@ -557,6 +557,12 @@ export interface AirdropData {
    * Set to undefined when the crate is opened or despawned.
    */
   physicsBodyId: string | undefined;
+  /**
+   * True once a bullet has hit the parachute while the crate is falling.
+   * The parachute mesh is hidden and maxFallSpeed is removed so the crate
+   * free-falls under full gravity instead of drifting slowly.
+   */
+  parachuteShot: boolean;
 }
 
 // ─── Entity Sync ────────────────────────────────────────────────────────────

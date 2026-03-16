@@ -1419,6 +1419,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       beaconAge: 0,
       loot,
       physicsBodyId: crateBodyId,
+      parachuteShot: false,
     };
     airdropListRef.current.push(adEntry);
 
@@ -7719,6 +7720,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
         }
 
+        // ── Bullet vs falling airdrop crate parachute ─────────────────────────
+        // Hitting the parachute dome above a falling crate detaches it, causing
+        // the crate to free-fall under full gravity instead of drifting slowly.
+        if (!bulletHit) {
+          for (const ad of airdropListRef.current) {
+            if (ad.state !== 'falling' || ad.parachuteShot) continue;
+            // Parachute dome world-space centre:
+            //   crate mesh Y + parachute group offset (1.2) + rope length (3.0) + half dome height (0.6)
+            const parachuteCenterX = ad.mesh.position.x;
+            const parachuteCenterY = ad.mesh.position.y + 1.2 + 3.0 + 0.6;
+            const parachuteCenterZ = ad.mesh.position.z;
+            const pdx = bullet.mesh.position.x - parachuteCenterX;
+            const pdy = bullet.mesh.position.y - parachuteCenterY;
+            const pdz = bullet.mesh.position.z - parachuteCenterZ;
+            const parachuteDist = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz);
+            if (parachuteDist < 2.5) {
+              // Detach the parachute — hide it and remove the fall-speed cap
+              ad.parachuteShot = true;
+              ad.parachuteMesh.visible = false;
+              if (ad.physicsBodyId && physicsWorldRef.current) {
+                const body = physicsWorldRef.current.getBody(ad.physicsBodyId);
+                if (body) {
+                  body.maxFallSpeed = undefined;
+                }
+              }
+              toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
         // ── Bullet vs solid cylinder colliders (trees, walls, towers) ───────
         // Cylinders have radius pre-inflated by PLAYER_RADIUS; subtract it
         // back to get the actual object surface radius for bullet collision.
@@ -8475,18 +8508,22 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               });
             }
 
-            // Parachute settles — tilt it sideways
-            ad.parachuteMesh.rotation.z = Math.PI / 2;
-            ad.parachuteMesh.position.set(1.5, 0.3, 0);
+            // Parachute settles — tilt it sideways (skip if parachute was shot off in flight)
+            if (!ad.parachuteShot) {
+              ad.parachuteMesh.rotation.z = Math.PI / 2;
+              ad.parachuteMesh.position.set(1.5, 0.3, 0);
+            }
 
             setAirdropLandedMsg(true);
             setTimeout(() => setAirdropLandedMsg(false), 4000);
             soundManager.playCoinCollect?.();
           } else {
-            // Still falling — animate parachute sway
+            // Still falling — animate parachute sway (skip if parachute was shot off)
             ad.beaconAge += dt;
-            ad.parachuteMesh.rotation.z = Math.sin(ad.beaconAge * 0.9) * 0.07;
-            ad.parachuteMesh.rotation.x = Math.sin(ad.beaconAge * 0.6 + 1.2) * 0.05;
+            if (!ad.parachuteShot) {
+              ad.parachuteMesh.rotation.z = Math.sin(ad.beaconAge * 0.9) * 0.07;
+              ad.parachuteMesh.rotation.x = Math.sin(ad.beaconAge * 0.6 + 1.2) * 0.05;
+            }
           }
 
           // Beacon pulse during fall

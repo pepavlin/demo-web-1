@@ -647,6 +647,35 @@ describe("maxFallSpeed – parachute terminal velocity", () => {
     // The body must still have positive (upward) vy after one step
     expect(body.velocity.y).toBeGreaterThan(0);
   });
+
+  it("clearing maxFallSpeed mid-flight causes the body to free-fall (parachute shot off)", () => {
+    const SPAWN_HEIGHT = 100;
+    const MAX_SPEED = 2.5;
+
+    const world = new PhysicsWorld(flatTerrain);
+    const body = world.addBody({
+      id: "shot-chute",
+      position: { x: 0, y: SPAWN_HEIGHT, z: 0 },
+      velocity: { x: 0, y: -MAX_SPEED, z: 0 },
+      maxFallSpeed: MAX_SPEED,
+    });
+
+    // Simulate 2 s with parachute active — speed must stay clamped
+    stepWorld(world, 200, 0.01);
+    expect(body.velocity.y).toBeGreaterThanOrEqual(-MAX_SPEED - 0.01);
+
+    // "Shoot" the parachute — remove the cap
+    body.maxFallSpeed = undefined;
+
+    // Simulate another 1 s — gravity now freely accelerates the body
+    const yBefore = body.position.y;
+    stepWorld(world, 100, 0.01);
+
+    // After removing the cap the body should be falling faster than MAX_SPEED
+    expect(body.velocity.y).toBeLessThan(-MAX_SPEED);
+    // And it should have descended much more than 2.5 u/s * 1 s = 2.5 units
+    expect(yBefore - body.position.y).toBeGreaterThan(MAX_SPEED * 1.0);
+  });
 });
 
 // ─── Multiple bodies ──────────────────────────────────────────────────────────
