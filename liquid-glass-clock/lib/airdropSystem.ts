@@ -29,6 +29,28 @@ export const AIRDROP_SPAWN_DIST_MAX = 65;
 /** Maximum attempts to find a valid (above-water) landing position. */
 export const AIRDROP_SPAWN_ATTEMPTS = 12;
 
+// ─── Shooting / parachute detachment ─────────────────────────────────────────
+
+/**
+ * Bullet hit radius for the parachute dome (world units).
+ * The dome centre is offset ~4.8 units above the crate mesh origin.
+ */
+export const AIRDROP_PARACHUTE_HIT_RADIUS = 2.5;
+
+/**
+ * Bullet hit radius for the crate body itself (world units).
+ * Shooting the box directly (not just the parachute) also detaches the
+ * parachute and causes the crate to free-fall.
+ */
+export const AIRDROP_CRATE_HIT_RADIUS = 1.2;
+
+/**
+ * Downward velocity (world units / s) applied to the crate immediately when
+ * the parachute is detached by a bullet hit.  Combined with gravity (-25 u/s²)
+ * this makes the crate slam into the ground very quickly.
+ */
+export const AIRDROP_SHOT_FALL_SPEED = 35;
+
 // ─── Interaction ─────────────────────────────────────────────────────────────
 
 /** Player must be within this radius (world units) to open the crate. */

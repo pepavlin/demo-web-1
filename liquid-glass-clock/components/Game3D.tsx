@@ -112,6 +112,9 @@ import {
   AIRDROP_FALL_SPEED,
   AIRDROP_OPEN_RADIUS,
   AIRDROP_DESPAWN_TIME,
+  AIRDROP_PARACHUTE_HIT_RADIUS,
+  AIRDROP_CRATE_HIT_RADIUS,
+  AIRDROP_SHOT_FALL_SPEED,
 } from "@/lib/airdropSystem";
 import { PhysicsWorld } from "@/lib/physicsSystem";
 import {
@@ -7992,14 +7995,44 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             const pdy = bullet.mesh.position.y - parachuteCenterY;
             const pdz = bullet.mesh.position.z - parachuteCenterZ;
             const parachuteDist = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz);
-            if (parachuteDist < 2.5) {
-              // Detach the parachute — hide it and remove the fall-speed cap
+            if (parachuteDist < AIRDROP_PARACHUTE_HIT_RADIUS) {
+              // Detach the parachute — hide it, remove the fall-speed cap and
+              // apply an immediate downward velocity so the crate slams to the
+              // ground instead of waiting for gravity to build up.
               ad.parachuteShot = true;
               ad.parachuteMesh.visible = false;
               if (ad.physicsBodyId && physicsWorldRef.current) {
                 const body = physicsWorldRef.current.getBody(ad.physicsBodyId);
                 if (body) {
                   body.maxFallSpeed = undefined;
+                  body.velocity.y = -AIRDROP_SHOT_FALL_SPEED;
+                }
+              }
+              toRemove.push(bullet);
+              bulletHit = true;
+              break;
+            }
+          }
+        }
+
+        // ── Bullet vs falling airdrop crate BODY ──────────────────────────────
+        // Shooting the crate box itself (below the parachute) also detaches the
+        // parachute and causes the crate to free-fall quickly.
+        if (!bulletHit) {
+          for (const ad of airdropListRef.current) {
+            if (ad.state !== 'falling' || ad.parachuteShot) continue;
+            const cbdx = bullet.mesh.position.x - ad.mesh.position.x;
+            const cbdy = bullet.mesh.position.y - ad.mesh.position.y;
+            const cbdz = bullet.mesh.position.z - ad.mesh.position.z;
+            const crateDist = Math.sqrt(cbdx * cbdx + cbdy * cbdy + cbdz * cbdz);
+            if (crateDist < AIRDROP_CRATE_HIT_RADIUS) {
+              ad.parachuteShot = true;
+              ad.parachuteMesh.visible = false;
+              if (ad.physicsBodyId && physicsWorldRef.current) {
+                const body = physicsWorldRef.current.getBody(ad.physicsBodyId);
+                if (body) {
+                  body.maxFallSpeed = undefined;
+                  body.velocity.y = -AIRDROP_SHOT_FALL_SPEED;
                 }
               }
               toRemove.push(bullet);
@@ -8776,6 +8809,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             if (!ad.parachuteShot) {
               ad.parachuteMesh.rotation.z = Math.sin(ad.beaconAge * 0.9) * 0.07;
               ad.parachuteMesh.rotation.x = Math.sin(ad.beaconAge * 0.6 + 1.2) * 0.05;
+            } else {
+              // Crate tumbles freely after parachute is detached — spin on
+              // multiple axes to simulate an uncontrolled free-fall.
+              ad.mesh.rotation.x = ad.beaconAge * 3.2;
+              ad.mesh.rotation.z = ad.beaconAge * 2.1;
             }
           }
 

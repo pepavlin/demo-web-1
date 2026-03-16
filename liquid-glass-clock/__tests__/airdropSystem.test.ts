@@ -12,6 +12,9 @@ import {
   AIRDROP_SPAWN_DIST_MIN,
   AIRDROP_SPAWN_DIST_MAX,
   AIRDROP_SPAWN_ATTEMPTS,
+  AIRDROP_PARACHUTE_HIT_RADIUS,
+  AIRDROP_CRATE_HIT_RADIUS,
+  AIRDROP_SHOT_FALL_SPEED,
 } from "@/lib/airdropSystem";
 import type { AirdropLoot } from "@/lib/gameTypes";
 
@@ -213,5 +216,55 @@ describe("pickAirdropLootArray — guaranteed weapon + resource", () => {
     for (let i = 0; i < 50; i++) {
       expect(pickAirdropLootArray()[1].amount).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("parachute shot / fast-fall constants", () => {
+  test("AIRDROP_PARACHUTE_HIT_RADIUS is positive and reasonable (< 5 units)", () => {
+    expect(AIRDROP_PARACHUTE_HIT_RADIUS).toBeGreaterThan(0);
+    expect(AIRDROP_PARACHUTE_HIT_RADIUS).toBeLessThan(5);
+  });
+
+  test("AIRDROP_CRATE_HIT_RADIUS is positive and smaller than parachute hit radius", () => {
+    expect(AIRDROP_CRATE_HIT_RADIUS).toBeGreaterThan(0);
+    // The crate box is smaller than the parachute dome, so its hit radius should be smaller.
+    expect(AIRDROP_CRATE_HIT_RADIUS).toBeLessThan(AIRDROP_PARACHUTE_HIT_RADIUS);
+  });
+
+  test("AIRDROP_SHOT_FALL_SPEED is much greater than AIRDROP_FALL_SPEED", () => {
+    // When the parachute is shot, the crate must fall significantly faster than
+    // the normal parachute descent speed to feel impactful.
+    expect(AIRDROP_SHOT_FALL_SPEED).toBeGreaterThan(AIRDROP_FALL_SPEED * 5);
+  });
+
+  test("shot crate reaches ground faster than parachute crate (simulation)", () => {
+    // Simulate both scenarios from spawn height to ground (targetY = 2.0).
+    // Physics gravity = -25 u/s², time step = 16 ms.
+    const GRAVITY = -25;
+    const dt = 0.016;
+    const targetY = 2.0;
+
+    // Normal parachute descent (clamped to AIRDROP_FALL_SPEED)
+    let yNormal = AIRDROP_SPAWN_HEIGHT;
+    let tNormal = 0;
+    while (yNormal > targetY && tNormal < 300) {
+      yNormal -= AIRDROP_FALL_SPEED * dt;
+      tNormal += dt;
+    }
+
+    // Shot crate: starts at AIRDROP_FALL_SPEED, immediately boosted to AIRDROP_SHOT_FALL_SPEED
+    // then gravity accelerates it further.
+    let yShot = AIRDROP_SPAWN_HEIGHT;
+    let vyShot = -AIRDROP_SHOT_FALL_SPEED;
+    let tShot = 0;
+    while (yShot > targetY && tShot < 300) {
+      vyShot += GRAVITY * dt;
+      yShot += vyShot * dt;
+      tShot += dt;
+    }
+
+    expect(tShot).toBeLessThan(tNormal);
+    // Shot crate should reach ground at least 10× faster
+    expect(tNormal / tShot).toBeGreaterThan(10);
   });
 });
