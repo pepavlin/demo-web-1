@@ -408,6 +408,93 @@ export function findPositionsInSectors(
   return results;
 }
 
+/**
+ * Find coastal positions — terrain right at the shoreline, just above the
+ * safe-land threshold, with at least one adjacent grid cell below water.
+ *
+ * Useful for structures like a lighthouse that should stand at the water's edge.
+ * Uses the same sector-based selection as findPositionsInSectors so the result
+ * is spread evenly around the map (one candidate per angular sector).
+ *
+ * @param count       How many sector candidates to return.
+ * @param minDist     Minimum radial distance from world centre.
+ * @param maxDist     Maximum radial distance from world centre.
+ * @param coastalBand Maximum height above WATER_LEVEL + LAND_SPAWN_MARGIN that
+ *                    still counts as "coastal" (default 3.5 units).  Narrower
+ *                    values yield positions right at the surf line; wider values
+ *                    also include gentle beach rises.
+ */
+export function findCoastalPositions(
+  count: number,
+  minDist: number,
+  maxDist: number,
+  coastalBand = 3.5,
+): StructurePosition[] {
+  if (!heightGrid || count <= 0) return [];
+
+  const N = TERRAIN_SEGMENTS + 1;
+  const halfSize = WORLD_SIZE / 2;
+  const cellSize = WORLD_SIZE / TERRAIN_SEGMENTS;
+  const BOUNDARY_MARGIN = 8;
+  const sectorAngle = (2 * Math.PI) / count;
+  const minHeight = WATER_LEVEL + LAND_SPAWN_MARGIN;
+  const maxHeight = minHeight + coastalBand;
+
+  const buckets: Array<{ pos: StructurePosition; score: number } | null> = Array(count).fill(null);
+
+  // Step 1 to catch every shoreline cell in the grid
+  for (let j = 1; j < N - 1; j++) {
+    for (let i = 1; i < N - 1; i++) {
+      const x = -halfSize + i * cellSize;
+      const z = -halfSize + j * cellSize;
+
+      if (Math.abs(x) > halfSize - BOUNDARY_MARGIN || Math.abs(z) > halfSize - BOUNDARY_MARGIN) continue;
+
+      const dist = Math.sqrt(x * x + z * z);
+      if (dist < minDist || dist > maxDist) continue;
+
+      const h = heightGrid[j * N + i];
+      if (h < minHeight || h > maxHeight) continue;
+
+      // Must have at least one adjacent cell below water — this is a true shoreline tile
+      const hasWaterNeighbor =
+        heightGrid[(j - 1) * N + i] < WATER_LEVEL ||
+        heightGrid[(j + 1) * N + i] < WATER_LEVEL ||
+        heightGrid[j * N + (i - 1)] < WATER_LEVEL ||
+        heightGrid[j * N + (i + 1)] < WATER_LEVEL;
+      if (!hasWaterNeighbor) continue;
+
+      const angle = Math.atan2(z, x);
+      const normalizedAngle = angle < 0 ? angle + 2 * Math.PI : angle;
+      const sectorIndex = Math.min(count - 1, Math.floor(normalizedAngle / sectorAngle));
+
+      // Prefer farther-out positions at the lowest safe elevation (most "coastal")
+      const score = dist - (h - minHeight) * 2;
+
+      if (!buckets[sectorIndex] || score > buckets[sectorIndex]!.score) {
+        buckets[sectorIndex] = { pos: { x, z, y: h }, score };
+      }
+    }
+  }
+
+  // Fill empty sectors from the nearest occupied neighbour
+  const results: StructurePosition[] = [];
+  for (let i = 0; i < count; i++) {
+    if (buckets[i]) {
+      results.push(buckets[i]!.pos);
+    } else {
+      for (let offset = 1; offset < count; offset++) {
+        const adjRight = (i + offset) % count;
+        if (buckets[adjRight]) { results.push(buckets[adjRight]!.pos); break; }
+        const adjLeft = (i - offset + count) % count;
+        if (buckets[adjLeft]) { results.push(buckets[adjLeft]!.pos); break; }
+      }
+    }
+  }
+
+  return results;
+}
+
 export function generateSpawnPoints(
   count: number,
   minDist: number,
