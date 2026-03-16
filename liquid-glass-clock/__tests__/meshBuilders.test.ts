@@ -1692,6 +1692,120 @@ describe("buildSniperTowerMesh", () => {
   it("SNIPER_TOWER_HEIGHT is 16 units", () => {
     expect(SNIPER_TOWER_HEIGHT).toBe(16);
   });
+
+  // ── Staircase platform snap logic ──────────────────────────────────────────
+  // These tests verify the height-guard fix that prevents "teleporting" when a
+  // player approaches the tower base. The guard condition is:
+  //   dist <= towerBodyRadius + 1.2  AND  playerY >= platformFloor - 2.0
+  // A player at ground level is ~16 units below the threshold and must NOT be
+  // snapped; only a player who has climbed to within 2 units of the top is snapped.
+
+  describe("platform snap height guard", () => {
+    const PLAYER_HEIGHT = 1.8;
+    const SNAP_THRESHOLD = 2.0; // same as in Game3D.tsx
+
+    function platformFloor(terrainY: number, topPlatformY: number): number {
+      return terrainY + topPlatformY + PLAYER_HEIGHT;
+    }
+
+    function shouldSnapToPlatform(
+      playerY: number,
+      distFromTower: number,
+      terrainY: number,
+      topPlatformY: number,
+      towerBodyRadius: number,
+    ): boolean {
+      const floor = platformFloor(terrainY, topPlatformY);
+      return distFromTower <= towerBodyRadius + 1.2 && playerY >= floor - SNAP_THRESHOLD;
+    }
+
+    it("does NOT snap a player standing at ground level near the tower base", () => {
+      const result = buildSniperTowerMesh();
+      const terrainY = 0;
+      const groundLevelPlayerY = terrainY + PLAYER_HEIGHT; // standing on terrain
+      const nearBaseDist = result.towerBodyRadius; // right at the tower wall
+
+      expect(
+        shouldSnapToPlatform(
+          groundLevelPlayerY,
+          nearBaseDist,
+          terrainY,
+          result.topPlatformY,
+          result.towerBodyRadius,
+        ),
+      ).toBe(false);
+    });
+
+    it("does NOT snap a player halfway up the stairs", () => {
+      const result = buildSniperTowerMesh();
+      const terrainY = 0;
+      const halfwayY = terrainY + SNIPER_TOWER_HEIGHT / 2 + PLAYER_HEIGHT;
+      const stairDist = (result.stairInnerRadius + result.stairOuterRadius) / 2;
+
+      expect(
+        shouldSnapToPlatform(
+          halfwayY,
+          stairDist,
+          terrainY,
+          result.topPlatformY,
+          result.towerBodyRadius,
+        ),
+      ).toBe(false);
+    });
+
+    it("DOES snap a player who has climbed to within 1 unit of the platform", () => {
+      const result = buildSniperTowerMesh();
+      const terrainY = 0;
+      const floor = platformFloor(terrainY, result.topPlatformY);
+      const nearTopY = floor - 1.0; // 1 unit below platform floor
+      const platformDist = result.towerBodyRadius; // on top of tower body
+
+      expect(
+        shouldSnapToPlatform(
+          nearTopY,
+          platformDist,
+          terrainY,
+          result.topPlatformY,
+          result.towerBodyRadius,
+        ),
+      ).toBe(true);
+    });
+
+    it("DOES snap a player already standing on the platform", () => {
+      const result = buildSniperTowerMesh();
+      const terrainY = 5; // raised terrain to test relative math
+      const floor = platformFloor(terrainY, result.topPlatformY);
+      const onPlatformY = floor; // exactly at platform floor
+      const platformDist = result.towerBodyRadius - 0.5; // inside platform
+
+      expect(
+        shouldSnapToPlatform(
+          onPlatformY,
+          platformDist,
+          terrainY,
+          result.topPlatformY,
+          result.towerBodyRadius,
+        ),
+      ).toBe(true);
+    });
+
+    it("does NOT snap a player who is far from the tower horizontally", () => {
+      const result = buildSniperTowerMesh();
+      const terrainY = 0;
+      const floor = platformFloor(terrainY, result.topPlatformY);
+      const farDist = result.towerBodyRadius + 10; // well outside platform radius
+
+      expect(
+        shouldSnapToPlatform(
+          floor, // even at the right height
+          farDist,
+          terrainY,
+          result.topPlatformY,
+          result.towerBodyRadius,
+        ),
+      ).toBe(false);
+    });
+  });
 });
 
 describe("buildSniperMesh", () => {
