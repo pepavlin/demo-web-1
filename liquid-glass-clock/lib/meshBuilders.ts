@@ -306,7 +306,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     const isLarge = trunkH > 5.0;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a2010 });
-    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.45, trunkR, trunkH, 7);
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.45, trunkR, trunkH, 5);
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
     trunk.position.y = trunkH / 2;
     trunk.castShadow = true;
@@ -316,7 +316,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     group.rotation.z = (rng() - 0.5) * 0.07;
     group.rotation.x = (rng() - 0.5) * 0.05;
 
-    const tiers = 4 + Math.floor(rng() * 4); // 4–7 cone tiers
+    const tiers = 3 + Math.floor(rng() * 3); // 3–5 cone tiers
     const darkGreen = new THREE.Color(0x183d0a);
     const midGreen  = new THREE.Color(0x2d6e1c);
     const leafColor = new THREE.Color().lerpColors(darkGreen, midGreen, rng());
@@ -328,7 +328,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       const frac  = i / (tiers - 1);
       const r     = (1.5 - frac * 1.1) * (0.75 + rng() * 0.35);
       const h     = (1.1 - frac * 0.3) * (0.85 + rng() * 0.4);
-      const leafGeo = new THREE.ConeGeometry(r, h, 8);
+      const leafGeo = new THREE.ConeGeometry(r, h, 6);
       const leaves  = new THREE.Mesh(leafGeo, leafMat);
       leaves.position.y = coneY + h * 0.5;
       leaves.castShadow = true;
@@ -345,14 +345,14 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     const isLarge = trunkH > 3.2;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a2a10 });
-    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.65, trunkR * 1.1, trunkH, 8);
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.65, trunkR * 1.1, trunkH, 5);
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
     trunk.position.y = trunkH / 2;
     trunk.castShadow = true;
     group.add(trunk);
 
     // Root flare for a grounded look
-    const rootGeo = new THREE.CylinderGeometry(trunkR * 1.35, trunkR * 1.8, 0.35, 8);
+    const rootGeo = new THREE.CylinderGeometry(trunkR * 1.35, trunkR * 1.8, 0.35, 5);
     const root = new THREE.Mesh(rootGeo, trunkMat);
     root.position.y = 0.17;
     group.add(root);
@@ -370,7 +370,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
 
     const crownR   = 1.3 + rng() * 0.9;
     const crownCY  = trunkH + crownR * 0.35;
-    const numBlobs = 6 + Math.floor(rng() * 5); // 6–10
+    const numBlobs = 4 + Math.floor(rng() * 3); // 4–6
 
     for (let i = 0; i < numBlobs; i++) {
       const theta  = (i / numBlobs) * Math.PI * 2 + rng() * 0.6;
@@ -379,14 +379,14 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       const x      = Math.cos(theta) * dist;
       const z      = Math.sin(theta) * dist;
       const y      = crownCY + (rng() - 0.38) * crownR * 0.9;
-      const blobGeo = new THREE.SphereGeometry(blobR, 7, 6);
+      const blobGeo = new THREE.SphereGeometry(blobR, 5, 4);
       const blob    = new THREE.Mesh(blobGeo, rng() > 0.45 ? leafMat : innerMat);
       blob.position.set(x, y, z);
       blob.castShadow = true;
       foliageGroup.add(blob);
     }
     // Central top blob fills in the crown
-    const topGeo  = new THREE.SphereGeometry(crownR * 0.62, 8, 7);
+    const topGeo  = new THREE.SphereGeometry(crownR * 0.62, 5, 4);
     const topBlob = new THREE.Mesh(topGeo, leafMat);
     topBlob.position.y = crownCY + crownR * 0.08;
     topBlob.castShadow = true;
@@ -403,7 +403,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
 
     // White/cream bark
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0xe0d8c8 });
-    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.55, trunkR, trunkH, 7);
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.55, trunkR, trunkH, 5);
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
     trunk.position.y = trunkH / 2;
     trunk.castShadow = true;
@@ -413,7 +413,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     const markMat = new THREE.MeshLambertMaterial({ color: 0x201818 });
     for (let i = 0; i < 3; i++) {
       const markGeo = new THREE.CylinderGeometry(
-        trunkR * 1.06, trunkR * 1.06, 0.055, 7
+        trunkR * 1.06, trunkR * 1.06, 0.055, 5
       );
       const mark = new THREE.Mesh(markGeo, markMat);
       mark.position.y = 0.4 + i * trunkH * 0.24 + rng() * 0.3;
@@ -431,7 +431,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     });
     const crownR  = 0.85 + rng() * 0.65;
     const crownCY = trunkH + crownR * 0.15;
-    const numBlobs = 4 + Math.floor(rng() * 3); // 4–6
+    const numBlobs = 3 + Math.floor(rng() * 2); // 3–4
 
     for (let i = 0; i < numBlobs; i++) {
       const theta = (i / numBlobs) * Math.PI * 2 + rng() * 0.8;
@@ -440,7 +440,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
       const x     = Math.cos(theta) * dist;
       const z     = Math.sin(theta) * dist;
       const y     = crownCY + (rng() - 0.4) * crownR * 0.55;
-      const blobGeo = new THREE.SphereGeometry(blobR, 7, 6);
+      const blobGeo = new THREE.SphereGeometry(blobR, 5, 4);
       const blob    = new THREE.Mesh(blobGeo, leafMat);
       blob.position.set(x, y, z);
       blob.castShadow = true;
@@ -456,7 +456,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     const isLargeDead = trunkH > 4.5;
 
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x252015 });
-    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.4, trunkR, trunkH, 6);
+    const trunkGeo = new THREE.CylinderGeometry(trunkR * 0.4, trunkR, trunkH, 5);
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
     trunk.position.y = trunkH / 2;
     trunk.castShadow = true;
@@ -467,7 +467,7 @@ export function buildTreeMesh(rng: () => number): TreeMeshResult {
     for (let i = 0; i < branchCount; i++) {
       const brH   = 1.0 + rng() * 1.6;
       const brR   = trunkR * 0.28;
-      const brGeo = new THREE.CylinderGeometry(brR * 0.38, brR, brH, 5);
+      const brGeo = new THREE.CylinderGeometry(brR * 0.38, brR, brH, 4);
       const branch = new THREE.Mesh(brGeo, trunkMat);
       const angle  = rng() * Math.PI * 2;
       const tilt   = 0.85 + rng() * 0.5;
