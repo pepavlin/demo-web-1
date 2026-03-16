@@ -35,13 +35,13 @@ import { getTerrainHeight, WORLD_SIZE, modifyTerrainHeight } from "./terrainUtil
 
 // ─── Public constants ──────────────────────────────────────────────────────────
 
-/** World-space size of one voxel (each voxel = 2×2×2 world units). */
-export const VOXEL_SIZE = 2.0;
+/** World-space size of one voxel (each voxel = 4×4×4 world units — 2× coarser for a low-poly look). */
+export const VOXEL_SIZE = 4.0;
 
 /** Number of voxels per chunk side. Chunk covers CHUNK_SIZE×VOXEL_SIZE world units. */
 export const CHUNK_SIZE = 16;
 
-/** World-space extent of one chunk (32 world units). */
+/** World-space extent of one chunk (64 world units). */
 export const CHUNK_WORLD = CHUNK_SIZE * VOXEL_SIZE;
 
 /**

@@ -625,7 +625,9 @@ describe("getTerrainSurfaceYAfterDigs", () => {
     const wz = 10;
     const surfY = getTerrainHeight(wx, wz);
 
-    digVoxelSphere(wx, surfY, wz, 3);
+    // Use radius >= VOXEL_SIZE so the dig always covers the surface query point
+    // regardless of voxel grid alignment.
+    digVoxelSphere(wx, surfY, wz, VOXEL_SIZE * 2);
     expect(getTerrainSurfaceYAfterDigs(wx, wz)).not.toBeNull(); // dig exists
 
     resetDensityOverrides();
