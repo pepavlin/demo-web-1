@@ -10,6 +10,12 @@
  * Sync patterns:
  * - NPC entities (sheep, foxes): host-authoritative, periodic batch updates at configurable Hz.
  * - Discrete events (entity death, state change): emitted immediately as entity events.
+ *
+ * Interpolation:
+ * - Entities that define `interpolate` get smooth per-frame interpolation instead of
+ *   hard teleport snapping. The latest received state is stored as a "target" and the
+ *   `interpolate(target, dt)` callback is called each frame by `smoothStep()`.
+ * - Entities without `interpolate` fall back to the legacy `apply()` direct assignment.
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -57,13 +63,31 @@ export interface SyncOptions {
   serialize: () => EntityState;
 
   /**
-   * Apply a received state snapshot to the entity.
-   * Only called on non-host clients.
+   * Apply a received state snapshot directly to the entity (hard snap).
+   * Called on non-host clients when NO `interpolate` function is provided.
+   * When `interpolate` is provided, `apply` is NOT called on normal batch
+   * updates — only `interpolate` is called each frame via `smoothStep()`.
    *
    * @example
    * apply: (s) => { mesh.position.x = s.x; mesh.position.z = s.z; }
    */
   apply: (state: EntityState) => void;
+
+  /**
+   * Optional smooth per-frame interpolation towards the latest received state.
+   * When defined, `applyBatch()` stores the incoming state as a target instead
+   * of calling `apply()` directly. Each call to `smoothStep(dt)` then invokes
+   * this function so the entity can lerp toward the target at its own rate.
+   *
+   * Use exponential smoothing for frame-rate-independent results:
+   * ```
+   * const alpha = 1 - Math.exp(-speed * dt);
+   * mesh.position.x += (target.x - mesh.position.x) * alpha;
+   * ```
+   *
+   * Only called on non-host clients (host always owns the authoritative state).
+   */
+  interpolate?: (target: EntityState, dt: number) => void;
 }
 
 /** Internal registration record. */
@@ -84,16 +108,24 @@ interface SyncRegistration {
  * ```typescript
  * const manager = new EntitySyncManager();
  *
- * // Register a sheep (syncEnabled can be toggled at any time via re-register)
+ * // Register a sheep with smooth interpolation
  * manager.register(`sheep_${id}`, {
  *   syncEnabled: true,
- *   syncRate: 10,
- *   serialize: () => ({ x: sheep.mesh.position.x, z: sheep.mesh.position.z, angle: sheep.currentAngle }),
- *   apply: (s) => { sheep.mesh.position.x = s.x; sheep.mesh.position.z = s.z; sheep.currentAngle = s.angle; },
+ *   syncRate: 20,
+ *   serialize: () => ({ x: sheep.mesh.position.x, z: sheep.mesh.position.z }),
+ *   apply: (s) => { sheep.mesh.position.x = s.x; sheep.mesh.position.z = s.z; },
+ *   interpolate: (s, dt) => {
+ *     const a = 1 - Math.exp(-15 * dt);
+ *     sheep.mesh.position.x += (s.x - sheep.mesh.position.x) * a;
+ *     sheep.mesh.position.z += (s.z - sheep.mesh.position.z) * a;
+ *   },
  * });
  *
  * // Each frame (host only) — collect and send pending batch
  * manager.collectAndSend((batch) => sendEntityBatch(batch), performance.now());
+ *
+ * // Each frame (non-host only) — advance interpolation
+ * manager.smoothStep(dt);
  *
  * // On receiving a batch (non-host)
  * manager.applyBatch(batch);
@@ -106,6 +138,12 @@ export class EntitySyncManager {
   private registry = new Map<string, SyncRegistration>();
   private isHost = false;
   private eventHandlers = new Map<string, Array<(id: string, payload?: Record<string, number | string>) => void>>();
+
+  /**
+   * Latest received entity states used as interpolation targets.
+   * Only populated for entities that define `interpolate`.
+   */
+  private interpolationTargets = new Map<string, EntityState>();
 
   // ── Host management ────────────────────────────────────────────────────────
 
@@ -120,6 +158,8 @@ export class EntitySyncManager {
     if (isHost && !wasHost) {
       // Reset all timers to -Infinity so host sends immediately on first tick
       this.registry.forEach((reg) => { reg.lastSentMs = -Infinity; });
+      // Clear interpolation targets — host owns state, never interpolates
+      this.interpolationTargets.clear();
     }
   }
 
@@ -153,6 +193,7 @@ export class EntitySyncManager {
    */
   unregister(id: string): void {
     this.registry.delete(id);
+    this.interpolationTargets.delete(id);
   }
 
   /** Returns the number of currently registered entities. */
@@ -204,6 +245,11 @@ export class EntitySyncManager {
   /**
    * Apply a received state batch to all known entities.
    * Called on non-host clients when an `entity:batch` socket event arrives.
+   *
+   * - Entities with `interpolate` defined: stores the state as a target.
+   *   The actual visual update is done per-frame by `smoothStep()`.
+   * - Entities without `interpolate`: calls `apply()` directly (hard snap).
+   *
    * Unknown ids (entity not registered on this client) are silently ignored.
    */
   applyBatch(batch: EntityBatch): void {
@@ -213,11 +259,39 @@ export class EntitySyncManager {
       const reg = this.registry.get(id);
       if (!reg || !reg.options.syncEnabled) continue;
       try {
-        reg.options.apply(batch[id]);
+        if (reg.options.interpolate) {
+          // Store as target — smoothStep() will lerp toward it each frame
+          this.interpolationTargets.set(id, batch[id]);
+        } else {
+          reg.options.apply(batch[id]);
+        }
       } catch {
         // Apply errors are silent
       }
     }
+  }
+
+  /**
+   * Advance smooth interpolation for all registered entities that have an
+   * `interpolate` function and a pending target state.
+   *
+   * Call this once per animation frame on non-host clients, passing the
+   * frame delta time in seconds.
+   *
+   * @param dt - Frame delta time in seconds (e.g. from Three.js clock).
+   */
+  smoothStep(dt: number): void {
+    if (this.isHost) return; // Host owns the state — never interpolates
+
+    this.interpolationTargets.forEach((target, id) => {
+      const reg = this.registry.get(id);
+      if (!reg?.options.interpolate || !reg.options.syncEnabled) return;
+      try {
+        reg.options.interpolate(target, dt);
+      } catch {
+        // Interpolation errors are silent
+      }
+    });
   }
 
   // ── Discrete entity events ─────────────────────────────────────────────────
@@ -271,6 +345,7 @@ export class EntitySyncManager {
   clear(): void {
     this.registry.clear();
     this.eventHandlers.clear();
+    this.interpolationTargets.clear();
     this.isHost = false;
   }
 
@@ -289,15 +364,19 @@ export class EntitySyncManager {
     isHost: boolean;
     entityCount: number;
     syncEnabledCount: number;
+    interpolatingCount: number;
   } {
     let syncEnabled = 0;
+    let interpolating = 0;
     this.registry.forEach((reg) => {
       if (reg.options.syncEnabled) syncEnabled++;
+      if (reg.options.syncEnabled && reg.options.interpolate) interpolating++;
     });
     return {
       isHost: this.isHost,
       entityCount: this.registry.size,
       syncEnabledCount: syncEnabled,
+      interpolatingCount: interpolating,
     };
   }
 }

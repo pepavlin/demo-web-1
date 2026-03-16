@@ -4027,9 +4027,29 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
     sheepListRef.current.forEach((sheep, idx) => {
       const id = `sheep_${idx}`;
+      // Helper shared by both apply() and interpolate() to sync non-positional state
+      const applySheepState = (s: Record<string, number>) => {
+        sheep.currentAngle = s.a;
+        sheep.isFleeing    = s.f > 0.5;
+        sheep.isGrazing    = s.g > 0.5;
+        // Burning visual sync: start/stop burn effect based on host state
+        if (s.b > 0.5 && !sheep.isBurning) {
+          sheep.isBurning = true;
+          sheep.burnTimer = s.bt;
+        } else if (s.b < 0.5 && sheep.isBurning) {
+          sheep.isBurning = false;
+          sheep.burnTimer = 0;
+          if (sheep.burnEffect) {
+            sheep.mesh.remove(sheep.burnEffect);
+            sheep.burnEffect = null;
+          }
+        } else if (sheep.isBurning) {
+          sheep.burnTimer = s.bt;
+        }
+      };
       mgr.register(id, {
         syncEnabled: true,
-        syncRate: 10, // 10 Hz is sufficient for NPC movement
+        syncRate: 20, // 20 Hz for responsive NPC movement
         serialize: () => ({
           x:  sheep.mesh.position.x,
           z:  sheep.mesh.position.z,
@@ -4039,26 +4059,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           b:  sheep.isBurning  ? 1 : 0,
           bt: sheep.burnTimer,
         }),
+        // apply() is called only when no interpolate — keep for single-player fallback
         apply: (s) => {
           sheep.mesh.position.x = s.x;
           sheep.mesh.position.z = s.z;
-          sheep.currentAngle    = s.a;
-          sheep.isFleeing       = s.f > 0.5;
-          sheep.isGrazing       = s.g > 0.5;
-          // Burning visual sync: start/stop burn effect based on host state
-          if (s.b > 0.5 && !sheep.isBurning) {
-            sheep.isBurning  = true;
-            sheep.burnTimer  = s.bt;
-          } else if (s.b < 0.5 && sheep.isBurning) {
-            sheep.isBurning  = false;
-            sheep.burnTimer  = 0;
-            if (sheep.burnEffect) {
-              sheep.mesh.remove(sheep.burnEffect);
-              sheep.burnEffect = null;
-            }
-          } else if (sheep.isBurning) {
-            sheep.burnTimer = s.bt;
-          }
+          applySheepState(s);
+        },
+        // Smooth per-frame interpolation for position; state flags snap immediately
+        interpolate: (s, dt) => {
+          const alpha = 1 - Math.exp(-15 * dt);
+          sheep.mesh.position.x += (s.x - sheep.mesh.position.x) * alpha;
+          sheep.mesh.position.z += (s.z - sheep.mesh.position.z) * alpha;
+          applySheepState(s);
         },
       });
     });
@@ -4067,7 +4079,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const id = `fox_${idx}`;
       mgr.register(id, {
         syncEnabled: true,
-        syncRate: 10,
+        syncRate: 20, // 20 Hz for responsive NPC movement
         serialize: () => ({
           x:  fox.mesh.position.x,
           z:  fox.mesh.position.z,
@@ -4077,6 +4089,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           fox.mesh.position.x = s.x;
           fox.mesh.position.z = s.z;
           fox.mesh.rotation.y = s.ry;
+        },
+        // Smooth position and rotation interpolation for foxes
+        interpolate: (s, dt) => {
+          const alpha = 1 - Math.exp(-15 * dt);
+          fox.mesh.position.x += (s.x - fox.mesh.position.x) * alpha;
+          fox.mesh.position.z += (s.z - fox.mesh.position.z) * alpha;
+          // Wrap-aware rotation interpolation to avoid spinning through 180°
+          let dRy = s.ry - fox.mesh.rotation.y;
+          while (dRy >  Math.PI) dRy -= 2 * Math.PI;
+          while (dRy < -Math.PI) dRy += 2 * Math.PI;
+          fox.mesh.rotation.y += dRy * alpha;
         },
       });
     });
@@ -4561,18 +4584,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const rd = rocketDataRef.current;
       entitySyncManagerRef.current.register('rocket', {
         syncEnabled: true,
-        syncRate: 5,
+        // 20 Hz gives smooth movement — rocket flight spans many seconds so fine granularity matters
+        syncRate: 20,
+        // Host serialises launchProgress only; position is derived deterministically from it
+        // so we avoid fighting between host-physics and non-host position writes.
         serialize: () => ({
-          x:  rd.mesh.position.x,
-          y:  rd.mesh.position.y,
-          z:  rd.mesh.position.z,
           lp: rd.launchProgress,
         }),
+        // apply() used only when no interpolate (not currently used, kept for safety)
         apply: (s) => {
-          rd.mesh.position.x = s.x;
-          rd.mesh.position.y = s.y;
-          rd.mesh.position.z = s.z;
-          rd.launchProgress  = s.lp;
+          rd.launchProgress = s.lp;
+        },
+        // Non-host smoothly interpolates launchProgress toward host value.
+        // Position is then recomputed from launchProgress in the animation loop
+        // using the same deterministic formula as the host, so visuals stay in sync.
+        interpolate: (s, dt) => {
+          const alpha = 1 - Math.exp(-8 * dt);
+          rd.launchProgress += (s.lp - rd.launchProgress) * alpha;
         },
       });
 
@@ -7026,10 +7054,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           }
 
           if (rd.state === 'launching') {
-            rd.launchProgress += dt / ROCKET_FLIGHT_DURATION;
-            rd.launchProgress = Math.min(rd.launchProgress, 1);
+            // Only the host advances launchProgress — non-hosts receive it via entity
+            // sync interpolation to avoid double-advancing (rubber-band effect).
+            if (isHostRef.current) {
+              rd.launchProgress += dt / ROCKET_FLIGHT_DURATION;
+              rd.launchProgress = Math.min(rd.launchProgress, 1);
+            }
 
-            // Ease-in-out curve for smooth acceleration then deceleration
+            // Ease-in-out curve for smooth acceleration then deceleration.
+            // Both host and non-host derive position from launchProgress so the
+            // formula is deterministic and clients stay visually in sync.
             const t = rd.launchProgress;
             const eased = t < 0.5
               ? 2 * t * t
@@ -9948,6 +9982,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // to each entity's configured Hz rate.  Non-hosts skip this block entirely.
       if (isHostRef.current && sendEntityBatchRef.current) {
         entitySyncManagerRef.current.collectAndSend(sendEntityBatchRef.current, now);
+      }
+
+      // ── Entity sync: advance smooth interpolation (non-host only) ──────────
+      // Lerps registered entities (sheep, foxes, rocket) toward their latest
+      // received network states each frame, eliminating position-snap stuttering.
+      if (!isHostRef.current) {
+        entitySyncManagerRef.current.smoothStep(dt);
       }
 
       renderer.render(scene, cameraRef.current!);
