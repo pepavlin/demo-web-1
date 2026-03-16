@@ -6353,10 +6353,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
                 if (stairGroundY > groundY) groundY = stairGroundY;
               }
 
-              // Top platform floor: if player is directly above tower top, keep on platform
+              // Top platform floor: keep player on platform when they are already at the top.
+              // The height guard (cam.position.y >= platformFloor - 2.0) prevents teleporting:
+              // a player approaching from ground level (~terrainY + PLAYER_HEIGHT) is ~16 units
+              // below the threshold and is NOT snapped up. Only someone who has actually climbed
+              // the stairs (and is within 2 units below the platform) gets placed on the floor.
               const distFromTower = Math.sqrt(tdx * tdx + tdz * tdz);
-              if (distFromTower <= towerData.towerBodyRadius + 1.2) {
-                const platformFloor = sniperTowerTerrainYRef.current + towerData.topPlatformY + PLAYER_HEIGHT;
+              const platformFloor = sniperTowerTerrainYRef.current + towerData.topPlatformY + PLAYER_HEIGHT;
+              if (distFromTower <= towerData.towerBodyRadius + 1.2 && cam.position.y >= platformFloor - 2.0) {
                 if (platformFloor > groundY) groundY = platformFloor;
               }
             }
