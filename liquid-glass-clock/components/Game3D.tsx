@@ -100,13 +100,12 @@ import {
   getWalkableSurfaceY,
   testOBBXZ,
 } from "@/lib/collisionSystem";
-import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData, AirdropData } from "@/lib/gameTypes";
+import type { SheepData, FoxData, CoinData, BulletData, CatapultData, CannonballData, ImpactEffect, GameState, WeaponType, BloodParticle, RocketData, AirplaneData, WorldItem, PlacedWorldItemData, WorldItemType, SpiderData, TreasureChestData, CaveTorchData, BombProjectileData, TreeData, AirdropData, AirdropLoot } from "@/lib/gameTypes";
+import InventoryModal from "@/components/InventoryModal";
 import type { CrateSpawnData } from "@/hooks/useMultiplayer";
 import {
   pickRandomLoot,
   pickAirdropLootArray,
-  formatLootMessage,
-  lootEmoji,
   AIRDROP_INTERVAL,
   AIRDROP_SPAWN_HEIGHT,
   AIRDROP_FALL_SPEED,
@@ -134,6 +133,7 @@ import {
   BUNKER_INTERIOR_WORLD_X,
   BUNKER_INTERIOR_WORLD_Y,
   BUNKER_INTERIOR_WORLD_Z,
+  BUNKER_CHEST_OPEN_RADIUS,
   buildBunkerExteriorMesh,
   buildBunkerInteriorScene,
   checkBunkerProximity,
@@ -933,6 +933,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const currentBunkerRef = useRef<BunkerConfig | null>(null);
   const bunkerWelcomeTimerRef = useRef(0);
 
+  // ─── Bunker Chest Refs ────────────────────────────────────────────────────────
+  /** Data for chests placed in the shared bunker interior. */
+  const bunkerChestDataRef = useRef<Array<{
+    isOpened: boolean;
+    loot: AirdropLoot[];
+    lidGroup: THREE.Group;
+    localX: number;
+    localZ: number;
+  }>>([]);
+  /** Bunker ID that was last entered — used to reset chests on new bunker visit. */
+  const lastBunkerIdRef = useRef<string | null>(null);
+  /** Index of nearest openable bunker chest (-1 = none). */
+  const nearBunkerChestIdxRef = useRef(-1);
+
+  // ─── Inventory Modal Refs ─────────────────────────────────────────────────────
+  /** True while inventory modal is open — blocks game input. */
+  const inventoryOpenRef = useRef(false);
+  /** Callback executed when player clicks "Vzít vše" — applies the loot. */
+  const inventoryLootCallbackRef = useRef<(() => void) | null>(null);
+
+  // ─── Airdrop Interaction Refs ─────────────────────────────────────────────────
+  /** Index of the landed airdrop crate the player is close enough to open (-1 = none). */
+  const nearAirdropCrateIdxRef = useRef(-1);
+
+  // ─── Cave Chest Interaction Refs ──────────────────────────────────────────────
+  /** True when player is within CHEST_OPEN_RADIUS of the cave chest. */
+  const nearCaveChestRef = useRef(false);
+
   // ─── Scene Group Refs (for two-scene separation) ──────────────────────────────
   // Earth scene group contains all world objects; toggled invisible when in station.
   // This eliminates rendering ~300+ Earth objects while inside the space station.
@@ -1033,10 +1061,23 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [attackEffect, setAttackEffect] = useState<string | null>(null);
   const [nearFoxHp, setNearFoxHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
   const [nearSpiderHp, setNearSpiderHp] = useState<{ hp: number; maxHp: number; name: string } | null>(null);
-  const [chestOpenedMsg, setChestOpenedMsg] = useState(false);
+  // chestOpenedMsg removed — replaced by InventoryModal
+
+  // ─── Inventory Modal State ────────────────────────────────────────────────────
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [inventoryTitle, setInventoryTitle] = useState("");
+  const [inventoryIcon, setInventoryIcon] = useState("📦");
+  const [inventoryItems, setInventoryItems] = useState<AirdropLoot[]>([]);
+  /** Show [E] prompt near cave chest. */
+  const [nearCaveChestPrompt, setNearCaveChestPrompt] = useState(false);
+  /** Show [E] prompt near bunker chest. */
+  const [nearBunkerChestPrompt, setNearBunkerChestPrompt] = useState(false);
+  /** Show [E] open prompt for airdrop (replaces auto-collect). */
+  const [airdropOpenPrompt, setAirdropOpenPrompt] = useState(false);
+
   const [airdropIncoming, setAirdropIncoming] = useState(false);
   const [airdropLandedMsg, setAirdropLandedMsg] = useState(false);
-  const [airdropOpenedMsg, setAirdropOpenedMsg] = useState<string | null>(null);
+  // airdropOpenedMsg removed — replaced by InventoryModal
   /** Seconds elapsed toward next airdrop — updated in game loop at ~2 Hz for HUD. */
   const [airdropCountdown, setAirdropCountdown] = useState(0);
   /** Current airdrop phase for HUD rendering (null = none active). */
@@ -1479,6 +1520,25 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
    */
   const handleCrateTimer = useCallback((elapsed: number) => {
     airdropTimerRef.current = elapsed;
+  }, []);
+
+  // ─── Inventory Modal Handlers ─────────────────────────────────────────────────
+
+  /** Player clicked "Vzít vše" — apply the pending loot callback then close. */
+  const handleInventoryTakeAll = useCallback(() => {
+    inventoryLootCallbackRef.current?.();
+    inventoryLootCallbackRef.current = null;
+    inventoryOpenRef.current = false;
+    setInventoryOpen(false);
+    setInventoryItems([]);
+  }, []);
+
+  /** Player closed inventory without taking — just close. */
+  const handleInventoryClose = useCallback(() => {
+    inventoryLootCallbackRef.current = null;
+    inventoryOpenRef.current = false;
+    setInventoryOpen(false);
+    setInventoryItems([]);
   }, []);
 
   /** Handle host reassignment — update isHost and notify sync manager. */
@@ -4567,6 +4627,26 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       bunkerLightsRef.current = bunkerResult.lights;
       bunkerAnimMeshesRef.current = bunkerResult.animatedMeshes;
       bunkerExitLocalPosRef.current.copy(bunkerResult.exitLocalPos);
+
+      // ── Build treasure chests for the bunker interior ────────────────────────
+      bunkerChestDataRef.current = bunkerResult.chestLocalPositions.map((cp) => {
+        const { group: chestGroup, lidGroup } = buildTreasureChestMesh();
+        chestGroup.position.set(cp.localX, 0, cp.localZ);
+        chestGroup.rotation.y = cp.rotY;
+        // Small point light above each chest
+        const chestLight = new THREE.PointLight(0xd4a017, 0.8, 5, 2);
+        chestLight.position.set(cp.localX, 1.8, cp.localZ);
+        bunkerResult.group.add(chestLight);
+        bunkerResult.group.add(chestGroup);
+        return {
+          isOpened: false,
+          loot: [],           // generated fresh on first opening
+          lidGroup,
+          localX: cp.localX,
+          localZ: cp.localZ,
+        };
+      });
+
       // Hidden by default — only visible when player is inside a bunker
       bunkerResult.group.visible = false;
     }
@@ -4781,6 +4861,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // E key: board/exit boat, board rocket, enter/exit space station, OR possess/unpossess nearby sheep
       if (e.type === "keydown" && e.code === "KeyE") {
+        // ── If inventory modal is open, E = Take All ─────────────────────────
+        if (inventoryOpenRef.current) {
+          handleInventoryTakeAll();
+          return;
+        }
+
         // ── Enter space station (when rocket has arrived at mothership) ───────
         if (rocketArrivedRef.current && !inSpaceStationRef.current && cameraRef.current) {
           inSpaceStationRef.current = true;
@@ -4903,6 +4989,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           setInBunker(true);
           currentBunkerRef.current = bc;
           setCurrentBunkerName(bc.name);
+
+          // ── Reset chests for this bunker if it's a new/different bunker ────
+          if (lastBunkerIdRef.current !== bc.id) {
+            lastBunkerIdRef.current = bc.id;
+            bunkerChestDataRef.current.forEach((chestData) => {
+              chestData.isOpened = false;
+              chestData.loot = [];
+              // Close the lid
+              chestData.lidGroup.rotation.x = 0;
+            });
+          }
           bunkerWelcomeTimerRef.current = 4;
           setBunkerWelcome(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
@@ -4923,6 +5020,98 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           scene.fog = null;
           scene.background = new THREE.Color(0x080808);
           return;
+        }
+
+        // ── Open bunker chest inventory ───────────────────────────────────────
+        if (inBunkerRef.current && nearBunkerChestIdxRef.current >= 0 && !inventoryOpenRef.current) {
+          const chestIdx = nearBunkerChestIdxRef.current;
+          const chestData = bunkerChestDataRef.current[chestIdx];
+          if (chestData && !chestData.isOpened) {
+            // Generate loot on first open
+            if (chestData.loot.length === 0) {
+              chestData.loot = pickAirdropLootArray();
+            }
+            // Open lid visually
+            chestData.lidGroup.rotation.x = -Math.PI * 0.75;
+            soundManager.playCoinCollect?.();
+            // Show inventory modal
+            inventoryOpenRef.current = true;
+            setInventoryOpen(true);
+            setInventoryTitle("Truhla v bunkru");
+            setInventoryIcon("🧰");
+            setInventoryItems([...chestData.loot]);
+            inventoryLootCallbackRef.current = () => {
+              chestData.isOpened = true;
+              for (const loot of chestData.loot) {
+                if (loot.type === 'coins') coinsCollectedRef.current += loot.amount;
+                else if (loot.type === 'wood') woodCollectedRef.current += loot.amount;
+                else if (loot.type === 'health') playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
+                else if (loot.type === 'weapon' && loot.weaponType) addWeaponToActiveSlot(loot.weaponType);
+              }
+            };
+            document.exitPointerLock();
+            return;
+          }
+        }
+
+        // ── Open airdrop crate inventory ──────────────────────────────────────
+        if (nearAirdropCrateIdxRef.current >= 0 && !inventoryOpenRef.current) {
+          const crateIdx = nearAirdropCrateIdxRef.current;
+          const crate = airdropListRef.current[crateIdx];
+          if (crate && crate.state === 'landed') {
+            soundManager.playCoinCollect?.();
+            // Show inventory modal
+            inventoryOpenRef.current = true;
+            setInventoryOpen(true);
+            setInventoryTitle("Zásobovací bedna");
+            setInventoryIcon("📦");
+            setInventoryItems([...crate.loot]);
+            inventoryLootCallbackRef.current = () => {
+              // Apply loot and remove crate
+              crate.state = 'opened';
+              scene.remove(crate.mesh);
+              scene.remove(crate.beaconMesh);
+              if (crate.physicsBodyId && physicsWorldRef.current) {
+                physicsWorldRef.current.removeBody(crate.physicsBodyId);
+                crate.physicsBodyId = undefined;
+              }
+              for (const loot of crate.loot) {
+                if (loot.type === 'coins') coinsCollectedRef.current += loot.amount;
+                else if (loot.type === 'wood') woodCollectedRef.current += loot.amount;
+                else if (loot.type === 'health') playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
+                else if (loot.type === 'weapon' && loot.weaponType) addWeaponToActiveSlot(loot.weaponType);
+              }
+              airdropListRef.current = airdropListRef.current.filter((_, i) => i !== crateIdx);
+              nearAirdropCrateIdxRef.current = -1;
+            };
+            document.exitPointerLock();
+            return;
+          }
+        }
+
+        // ── Open cave chest inventory ─────────────────────────────────────────
+        if (nearCaveChestRef.current && !inventoryOpenRef.current) {
+          const chest = treasureChestRef.current;
+          if (chest && !chest.isOpened) {
+            chest.isOpened = true;
+            chest.lidGroup.rotation.x = -Math.PI * 0.75;
+            soundManager.playCoinCollect?.();
+            const caveLoot: AirdropLoot[] = [
+              { type: 'coins', amount: CHEST_REWARD_COINS, label: 'Zlaté mince' },
+              { type: 'health', amount: 25, label: 'Lék' },
+            ];
+            inventoryOpenRef.current = true;
+            setInventoryOpen(true);
+            setInventoryTitle("Tajná truhla");
+            setInventoryIcon("💎");
+            setInventoryItems(caveLoot);
+            inventoryLootCallbackRef.current = () => {
+              coinsCollectedRef.current += CHEST_REWARD_COINS;
+              playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + 25);
+            };
+            document.exitPointerLock();
+            return;
+          }
         }
 
         if (onAirplaneRef.current) {
@@ -5158,6 +5347,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         e.preventDefault();
         document.exitPointerLock();
         setChatOpen(true);
+      }
+
+      // Escape — close inventory if open (inventory was opened by exitPointerLock so ESC fires)
+      if (e.type === "keydown" && e.code === "Escape" && inventoryOpenRef.current) {
+        handleInventoryClose();
       }
 
       // Keys 1/2/3 — select weapon slot; Q — cycle through slots
@@ -6125,6 +6319,24 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         const localX = cam.position.x - BWOX;
         const localZ = cam.position.z - BWOZ;
         setBunkerExitPrompt(isNearBunkerExit(localX, localZ));
+
+        // ── Bunker chest proximity ────────────────────────────────────────────
+        {
+          let nearestChestIdx = -1;
+          let nearestChestDist = BUNKER_CHEST_OPEN_RADIUS;
+          bunkerChestDataRef.current.forEach((bc, bci) => {
+            if (bc.isOpened) return;
+            const dx = localX - bc.localX;
+            const dz = localZ - bc.localZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < nearestChestDist) {
+              nearestChestDist = dist;
+              nearestChestIdx = bci;
+            }
+          });
+          nearBunkerChestIdxRef.current = nearestChestIdx;
+          setNearBunkerChestPrompt(nearestChestIdx >= 0);
+        }
 
         // Animate bunker lights (flicker effect)
         bunkerLightsRef.current.forEach(({ light, baseIntensity, phase }) => {
@@ -8436,22 +8648,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       // ── Chest interaction ────────────────────────────────────────────────────
       const chest = treasureChestRef.current;
+      let _nearCaveChest = false;
       if (chest && !chest.isOpened) {
         const chestDist = Math.sqrt(
           (playerPos.x - chest.x) ** 2 + (playerPos.z - chest.z) ** 2
         );
         if (chestDist < CHEST_OPEN_RADIUS) {
-          // Auto-open when player gets close
-          chest.isOpened = true;
-          // Animate lid open
-          chest.lidGroup.rotation.x = -Math.PI * 0.75;
-          // Reward the player
-          coinsCollectedRef.current += chest.rewardCoins;
-          setChestOpenedMsg(true);
-          setTimeout(() => setChestOpenedMsg(false), 3000);
-          soundManager.playCoinCollect?.();
+          _nearCaveChest = true;
         }
       }
+      nearCaveChestRef.current = _nearCaveChest;
+      setNearCaveChestPrompt(_nearCaveChest);
 
       // ── Airdrop System ──────────────────────────────────────────────────────
       // The periodic airdrop is now managed server-side so all players receive
@@ -8468,6 +8675,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       // Update all active airdrop crates
       let anyNearAirdrop = false;
       const airdropsToRemove: number[] = [];
+      nearAirdropCrateIdxRef.current = -1; // reset each frame — set below if still near
 
       airdropListRef.current.forEach((ad, idx) => {
         if (ad.state === 'falling') {
@@ -8549,39 +8757,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           if (distToCrate < AIRDROP_OPEN_RADIUS * 2) anyNearAirdrop = true;
 
+          // Track which crate is closest and within opening radius for E-key interaction
           if (distToCrate < AIRDROP_OPEN_RADIUS) {
-            // Open the crate
-            ad.state = 'opened';
-            scene.remove(ad.mesh);
-            scene.remove(ad.beaconMesh);
-            // Remove physics body — crate is gone
-            if (ad.physicsBodyId && physicsWorldRef.current) {
-              physicsWorldRef.current.removeBody(ad.physicsBodyId);
-              ad.physicsBodyId = undefined;
-            }
+            nearAirdropCrateIdxRef.current = idx;
+          }
 
-            // Apply all loot effects to player (weapon + resource bonus)
-            const lootMessages: string[] = [];
-            for (const loot of ad.loot) {
-              if (loot.type === 'coins') {
-                coinsCollectedRef.current += loot.amount;
-              } else if (loot.type === 'wood') {
-                woodCollectedRef.current += loot.amount;
-              } else if (loot.type === 'health') {
-                playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + loot.amount);
-              } else if (loot.type === 'weapon' && loot.weaponType) {
-                addWeaponToActiveSlot(loot.weaponType);
-              }
-              lootMessages.push(`${lootEmoji(loot)} ${formatLootMessage(loot)}`);
-            }
-            const lootMsg = lootMessages.join('\n');
-            setAirdropOpenedMsg(lootMsg);
-            setTimeout(() => setAirdropOpenedMsg(null), 4500);
-            soundManager.playCoinCollect?.();
-
-            airdropsToRemove.push(idx);
-
-          } else if (ad.despawnTimer >= AIRDROP_DESPAWN_TIME) {
+          if (ad.despawnTimer >= AIRDROP_DESPAWN_TIME) {
             // Auto-despawn after timeout
             scene.remove(ad.mesh);
             scene.remove(ad.beaconMesh);
@@ -8598,6 +8779,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         airdropListRef.current = airdropListRef.current.filter((_, i) => !airdropsToRemove.includes(i));
       }
       setNearAirdropPrompt(anyNearAirdrop);
+      setAirdropOpenPrompt(nearAirdropCrateIdxRef.current >= 0);
 
       // Update spiders defeated in HUD
       if (spidersDefeatedRef.current > 0) {
@@ -11065,7 +11247,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       )}
 
       {/* ═══════════════ BOTTOM — Airdrop crate proximity prompt ═══════════════ */}
-      {nearAirdropPrompt && gameState.isLocked && (
+      {nearAirdropPrompt && !airdropOpenPrompt && gameState.isLocked && (
         <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
           <div
             className="rounded-xl text-white font-bold text-sm animate-pulse"
@@ -11078,6 +11260,60 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             📦 Přijdi blíž a otevři zásobovací bednu
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Airdrop open [E] prompt ═══════════════ */}
+      {airdropOpenPrompt && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(80,35,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(255,160,60,0.70)",
+              boxShadow: "0 0 26px rgba(255,120,30,0.55)",
+            }}
+          >
+            📦 <span style={{ color: "#fed7aa" }}>[E] Otevřít zásobovací bednu</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Cave chest open [E] prompt ═══════════════ */}
+      {nearCaveChestPrompt && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(20,10,0,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(212,160,20,0.70)",
+              boxShadow: "0 0 26px rgba(212,160,20,0.45)",
+            }}
+          >
+            💎 <span style={{ color: "#fcd34d" }}>[E] Otevřít tajnou truhlu</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Bunker chest open [E] prompt ═══════════════ */}
+      {nearBunkerChestPrompt && inBunker && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(5,20,5,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(80,200,80,0.70)",
+              boxShadow: "0 0 26px rgba(60,180,60,0.45)",
+            }}
+          >
+            🧰 <span style={{ color: "#bbf7d0" }}>[E] Otevřít truhlu v bunkru</span>
           </div>
         </div>
       )}
@@ -11156,50 +11392,6 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             <div style={{ fontSize: 28, marginBottom: 6 }}>📦</div>
             <div style={{ color: "#bbf7d0" }}>Bedna přistála!</div>
             <div style={{ color: "#86efac", fontSize: 13, marginTop: 6 }}>Přijď si pro zásoby</div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER — Airdrop opened message ═══════════════ */}
-      {airdropOpenedMsg && gameState.isLocked && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
-          <div
-            className="rounded-2xl text-white font-bold text-center"
-            style={{
-              padding: "22px 36px",
-              background: "rgba(8,30,8,0.93)",
-              backdropFilter: "blur(16px)",
-              border: "1px solid rgba(80,200,80,0.60)",
-              boxShadow: "0 0 40px rgba(60,200,60,0.45)",
-              fontSize: 18,
-            }}
-          >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-            <div style={{ color: "#bbf7d0" }}>Bedna otevřena!</div>
-            <div style={{ color: "#86efac", fontSize: 15, marginTop: 10 }}>{airdropOpenedMsg}</div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════ CENTER — Chest opened message ═══════════════ */}
-      {chestOpenedMsg && gameState.isLocked && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none select-none" style={{ zIndex: 70 }}>
-          <div
-            className="rounded-2xl text-white font-bold text-center"
-            style={{
-              padding: "22px 36px",
-              background: "rgba(20,12,4,0.92)",
-              backdropFilter: "blur(16px)",
-              border: "1px solid rgba(212,160,20,0.60)",
-              boxShadow: "0 0 40px rgba(212,160,20,0.45)",
-              fontSize: 18,
-            }}
-          >
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-            <div style={{ color: "#fcd34d" }}>Truhla otevřena!</div>
-            <div style={{ color: "#86efac", fontSize: 14, marginTop: 8 }}>
-              +{CHEST_REWARD_COINS} zlatých mincí
-            </div>
           </div>
         </div>
       )}
@@ -12005,6 +12197,16 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           visible={true}
         />
       )}
+
+      {/* ═══════════════ INVENTORY MODAL ═══════════════ */}
+      <InventoryModal
+        open={inventoryOpen}
+        title={inventoryTitle}
+        containerIcon={inventoryIcon}
+        items={inventoryItems}
+        onTakeAll={handleInventoryTakeAll}
+        onClose={handleInventoryClose}
+      />
     </div>
   );
 }

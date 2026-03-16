@@ -31,6 +31,7 @@ import {
   BUNKER_CONFIGS,
   BUNKER_ENTRY_RADIUS,
   BUNKER_EXIT_RADIUS,
+  BUNKER_CHEST_OPEN_RADIUS,
   BUNKER_INTERIOR_WORLD_Y,
   BUNKER_INTERIOR_WORLD_X,
   BUNKER_INTERIOR_WORLD_Z,
@@ -114,12 +115,13 @@ describe("buildBunkerInteriorScene", () => {
     result = buildBunkerInteriorScene();
   });
 
-  it("returns a group, rooms, lights, animatedMeshes, and exitLocalPos", () => {
+  it("returns a group, rooms, lights, animatedMeshes, exitLocalPos, and chestLocalPositions", () => {
     expect(result.group).toBeInstanceOf(THREE.Group);
     expect(Array.isArray(result.rooms)).toBe(true);
     expect(Array.isArray(result.lights)).toBe(true);
     expect(Array.isArray(result.animatedMeshes)).toBe(true);
     expect(result.exitLocalPos).toBeInstanceOf(THREE.Vector3);
+    expect(Array.isArray(result.chestLocalPositions)).toBe(true);
   });
 
   it("has exactly 5 walkable rooms (3 container bodies + 2 doorway passages)", () => {
@@ -348,5 +350,50 @@ describe("Bunker system constants", () => {
   it("BUNKER_EXIT_RADIUS is positive and reasonable", () => {
     expect(BUNKER_EXIT_RADIUS).toBeGreaterThan(0);
     expect(BUNKER_EXIT_RADIUS).toBeLessThanOrEqual(10);
+  });
+
+  it("BUNKER_CHEST_OPEN_RADIUS is positive and smaller than BUNKER_EXIT_RADIUS", () => {
+    expect(BUNKER_CHEST_OPEN_RADIUS).toBeGreaterThan(0);
+    expect(BUNKER_CHEST_OPEN_RADIUS).toBeLessThan(BUNKER_EXIT_RADIUS + 2);
+  });
+});
+
+// ── Chest positions ─────────────────────────────────────────────────────────
+describe("Bunker interior chest positions", () => {
+  let result: ReturnType<typeof buildBunkerInteriorScene>;
+
+  beforeEach(() => {
+    result = buildBunkerInteriorScene();
+  });
+
+  it("returns exactly 2 chest positions", () => {
+    expect(result.chestLocalPositions).toHaveLength(2);
+  });
+
+  it("all chest positions have numeric localX, localZ, and rotY", () => {
+    result.chestLocalPositions.forEach((cp) => {
+      expect(typeof cp.localX).toBe("number");
+      expect(typeof cp.localZ).toBe("number");
+      expect(typeof cp.rotY).toBe("number");
+    });
+  });
+
+  it("chest 1 is in container 1 (Z = 0..12) — entry area", () => {
+    const chest1 = result.chestLocalPositions[0];
+    expect(chest1.localZ).toBeGreaterThanOrEqual(0);
+    expect(chest1.localZ).toBeLessThanOrEqual(12);
+  });
+
+  it("chest 2 is in container 2 (Z = 12..24) — lab area", () => {
+    const chest2 = result.chestLocalPositions[1];
+    expect(chest2.localZ).toBeGreaterThan(12);
+    expect(chest2.localZ).toBeLessThanOrEqual(24);
+  });
+
+  it("chest positions are inside the walkable room X bounds (−2.5 to +2.5 minus wall)", () => {
+    const halfW = 2.5 - 0.18; // CONTAINER_W/2 − WALL_T
+    result.chestLocalPositions.forEach((cp) => {
+      expect(Math.abs(cp.localX)).toBeLessThanOrEqual(halfW + 0.1);
+    });
   });
 });
