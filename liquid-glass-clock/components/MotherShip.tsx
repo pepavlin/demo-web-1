@@ -339,6 +339,238 @@ function createPortholeLights(scene: THREE.Scene): { meshes: THREE.Mesh[]; light
   return { meshes, lights };
 }
 
+// ── Room illumination levels (exported for tests) ────────────────────────────
+export const ROOM_ILLUMINATION = {
+  bridge:       { color: 0x99ccff, intensity: 50 }, // brightest – command center
+  medicalBay:   { color: 0xddfff5, intensity: 32 }, // bright – clinical white-teal
+  crewQuarters: { color: 0xffdd88, intensity: 18 }, // medium – warm yellow
+  engineRoom:   { color: 0xff4422, intensity: 14 }, // dim – engine heat
+  cargoBay:     { color: 0xffaa33, intensity: 8  }, // dimmest – sparse amber
+} as const;
+
+/**
+ * Five interior rooms attached to the ship hull.
+ *
+ * Illumination hierarchy (intensity):
+ *   Bridge (50) > Medical Bay (32) > Crew Quarters (18) > Engine Room (14) > Cargo Bay (8)
+ *
+ * Each room consists of:
+ *  - An outer hull box with the ship's standard material
+ *  - A translucent inner glow shell showing the lit interior
+ *  - Porthole windows (small glowing spheres) on the faces
+ *  - A structural trim torus around the module
+ *  - One PointLight casting the room's characteristic colour
+ *  - Room-specific detail geometry (spire, cross, nozzles, doors, etc.)
+ */
+export function createShipRooms(): {
+  meshes: THREE.Mesh[];
+  lights: THREE.PointLight[];
+  roomNames: string[];
+} {
+  const meshes: THREE.Mesh[] = [];
+  const lights: THREE.PointLight[] = [];
+  const roomNames: string[] = [];
+
+  // ── Helper: build a box room module ────────────────────────────────────────
+  function addRoom(
+    name: string,
+    pos: THREE.Vector3,
+    size: [number, number, number],
+    wallColor: number,
+    lightColor: number,
+    intensity: number,
+    lightDist: number,
+    windows: Array<{ offset: THREE.Vector3 }>
+  ) {
+    const [w, h, d] = size;
+
+    // Outer hull box
+    const hullGeo = new THREE.BoxGeometry(w, h, d);
+    const hullMesh = new THREE.Mesh(hullGeo, hullMat(wallColor, 0.88, 0.55));
+    hullMesh.position.copy(pos);
+    meshes.push(hullMesh);
+
+    // Slightly smaller inner glow shell (visible lit interior through seams)
+    const innerGeo = new THREE.BoxGeometry(w * 0.92, h * 0.92, d * 0.92);
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: lightColor,
+      transparent: true,
+      opacity: 0.06 + (intensity / 50) * 0.12,
+    });
+    const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+    innerMesh.position.copy(pos);
+    meshes.push(innerMesh);
+
+    // Porthole windows on requested face offsets
+    windows.forEach(({ offset }) => {
+      const winPos = pos.clone().add(offset);
+      const winGeo = new THREE.SphereGeometry(0.65, 7, 7);
+      const winMat = new THREE.MeshBasicMaterial({ color: lightColor });
+      const winMesh = new THREE.Mesh(winGeo, winMat);
+      winMesh.position.copy(winPos);
+      meshes.push(winMesh);
+    });
+
+    // Structural trim collar around the module
+    const trimR = Math.max(w, d) * 0.52;
+    const trimGeo = new THREE.TorusGeometry(trimR, 0.8, 5, 24);
+    const trimMesh = new THREE.Mesh(trimGeo, hullMat(wallColor - 0x080808, 0.92, 0.5));
+    trimMesh.rotation.x = Math.PI / 2;
+    trimMesh.position.set(pos.x, pos.y - h * 0.1, pos.z);
+    meshes.push(trimMesh);
+
+    // Interior point light
+    const light = new THREE.PointLight(lightColor, intensity, lightDist, 2);
+    light.position.copy(pos);
+    lights.push(light);
+
+    roomNames.push(name);
+  }
+
+  // ── 1. BRIDGE – top of central hub cone, BRIGHTEST (intensity 50) ─────────
+  addRoom(
+    "bridge",
+    new THREE.Vector3(0, 48, 0),
+    [16, 9, 14],
+    0x2a2e38,
+    ROOM_ILLUMINATION.bridge.color,
+    ROOM_ILLUMINATION.bridge.intensity,
+    75,
+    [
+      { offset: new THREE.Vector3(-6, 1, 0) },
+      { offset: new THREE.Vector3( 6, 1, 0) },
+      { offset: new THREE.Vector3( 0, 1, -6) },
+      { offset: new THREE.Vector3( 0, 1,  6) },
+      { offset: new THREE.Vector3(-3, 1, -5) },
+      { offset: new THREE.Vector3( 3, 1, -5) },
+    ]
+  );
+  // Navigation spire on top of bridge
+  const spireGeo = new THREE.ConeGeometry(2.5, 8, 8);
+  const spireMesh = new THREE.Mesh(spireGeo, hullMat(0x252830, 0.85, 0.6));
+  spireMesh.position.set(0, 56, 0);
+  meshes.push(spireMesh);
+
+  // ── 2. MEDICAL BAY – along arm 0 (0°, x-positive), BRIGHT (intensity 32) ──
+  addRoom(
+    "medicalBay",
+    new THREE.Vector3(60, 4, 0),
+    [18, 10, 13],
+    0x1e2428,
+    ROOM_ILLUMINATION.medicalBay.color,
+    ROOM_ILLUMINATION.medicalBay.intensity,
+    60,
+    [
+      { offset: new THREE.Vector3( 0, 3, -5) },
+      { offset: new THREE.Vector3( 0, 3,  5) },
+      { offset: new THREE.Vector3( 7, 3,  0) },
+      { offset: new THREE.Vector3(-7, 3,  0) },
+      { offset: new THREE.Vector3( 5, 3, -4) },
+    ]
+  );
+  // Red-cross marker on medical bay exterior (two flat boxes)
+  const crossH = new THREE.Mesh(
+    new THREE.BoxGeometry(5, 0.5, 1.2),
+    new THREE.MeshBasicMaterial({ color: 0xff2222 })
+  );
+  crossH.position.set(60, 9.5, -6.2);
+  meshes.push(crossH);
+  const crossV = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 0.5, 5),
+    new THREE.MeshBasicMaterial({ color: 0xff2222 })
+  );
+  crossV.position.set(60, 9.5, -6.2);
+  meshes.push(crossV);
+
+  // ── 3. CREW QUARTERS – arm 5 (257°), MEDIUM warm (intensity 18) ───────────
+  const crewAngle = (257 * Math.PI) / 180;
+  const crewDist  = 54;
+  const crewX     = Math.cos(crewAngle) * crewDist;
+  const crewZ     = Math.sin(crewAngle) * crewDist;
+  addRoom(
+    "crewQuarters",
+    new THREE.Vector3(crewX, 3, crewZ),
+    [22, 8, 12],
+    0x201e1c,
+    ROOM_ILLUMINATION.crewQuarters.color,
+    ROOM_ILLUMINATION.crewQuarters.intensity,
+    55,
+    [
+      { offset: new THREE.Vector3(  0, 2, -5) },
+      { offset: new THREE.Vector3(  0, 2,  5) },
+      { offset: new THREE.Vector3( -8, 2, -4) },
+      { offset: new THREE.Vector3( -8, 2,  4) },
+      { offset: new THREE.Vector3(  8, 2, -4) },
+      { offset: new THREE.Vector3(  8, 2,  4) },
+    ]
+  );
+  // Bunk divider detail on crew quarters
+  const bunkGeo  = new THREE.BoxGeometry(1.2, 6, 0.5);
+  const bunkMesh = new THREE.Mesh(bunkGeo, hullMat(0x1c1a18, 0.9, 0.5));
+  bunkMesh.position.set(crewX + 9, 3, crewZ);
+  meshes.push(bunkMesh);
+
+  // ── 4. ENGINE ROOM – below central hub, DIM red-orange (intensity 14) ──────
+  addRoom(
+    "engineRoom",
+    new THREE.Vector3(4, -38, 6),
+    [20, 14, 18],
+    0x1a1614,
+    ROOM_ILLUMINATION.engineRoom.color,
+    ROOM_ILLUMINATION.engineRoom.intensity,
+    55,
+    [
+      { offset: new THREE.Vector3(-8, 0,  0) },
+      { offset: new THREE.Vector3( 8, 0,  0) },
+      { offset: new THREE.Vector3( 0, 0, -7) },
+    ]
+  );
+  // Three exhaust nozzles below the engine room
+  for (let n = 0; n < 3; n++) {
+    const nx = (n - 1) * 6;
+    const nozzleGeo = new THREE.CylinderGeometry(1.5, 2.2, 6, 7);
+    const nozzle    = new THREE.Mesh(nozzleGeo, hullMat(0x181412, 0.95, 0.6));
+    nozzle.position.set(4 + nx, -48, 6);
+    meshes.push(nozzle);
+    // Heat glow at nozzle tip
+    const glowGeo  = new THREE.SphereGeometry(1.8, 6, 6);
+    const glowMat  = new THREE.MeshBasicMaterial({ color: 0xff6622, transparent: true, opacity: 0.7 });
+    const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+    glowMesh.position.set(4 + nx, -51, 6);
+    meshes.push(glowMesh);
+  }
+
+  // ── 5. CARGO BAY – arm 3 (155°), DIMMEST (intensity 8) ───────────────────
+  const cargoAngle = (155 * Math.PI) / 180;
+  const cargoDist  = 62;
+  const cargoX     = Math.cos(cargoAngle) * cargoDist;
+  const cargoZ     = Math.sin(cargoAngle) * cargoDist;
+  addRoom(
+    "cargoBay",
+    new THREE.Vector3(cargoX, -14, cargoZ),
+    [24, 16, 20],
+    0x181614,
+    ROOM_ILLUMINATION.cargoBay.color,
+    ROOM_ILLUMINATION.cargoBay.intensity,
+    45,
+    [
+      { offset: new THREE.Vector3(  0, 4, -8) },
+      { offset: new THREE.Vector3(  0, 4,  8) },
+      { offset: new THREE.Vector3(-10, 0,  0) },
+    ]
+  );
+  // Cargo bay access doors (two panels on underside)
+  const doorGeo = new THREE.BoxGeometry(10, 0.8, 18);
+  const doorMat = hullMat(0x161412, 0.92, 0.55);
+  [-5.5, 5.5].forEach((dx) => {
+    const door = new THREE.Mesh(doorGeo, doorMat);
+    door.position.set(cargoX + dx, -22.5, cargoZ);
+    meshes.push(door);
+  });
+
+  return { meshes, lights, roomNames };
+}
+
 /** Central reactor glow – blue-white light from the hub underside */
 function createReactorGlow(): { mesh: THREE.Mesh; light: THREE.PointLight } {
   // Glowing core sphere
@@ -510,6 +742,11 @@ export default function MotherShip() {
     shipGroup.add(reactorMesh);
     shipGroup.add(reactorLight);
 
+    // ── Five interior rooms (varying illumination) ─────────────────────────
+    const { meshes: roomMeshes, lights: roomLights } = createShipRooms();
+    roomMeshes.forEach((m) => shipGroup.add(m));
+    roomLights.forEach((l) => shipGroup.add(l));
+
     scene.add(shipGroup);
 
     // ── Particle fields (in world space, not moving with ship) ────────────
@@ -604,6 +841,15 @@ export default function MotherShip() {
       }
       const reactorBreath = 0.8 + Math.sin(t * 0.4) * 0.2;
       reactorLight.intensity = ((reactorLight as { _base?: number })._base ?? reactorLight.intensity) * reactorBreath;
+
+      // Room lights: slow independent breathing per room
+      roomLights.forEach((l, i) => {
+        if (!(l as { _base?: number })._base) {
+          (l as { _base?: number })._base = l.intensity;
+        }
+        const breath = 0.92 + Math.sin(t * (0.25 + i * 0.15) + i * 2.1) * 0.08;
+        l.intensity = ((l as { _base?: number })._base ?? l.intensity) * breath;
+      });
 
       renderer.render(scene, camera);
 
