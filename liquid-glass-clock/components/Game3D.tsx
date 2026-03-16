@@ -4909,7 +4909,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const cam = cameraRef.current;
           const localX = cam.position.x - SPACE_STATION_WORLD_X;
           const localZ = cam.position.z - SPACE_STATION_WORLD_Z;
-          const nearAirlock = Math.abs(localX) <= 5.5 && Math.abs(localZ) <= 5.5;
+          // Airlock is now X:-8..8, Z:-8..8 — use 7.5 threshold (slightly inset)
+          const nearAirlock = Math.abs(localX) <= 7.5 && Math.abs(localZ) <= 7.5;
           if (nearAirlock) {
             inSpaceStationRef.current = false;
             setInSpaceStation(false);
@@ -6161,7 +6162,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         // Airlock proximity check for exit prompt
         const localX = cam.position.x - SPACE_STATION_WORLD_X;
         const localZ = cam.position.z - SPACE_STATION_WORLD_Z;
-        const isNearAirlock = Math.abs(localX) <= 5.5 && Math.abs(localZ) <= 5.5;
+        // Airlock is now X:-8..8, Z:-8..8 — use 7.5 threshold (slightly inset)
+        const isNearAirlock = Math.abs(localX) <= 7.5 && Math.abs(localZ) <= 7.5;
         setNearAirlockExit(isNearAirlock);
 
         // Animate station lights (flicker)
