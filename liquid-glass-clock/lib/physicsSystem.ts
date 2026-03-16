@@ -197,7 +197,7 @@ export class PhysicsBody {
   readonly restitution: number;
   readonly friction: number;
   readonly linearDamping: number;
-  readonly maxFallSpeed: number | undefined;
+  maxFallSpeed: number | undefined;
 
   isOnGround: boolean = false;
   isSleeping: boolean = false;
