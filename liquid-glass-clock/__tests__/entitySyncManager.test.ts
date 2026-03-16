@@ -6,9 +6,10 @@
  * - Host / non-host state management
  * - Batch collection and sending (host path)
  * - Batch application (non-host path)
+ * - Smooth interpolation via interpolate + smoothStep
  * - Discrete event dispatch
  * - Rate limiting
- * - Edge cases (empty batch, unknown ids, errors in serialize/apply)
+ * - Edge cases (empty batch, unknown ids, errors in serialize/apply/interpolate)
  */
 
 import { EntitySyncManager } from "../lib/entitySyncManager";
@@ -72,6 +73,22 @@ describe("EntitySyncManager", () => {
       expect(ids).toContain("b");
       expect(ids).toHaveLength(2);
     });
+
+    it("unregister also clears the interpolation target for that entity", () => {
+      let pos = 0;
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({ x: pos }),
+        apply: (s) => { pos = s.x; },
+        interpolate: (s, dt) => { pos += (s.x - pos) * dt; },
+      });
+      mgr.applyBatch({ sheep_0: { x: 100 } });
+      mgr.unregister("sheep_0");
+      // smoothStep should not crash and should not update pos
+      const before = pos;
+      mgr.smoothStep(0.016);
+      expect(pos).toBe(before);
+    });
   });
 
   // ── Host management ───────────────────────────────────────────────────────────
@@ -99,6 +116,23 @@ describe("EntitySyncManager", () => {
       const batches: Record<string, Record<string, number>>[] = [];
       mgr.collectAndSend((b) => batches.push(b), 1);
       expect(batches).toHaveLength(1);
+    });
+
+    it("clears interpolation targets when becoming host", () => {
+      let pos = 0;
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({ x: pos }),
+        apply: (s) => { pos = s.x; },
+        interpolate: (s, dt) => { pos += (s.x - pos) * (15 * dt); },
+      });
+      // Receive a target as non-host
+      mgr.applyBatch({ sheep_0: { x: 50 } });
+      // Become host — targets should be cleared
+      mgr.setIsHost(true);
+      // smoothStep should not run (host) — pos should stay 0
+      mgr.smoothStep(0.016);
+      expect(pos).toBe(0);
     });
   });
 
@@ -214,7 +248,7 @@ describe("EntitySyncManager", () => {
   // ── Batch application (non-host path) ────────────────────────────────────────
 
   describe("applyBatch (non-host)", () => {
-    it("applies received state to registered entity", () => {
+    it("applies received state to registered entity (no interpolate)", () => {
       let appliedState: Record<string, number> | null = null;
       mgr.register("fox_0", {
         syncEnabled: true,
@@ -224,6 +258,24 @@ describe("EntitySyncManager", () => {
 
       mgr.applyBatch({ fox_0: { x: 10, z: 20, ry: 1.5 } });
       expect(appliedState).toEqual({ x: 10, z: 20, ry: 1.5 });
+    });
+
+    it("stores state as interpolation target (not calling apply) when interpolate defined", () => {
+      let applyCalled = false;
+      let interpolateCalled = false;
+
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => { applyCalled = true; },
+        interpolate: (_s, _dt) => { interpolateCalled = true; },
+      });
+
+      mgr.applyBatch({ sheep_0: { x: 5, z: 10 } });
+      // apply should NOT be called when interpolate is defined
+      expect(applyCalled).toBe(false);
+      // interpolate is not called yet — smoothStep() triggers it
+      expect(interpolateCalled).toBe(false);
     });
 
     it("ignores unknown entity ids in batch", () => {
@@ -265,6 +317,160 @@ describe("EntitySyncManager", () => {
       });
 
       expect(() => mgr.applyBatch({ bad: { x: 1 } })).not.toThrow();
+    });
+  });
+
+  // ── Smooth interpolation (smoothStep) ────────────────────────────────────────
+
+  describe("smoothStep (non-host interpolation)", () => {
+    it("calls interpolate with target state and dt after applyBatch", () => {
+      const interpolate = jest.fn();
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+
+      const target = { x: 5, z: 10 };
+      mgr.applyBatch({ sheep_0: target });
+      mgr.smoothStep(0.016);
+
+      expect(interpolate).toHaveBeenCalledTimes(1);
+      expect(interpolate).toHaveBeenCalledWith(target, 0.016);
+    });
+
+    it("moves value toward target over multiple frames (exponential lerp)", () => {
+      let pos = 0;
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({ x: pos }),
+        apply: (s) => { pos = s.x; },
+        interpolate: (s, dt) => {
+          const alpha = 1 - Math.exp(-15 * dt);
+          pos += (s.x - pos) * alpha;
+        },
+      });
+
+      mgr.applyBatch({ sheep_0: { x: 100 } });
+
+      // After 10 frames at 16ms each, position should be much closer to 100
+      for (let i = 0; i < 10; i++) {
+        mgr.smoothStep(0.016);
+      }
+
+      expect(pos).toBeGreaterThan(80);
+      expect(pos).toBeLessThan(100);
+    });
+
+    it("does not call interpolate when client is the host", () => {
+      mgr.setIsHost(true);
+      const interpolate = jest.fn();
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+
+      // Host cannot receive batches (applyBatch is a no-op for host)
+      // but smoothStep should also be a no-op
+      mgr.smoothStep(0.016);
+      expect(interpolate).not.toHaveBeenCalled();
+    });
+
+    it("does not call interpolate for entities with syncEnabled=false", () => {
+      const interpolate = jest.fn();
+      mgr.register("sheep_0", {
+        syncEnabled: false,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+
+      // Force a target manually to test the syncEnabled guard in smoothStep
+      // (normally applyBatch would not store it because syncEnabled=false,
+      // but we test via a re-register trick)
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+      mgr.applyBatch({ sheep_0: { x: 1 } });
+      // Now disable sync
+      mgr.register("sheep_0", {
+        syncEnabled: false,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+      mgr.smoothStep(0.016);
+      expect(interpolate).not.toHaveBeenCalled();
+    });
+
+    it("silently handles errors thrown in interpolate", () => {
+      mgr.register("bad", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: () => { throw new Error("interpolate failed"); },
+      });
+
+      mgr.applyBatch({ bad: { x: 1 } });
+      expect(() => mgr.smoothStep(0.016)).not.toThrow();
+    });
+
+    it("smoothStep is no-op when no targets are stored", () => {
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: jest.fn(),
+      });
+      // Don't call applyBatch — no targets stored
+      const interpolate = mgr["registry"].get("sheep_0")!.options.interpolate as jest.Mock;
+      mgr.smoothStep(0.016);
+      expect(interpolate).not.toHaveBeenCalled();
+    });
+
+    it("interpolation target persists across multiple smoothStep calls", () => {
+      const calls: number[] = [];
+      let pos = 0;
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: (s) => { calls.push(s.x); pos = s.x; },
+      });
+
+      mgr.applyBatch({ sheep_0: { x: 42 } });
+      mgr.smoothStep(0.016);
+      mgr.smoothStep(0.016);
+      mgr.smoothStep(0.016);
+
+      // interpolate called each frame with the same target until updated
+      expect(calls).toHaveLength(3);
+      expect(calls.every(v => v === 42)).toBe(true);
+    });
+
+    it("updates target when a new batch arrives", () => {
+      const receivedTargets: number[] = [];
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: (s) => { receivedTargets.push(s.x); },
+      });
+
+      mgr.applyBatch({ sheep_0: { x: 10 } });
+      mgr.smoothStep(0.016);
+
+      mgr.applyBatch({ sheep_0: { x: 20 } });
+      mgr.smoothStep(0.016);
+
+      expect(receivedTargets[0]).toBe(10);
+      expect(receivedTargets[1]).toBe(20);
     });
   });
 
@@ -367,6 +573,21 @@ describe("EntitySyncManager", () => {
       mgr.clear();
       expect(mgr.getIsHost()).toBe(false);
     });
+
+    it("clears interpolation targets on clear()", () => {
+      const interpolate = jest.fn();
+      mgr.register("sheep_0", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate,
+      });
+      mgr.applyBatch({ sheep_0: { x: 10 } });
+      mgr.clear();
+      // After clear, smoothStep should not call interpolate (no targets, no registrations)
+      mgr.smoothStep(0.016);
+      expect(interpolate).not.toHaveBeenCalled();
+    });
   });
 
   describe("debugInfo", () => {
@@ -381,6 +602,29 @@ describe("EntitySyncManager", () => {
     it("reflects current host state", () => {
       mgr.setIsHost(true);
       expect(mgr.debugInfo().isHost).toBe(true);
+    });
+
+    it("counts interpolating entities correctly", () => {
+      mgr.register("a", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: () => {},
+      });
+      mgr.register("b", {
+        syncEnabled: true,
+        serialize: () => ({}),
+        apply: () => {},
+        // no interpolate
+      });
+      mgr.register("c", {
+        syncEnabled: false,
+        serialize: () => ({}),
+        apply: () => {},
+        interpolate: () => {}, // disabled — should not count
+      });
+      const info = mgr.debugInfo();
+      expect(info.interpolatingCount).toBe(1); // only "a": syncEnabled=true + has interpolate
     });
   });
 });
