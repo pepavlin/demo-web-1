@@ -1535,6 +1535,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     inventoryOpenRef.current = false;
     setInventoryOpen(false);
     setInventoryItems([]);
+    // Re-lock pointer so game resumes without needing to click "Pokračovat"
+    setTimeout(() => mountRef.current?.requestPointerLock(), 50);
   }, []);
 
   /** Player closed inventory without taking — just close. */
@@ -1543,6 +1545,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     inventoryOpenRef.current = false;
     setInventoryOpen(false);
     setInventoryItems([]);
+    // Re-lock pointer so game resumes without needing to click "Pokračovat"
+    setTimeout(() => mountRef.current?.requestPointerLock(), 50);
   }, []);
 
   /** Handle host reassignment — update isHost and notify sync manager. */
@@ -11791,7 +11795,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
       {/* Pause overlay — shown when game started but pointer is unlocked (and not chatting).
           On mobile we never use pointer lock, so the pause overlay is suppressed. */}
-      {!IS_MOBILE && gameStarted && !gameState.isLocked && !showIntro && !chatOpen && (
+      {!IS_MOBILE && gameStarted && !gameState.isLocked && !showIntro && !chatOpen && !inventoryOpen && (
         <div
           className="fixed inset-0 flex items-center justify-center"
           style={{
