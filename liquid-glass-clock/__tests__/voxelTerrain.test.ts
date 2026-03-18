@@ -233,6 +233,64 @@ describe("generateChunkGeometry", () => {
     }
   });
 
+  it("vertex normals are unit vectors (length ≈ 1)", () => {
+    let geo = null;
+    for (let oy = -32; oy <= 32 && geo === null; oy += CHUNK_WORLD) {
+      geo = generateChunkGeometry(0, oy, 0);
+    }
+    if (geo) {
+      const normals = geo.attributes.normal;
+      // Check a sample of normals — each must be a unit vector
+      const step = Math.max(1, Math.floor(normals.count / 30));
+      for (let i = 0; i < normals.count; i += step) {
+        const nx = normals.getX(i);
+        const ny = normals.getY(i);
+        const nz = normals.getZ(i);
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        expect(len).toBeCloseTo(1.0, 4);
+      }
+    }
+  });
+
+  it("terrain surface normals have positive Y component (pointing outward/upward)", () => {
+    // Surface normals on the terrain top face should mostly point upward (ny > 0)
+    let geo = null;
+    for (let oy = -32; oy <= 32 && geo === null; oy += CHUNK_WORLD) {
+      geo = generateChunkGeometry(0, oy, 0);
+    }
+    if (geo) {
+      const normals = geo.attributes.normal;
+      let positiveYCount = 0;
+      const sample = Math.min(normals.count, 60);
+      const step = Math.max(1, Math.floor(normals.count / sample));
+      for (let i = 0; i < normals.count; i += step) {
+        if (normals.getY(i) > 0) positiveYCount++;
+      }
+      // Majority of surface normals should point upward
+      expect(positiveYCount / (normals.count / step)).toBeGreaterThan(0.5);
+    }
+  });
+
+  it("vertex normals are not all identical (smooth, not flat-shaded)", () => {
+    let geo = null;
+    for (let oy = -32; oy <= 32 && geo === null; oy += CHUNK_WORLD) {
+      geo = generateChunkGeometry(0, oy, 0);
+    }
+    if (geo && geo.attributes.normal.count >= 6) {
+      const n = geo.attributes.normal;
+      // At least two distinct normals must exist for a smooth surface
+      const n0x = n.getX(0), n0y = n.getY(0), n0z = n.getZ(0);
+      let foundDifferent = false;
+      for (let i = 1; i < Math.min(n.count, 30); i++) {
+        const dx = Math.abs(n.getX(i) - n0x);
+        const dy = Math.abs(n.getY(i) - n0y);
+        const dz = Math.abs(n.getZ(i) - n0z);
+        if (dx + dy + dz > 0.001) { foundDifferent = true; break; }
+      }
+      expect(foundDifferent).toBe(true);
+    }
+  });
+
   it("vertex positions fall within the expected chunk bounds (with margin)", () => {
     let geo = null;
     let usedOX = 0, usedOY = 0, usedOZ = 0;
