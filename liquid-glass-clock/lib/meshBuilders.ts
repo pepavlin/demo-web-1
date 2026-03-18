@@ -5904,3 +5904,517 @@ export function buildParachuteMesh(ropeLength = 3.0): THREE.Group {
 
   return group;
 }
+
+// ─── Submarine ─────────────────────────────────────────────────────────────────
+/**
+ * A detailed diesel-electric submarine with conning tower, cruciform fins,
+ * spinning propeller, porthole lights and a full control-room interior.
+ *
+ * Forward direction is local +Z (rotation.y = 0 → forward in world +Z).
+ * The conning tower sits on top of the hull, slightly forward of centre.
+ *
+ * Returns:
+ *  group         — root Three.js group to add to the scene
+ *  propeller     — the propeller mesh; rotate its rotation.z each frame
+ *  interiorGroup — the control-room interior; add to scene separately,
+ *                  positioned deep underwater at a fixed offset from group
+ */
+export interface SubmarineMeshResult {
+  group: THREE.Group;
+  propeller: THREE.Mesh;
+  interiorGroup: THREE.Group;
+}
+
+export function buildSubmarineMesh(): SubmarineMeshResult {
+  const group = new THREE.Group();
+
+  // ── Materials ──────────────────────────────────────────────────────────────
+  const hullMat       = new THREE.MeshLambertMaterial({ color: 0x1a3a5c }); // deep navy blue hull
+  const hullDarkMat   = new THREE.MeshLambertMaterial({ color: 0x0d2035 }); // darker underside
+  const towerMat      = new THREE.MeshLambertMaterial({ color: 0x152d47 }); // conning tower
+  const finMat        = new THREE.MeshLambertMaterial({ color: 0x112238 }); // fins
+  const propMat       = new THREE.MeshLambertMaterial({ color: 0xb8860b }); // brass propeller
+  const propHubMat    = new THREE.MeshLambertMaterial({ color: 0x8b6914 }); // darker hub
+  const portholeMat   = new THREE.MeshLambertMaterial({ color: 0x88ccff, transparent: true, opacity: 0.85, emissive: new THREE.Color(0x224466), emissiveIntensity: 0.6 });
+  const portholeRimMat= new THREE.MeshLambertMaterial({ color: 0xaaaaaa }); // steel rim
+  const periscopeMat  = new THREE.MeshLambertMaterial({ color: 0x333333 });
+  const accentMat     = new THREE.MeshLambertMaterial({ color: 0xcc3300 }); // red waterline stripe
+  const lightRedMat   = new THREE.MeshLambertMaterial({ color: 0xff2200, emissive: new THREE.Color(0xff0000), emissiveIntensity: 0.8 });
+  const lightGreenMat = new THREE.MeshLambertMaterial({ color: 0x00cc44, emissive: new THREE.Color(0x00ff44), emissiveIntensity: 0.8 });
+
+  // ── Main Hull (elongated capsule) ──────────────────────────────────────────
+  // Body: cylinder with capped ends — forward along +Z
+  const hullBodyGeo = new THREE.CylinderGeometry(1.5, 1.5, 11.0, 20, 1);
+  hullBodyGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const hullBody = new THREE.Mesh(hullBodyGeo, hullMat);
+  hullBody.castShadow = true;
+  hullBody.receiveShadow = true;
+  group.add(hullBody);
+
+  // Bow cap (forward hemisphere)
+  const bowGeo = new THREE.SphereGeometry(1.5, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  bowGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+  const bow = new THREE.Mesh(bowGeo, hullMat);
+  bow.position.set(0, 0, 5.5);
+  bow.castShadow = true;
+  group.add(bow);
+
+  // Stern taper (rear cone)
+  const sternGeo = new THREE.CylinderGeometry(0.35, 1.5, 3.5, 16, 1);
+  sternGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const stern = new THREE.Mesh(sternGeo, hullMat);
+  stern.position.set(0, 0, -7.25);
+  stern.castShadow = true;
+  group.add(stern);
+
+  // Bottom keel stripe — shows the underside is darker
+  const keelGeo = new THREE.BoxGeometry(0.25, 0.18, 12.0);
+  const keel = new THREE.Mesh(keelGeo, hullDarkMat);
+  keel.position.set(0, -1.42, 0);
+  group.add(keel);
+
+  // Red waterline accent strip
+  const waterStripeGeo = new THREE.CylinderGeometry(1.52, 1.52, 0.16, 20, 1);
+  waterStripeGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const waterStripe = new THREE.Mesh(waterStripeGeo, accentMat);
+  waterStripe.position.set(0, 0, 0);
+  group.add(waterStripe);
+
+  // ── Portholes (3 per side + 1 on bow) ─────────────────────────────────────
+  const portholePairs: [number, number][] = [[-3.5, 1], [0, 1], [3.0, 1]]; // [z, side sign]
+  portholePairs.forEach(([pz]) => {
+    ([-1, 1] as const).forEach((side) => {
+      // Glass disc
+      const glassGeo = new THREE.CircleGeometry(0.26, 12);
+      const glass = new THREE.Mesh(glassGeo, portholeMat);
+      glass.position.set(side * 1.52, 0.3, pz);
+      glass.rotation.y = side * Math.PI / 2;
+      group.add(glass);
+
+      // Steel rim
+      const rimGeo = new THREE.TorusGeometry(0.26, 0.055, 8, 16);
+      const rim = new THREE.Mesh(rimGeo, portholeRimMat);
+      rim.position.copy(glass.position);
+      rim.rotation.copy(glass.rotation);
+      group.add(rim);
+    });
+  });
+
+  // Bow porthole (front)
+  const bowPortGeo = new THREE.CircleGeometry(0.28, 12);
+  const bowPort = new THREE.Mesh(bowPortGeo, portholeMat);
+  bowPort.position.set(0, 0.3, 6.4);
+  group.add(bowPort);
+
+  // ── Navigation Lights ──────────────────────────────────────────────────────
+  // Port (red) — left side
+  const navLightGeo = new THREE.SphereGeometry(0.10, 8, 6);
+  const portLight = new THREE.Mesh(navLightGeo, lightRedMat);
+  portLight.position.set(-1.54, 0.9, 3.5);
+  group.add(portLight);
+
+  // Starboard (green) — right side
+  const starbLight = new THREE.Mesh(navLightGeo, lightGreenMat);
+  starbLight.position.set(1.54, 0.9, 3.5);
+  group.add(starbLight);
+
+  // ── Conning Tower (Sail) ───────────────────────────────────────────────────
+  const tower = new THREE.Group();
+  tower.position.set(0, 1.5, 0.8); // slightly forward of hull centre
+  group.add(tower);
+
+  // Tower base (wide bottom)
+  const towerBaseGeo = new THREE.BoxGeometry(1.6, 0.5, 2.8);
+  const towerBase = new THREE.Mesh(towerBaseGeo, towerMat);
+  towerBase.position.y = 0.25;
+  towerBase.castShadow = true;
+  tower.add(towerBase);
+
+  // Tower body
+  const towerBodyGeo = new THREE.BoxGeometry(1.1, 2.2, 2.2);
+  const towerBody = new THREE.Mesh(towerBodyGeo, towerMat);
+  towerBody.position.y = 1.6;
+  towerBody.castShadow = true;
+  tower.add(towerBody);
+
+  // Tower top edge (rounded cap look)
+  const towerTopGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.30, 10, 1);
+  const towerTop = new THREE.Mesh(towerTopGeo, towerMat);
+  towerTop.position.set(0, 2.85, 0);
+  tower.add(towerTop);
+
+  // Hatch ring on top
+  const hatchGeo = new THREE.TorusGeometry(0.38, 0.08, 8, 16);
+  const hatchMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const hatch = new THREE.Mesh(hatchGeo, hatchMat);
+  hatch.position.set(0, 3.05, 0);
+  hatch.rotation.x = Math.PI / 2;
+  tower.add(hatch);
+
+  // Bridge railing (thin bars around top)
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+  const railBarGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.55, 5);
+  const railPositions = [
+    [-0.48, 2.55, -0.9], [0.48, 2.55, -0.9],
+    [-0.48, 2.55, 0.9],  [0.48, 2.55, 0.9],
+  ];
+  railPositions.forEach(([rx, ry, rz]) => {
+    const bar = new THREE.Mesh(railBarGeo, railMat);
+    bar.position.set(rx, ry, rz);
+    tower.add(bar);
+  });
+  // Rail top bar (horizontal)
+  const railTopGeoF = new THREE.BoxGeometry(1.0, 0.04, 0.04);
+  const railF = new THREE.Mesh(railTopGeoF, railMat);
+  railF.position.set(0, 2.83, 0.9);
+  tower.add(railF);
+  const railB = railF.clone();
+  railB.position.z = -0.9;
+  tower.add(railB);
+  const railTopGeoS = new THREE.BoxGeometry(0.04, 0.04, 1.82);
+  const railLS = new THREE.Mesh(railTopGeoS, railMat);
+  railLS.position.set(-0.48, 2.83, 0);
+  tower.add(railLS);
+  const railRS = railLS.clone();
+  railRS.position.x = 0.48;
+  tower.add(railRS);
+
+  // ── Periscope ──────────────────────────────────────────────────────────────
+  const periScope = new THREE.Group();
+  periScope.position.set(0.25, 3.1, 0.5);
+  tower.add(periScope);
+
+  const periShaftGeo = new THREE.CylinderGeometry(0.065, 0.065, 2.8, 8);
+  const periShaft = new THREE.Mesh(periShaftGeo, periscopeMat);
+  periShaft.position.y = 1.4;
+  periScope.add(periShaft);
+
+  const periHeadGeo = new THREE.BoxGeometry(0.16, 0.32, 0.22);
+  const periHead = new THREE.Mesh(periHeadGeo, periscopeMat);
+  periHead.position.y = 2.9;
+  periScope.add(periHead);
+
+  // Periscope lens
+  const periLensGeo = new THREE.CircleGeometry(0.055, 8);
+  const periLensMat = new THREE.MeshLambertMaterial({ color: 0x88ddff, emissive: new THREE.Color(0x224488), emissiveIntensity: 0.5 });
+  const periLens = new THREE.Mesh(periLensGeo, periLensMat);
+  periLens.position.set(0, 2.9, 0.12);
+  periScope.add(periLens);
+
+  // ── Antenna / Snorkel ──────────────────────────────────────────────────────
+  const snorkelGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6);
+  const snorkel = new THREE.Mesh(snorkelGeo, periscopeMat);
+  snorkel.position.set(-0.3, 3.1 + 1.2, 0.2);
+  tower.add(snorkel);
+
+  // ── Diving Planes (front horizontal fins) ─────────────────────────────────
+  // These angle forward and give the submarine its characteristic look
+  const planeFwdShape = new THREE.Shape();
+  planeFwdShape.moveTo(0, 0);
+  planeFwdShape.lineTo(2.6, -0.3);
+  planeFwdShape.lineTo(2.6, 0.0);
+  planeFwdShape.lineTo(0, 0.6);
+  planeFwdShape.closePath();
+  const planeFwdGeo = new THREE.ExtrudeGeometry(planeFwdShape, { depth: 0.12, bevelEnabled: false });
+  planeFwdGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+  const planeFwdR = new THREE.Mesh(planeFwdGeo, finMat);
+  planeFwdR.position.set(1.5, -0.2, 2.0);
+  planeFwdR.castShadow = true;
+  group.add(planeFwdR);
+
+  const planeFwdLGeo = planeFwdGeo.clone();
+  planeFwdLGeo.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+  const planeFwdL = new THREE.Mesh(planeFwdLGeo, finMat);
+  planeFwdL.position.set(-1.5, -0.2, 2.0);
+  planeFwdL.castShadow = true;
+  group.add(planeFwdL);
+
+  // ── Cruciform Tail Fins ────────────────────────────────────────────────────
+  // 4 fins in + pattern at the stern: top, bottom, left, right
+  const finShape = new THREE.Shape();
+  finShape.moveTo(0, 0);
+  finShape.lineTo(-2.0, -0.5);
+  finShape.lineTo(-2.0, 0);
+  finShape.lineTo(0, 1.0);
+  finShape.closePath();
+  const finExtrudeGeo = new THREE.ExtrudeGeometry(finShape, { depth: 0.11, bevelEnabled: false });
+  finExtrudeGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+  // Horizontal fins (left & right)
+  const tailFinR = new THREE.Mesh(finExtrudeGeo, finMat);
+  tailFinR.position.set(1.3, 0, -6.8);
+  tailFinR.castShadow = true;
+  group.add(tailFinR);
+
+  const tailFinLGeo = finExtrudeGeo.clone();
+  tailFinLGeo.applyMatrix4(new THREE.Matrix4().makeScale(-1, 1, 1));
+  const tailFinL = new THREE.Mesh(tailFinLGeo, finMat);
+  tailFinL.position.set(-1.3, 0, -6.8);
+  tailFinL.castShadow = true;
+  group.add(tailFinL);
+
+  // Vertical fins (top & bottom)
+  const finShapeV = new THREE.Shape();
+  finShapeV.moveTo(0, 0);
+  finShapeV.lineTo(-2.0, -0.5);
+  finShapeV.lineTo(-2.0, 0);
+  finShapeV.lineTo(0, 1.0);
+  finShapeV.closePath();
+  const finVGeo = new THREE.ExtrudeGeometry(finShapeV, { depth: 0.11, bevelEnabled: false });
+
+  const tailFinTop = new THREE.Mesh(finVGeo, finMat);
+  tailFinTop.position.set(-0.055, 1.3, -6.8);
+  tailFinTop.rotation.x = -Math.PI / 2;
+  tailFinTop.castShadow = true;
+  group.add(tailFinTop);
+
+  const tailFinBot = new THREE.Mesh(finVGeo, finMat);
+  tailFinBot.position.set(-0.055, -1.3, -6.8);
+  tailFinBot.rotation.x = Math.PI / 2;
+  tailFinBot.castShadow = true;
+  group.add(tailFinBot);
+
+  // ── Propeller ──────────────────────────────────────────────────────────────
+  const propGroup = new THREE.Group();
+  propGroup.position.set(0, 0, -9.0);
+  group.add(propGroup);
+
+  // Prop shaft
+  const shaftGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.8, 8);
+  shaftGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const shaft = new THREE.Mesh(shaftGeo, propHubMat);
+  shaft.position.z = -0.1;
+  propGroup.add(shaft);
+
+  // Hub
+  const hubGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.35, 10);
+  hubGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const hub = new THREE.Mesh(hubGeo, propHubMat);
+  propGroup.add(hub);
+
+  // 5 blades — twisted paddle shape
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(0, 0.12);
+  bladeShape.quadraticCurveTo(0.28, 0.35, 0.15, 0.85);
+  bladeShape.quadraticCurveTo(0.0, 1.1, -0.18, 0.88);
+  bladeShape.quadraticCurveTo(-0.28, 0.4, -0.0, 0.12);
+  bladeShape.closePath();
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.065, bevelEnabled: false });
+  bladeGeo.applyMatrix4(new THREE.Matrix4().makeTranslation(-0.0, 0, -0.033));
+
+  // Use a single propeller mesh (first blade) as the returned ref — we rotate the whole propGroup
+  const NUM_BLADES = 5;
+  let propellerMesh!: THREE.Mesh;
+  for (let i = 0; i < NUM_BLADES; i++) {
+    const angle = (i / NUM_BLADES) * Math.PI * 2;
+    const blade = new THREE.Mesh(bladeGeo, propMat);
+    blade.rotation.z = angle;
+    // Twist each blade slightly for realistic look
+    blade.rotation.y = 0.22 * Math.sin(angle);
+    propGroup.add(blade);
+    if (i === 0) propellerMesh = blade;
+  }
+
+  // ── Interior Control Room ──────────────────────────────────────────────────
+  // A detailed room that is placed at the same world position as the submarine
+  // but rendered inside an invisible hull. In Game3D we teleport the camera
+  // into this interior when the player boards the submarine (interior view).
+  const interiorGroup = new THREE.Group();
+  // Interior is built around origin; Game3D will offset it at submarine depth
+
+  // Interior hull walls (tube, inward-visible)
+  const intWallGeo = new THREE.CylinderGeometry(2.2, 2.2, 7.0, 20, 1, true);
+  intWallGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const intWallMat = new THREE.MeshLambertMaterial({ color: 0x1c3a50, side: THREE.BackSide });
+  const intWall = new THREE.Mesh(intWallGeo, intWallMat);
+  interiorGroup.add(intWall);
+
+  // Floor grating (dark grey grid lines)
+  const floorGeo = new THREE.BoxGeometry(3.0, 0.08, 5.5);
+  const floorMat = new THREE.MeshLambertMaterial({ color: 0x0f1f2e });
+  const intFloor = new THREE.Mesh(floorGeo, floorMat);
+  intFloor.position.y = -1.55;
+  interiorGroup.add(intFloor);
+
+  // Floor grating lines
+  const gratingMat = new THREE.MeshLambertMaterial({ color: 0x1a3040 });
+  for (let gi = -2; gi <= 2; gi++) {
+    const gBar = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.06, 0.08), gratingMat);
+    gBar.position.set(0, -1.51, gi * 1.1);
+    interiorGroup.add(gBar);
+  }
+
+  // Ceiling (arched)
+  const ceilGeo = new THREE.CylinderGeometry(2.15, 2.15, 6.8, 20, 1, true, Math.PI * 0.2, Math.PI * 0.6);
+  ceilGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const ceilMat = new THREE.MeshLambertMaterial({ color: 0x162b3d, side: THREE.BackSide });
+  const intCeil = new THREE.Mesh(ceilGeo, ceilMat);
+  interiorGroup.add(intCeil);
+
+  // ── Control Panels (forward bulkhead) ─────────────────────────────────────
+  const panelBaseMat = new THREE.MeshLambertMaterial({ color: 0x0a1520 });
+  const screenGreenMat = new THREE.MeshLambertMaterial({ color: 0x00ff88, emissive: new THREE.Color(0x00cc44), emissiveIntensity: 0.9 });
+  const screenAmberMat = new THREE.MeshLambertMaterial({ color: 0xffaa00, emissive: new THREE.Color(0xff8800), emissiveIntensity: 0.8 });
+  const screenRedMat   = new THREE.MeshLambertMaterial({ color: 0xff2200, emissive: new THREE.Color(0xcc1100), emissiveIntensity: 0.7 });
+  const knobMat        = new THREE.MeshLambertMaterial({ color: 0x333333 });
+  const dialMat        = new THREE.MeshLambertMaterial({ color: 0x111111 });
+
+  // Main forward console
+  const consoleGeo = new THREE.BoxGeometry(2.6, 1.0, 0.25);
+  const console1 = new THREE.Mesh(consoleGeo, panelBaseMat);
+  console1.position.set(0, -0.6, 2.8);
+  interiorGroup.add(console1);
+
+  // Console top surface (angled instrument panel)
+  const consoleSurfGeo = new THREE.BoxGeometry(2.6, 0.06, 0.9);
+  const consoleSurf = new THREE.Mesh(consoleSurfGeo, panelBaseMat);
+  consoleSurf.position.set(0, -0.08, 2.5);
+  consoleSurf.rotation.x = -0.4;
+  interiorGroup.add(consoleSurf);
+
+  // ── Green sonar screen ────────────────────────────────────────────────────
+  const sonarGeo = new THREE.CircleGeometry(0.38, 20);
+  const sonar = new THREE.Mesh(sonarGeo, screenGreenMat);
+  sonar.position.set(-0.65, -0.18, 2.88);
+  interiorGroup.add(sonar);
+  // Sonar sweep line
+  const sweepGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.35, 0, 0),
+  ]);
+  const sweepMat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+  const sweep = new THREE.Line(sweepGeo, sweepMat);
+  sweep.position.copy(sonar.position);
+  interiorGroup.add(sweep);
+
+  // ── Depth gauge (circular dial) ───────────────────────────────────────────
+  const depthDialGeo = new THREE.CircleGeometry(0.28, 16);
+  const depthDial = new THREE.Mesh(depthDialGeo, dialMat);
+  depthDial.position.set(0.0, -0.08, 2.88);
+  interiorGroup.add(depthDial);
+  const depthNeedleGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.22, 0),
+  ]);
+  const depthNeedle = new THREE.Line(depthNeedleGeo, new THREE.LineBasicMaterial({ color: 0xff4400 }));
+  depthNeedle.position.copy(depthDial.position);
+  depthNeedle.position.z += 0.01;
+  interiorGroup.add(depthNeedle);
+
+  // ── Speed gauge ───────────────────────────────────────────────────────────
+  const speedGeo = new THREE.CircleGeometry(0.22, 16);
+  const speedDial = new THREE.Mesh(speedGeo, dialMat);
+  speedDial.position.set(0.65, -0.18, 2.88);
+  interiorGroup.add(speedDial);
+
+  // ── Warning lights (amber row) ────────────────────────────────────────────
+  const warnGeo = new THREE.CircleGeometry(0.07, 10);
+  const warnColors = [screenAmberMat, screenAmberMat, screenRedMat, screenAmberMat, screenGreenMat];
+  warnColors.forEach((mat, idx) => {
+    const light = new THREE.Mesh(warnGeo, mat);
+    light.position.set(-0.9 + idx * 0.45, 0.35, 2.88);
+    interiorGroup.add(light);
+  });
+
+  // ── Helm / Steering Wheel ─────────────────────────────────────────────────
+  const helmGroup = new THREE.Group();
+  helmGroup.position.set(0, -0.85, 2.0);
+  interiorGroup.add(helmGroup);
+
+  const helmBaseGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.55, 8);
+  const helmBase = new THREE.Mesh(helmBaseGeo, knobMat);
+  helmBase.rotation.x = Math.PI / 2;
+  helmGroup.add(helmBase);
+
+  const helmRimGeo = new THREE.TorusGeometry(0.38, 0.045, 8, 24);
+  const helmRim = new THREE.Mesh(helmRimGeo, new THREE.MeshLambertMaterial({ color: 0x8B4513 }));
+  helmRim.position.z = 0.28;
+  helmGroup.add(helmRim);
+
+  // Steering spokes
+  const spokeGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.76, 6);
+  [0, 1, 2, 3].forEach((i) => {
+    const spoke = new THREE.Mesh(spokeGeo, knobMat);
+    spoke.rotation.z = (i / 4) * Math.PI * 2;
+    spoke.position.z = 0.28;
+    helmGroup.add(spoke);
+  });
+
+  // ── Side consoles ─────────────────────────────────────────────────────────
+  const sidePanelGeo = new THREE.BoxGeometry(0.22, 1.4, 2.2);
+  const sidePanelMat = new THREE.MeshLambertMaterial({ color: 0x0e1d28 });
+
+  const leftPanel = new THREE.Mesh(sidePanelGeo, sidePanelMat);
+  leftPanel.position.set(-1.3, -0.5, 1.2);
+  interiorGroup.add(leftPanel);
+
+  const rightPanel = new THREE.Mesh(sidePanelGeo, sidePanelMat);
+  rightPanel.position.set(1.3, -0.5, 1.2);
+  interiorGroup.add(rightPanel);
+
+  // Toggle switches on left panel
+  const switchGeo = new THREE.BoxGeometry(0.07, 0.16, 0.07);
+  const switchMat = new THREE.MeshLambertMaterial({ color: 0xcccccc });
+  [-0.5, 0, 0.5, 1.0].forEach((sz) => {
+    const sw = new THREE.Mesh(switchGeo, switchMat);
+    sw.position.set(-1.22, -0.2, sz);
+    interiorGroup.add(sw);
+  });
+
+  // ── Overhead pipe runs ────────────────────────────────────────────────────
+  const pipeGeo = new THREE.CylinderGeometry(0.055, 0.055, 6.0, 8);
+  pipeGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+  const pipeMat = new THREE.MeshLambertMaterial({ color: 0x556677 });
+
+  [-0.7, 0, 0.7].forEach((px) => {
+    const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+    pipe.position.set(px, 1.5, 0);
+    interiorGroup.add(pipe);
+  });
+
+  // ── Emergency strip lights (red glow at floor) ────────────────────────────
+  const stripMat = new THREE.MeshLambertMaterial({ color: 0xcc2200, emissive: new THREE.Color(0xaa1100), emissiveIntensity: 0.6 });
+  const stripGeo = new THREE.BoxGeometry(0.06, 0.06, 5.0);
+
+  ([-1.25, 1.25] as const).forEach((sx) => {
+    const strip = new THREE.Mesh(stripGeo, stripMat);
+    strip.position.set(sx, -1.52, 0);
+    interiorGroup.add(strip);
+  });
+
+  // ── Interior portholes (inward view into "ocean") ─────────────────────────
+  const intPortholeMat = new THREE.MeshLambertMaterial({
+    color: 0x003366,
+    emissive: new THREE.Color(0x001133),
+    emissiveIntensity: 0.5,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const intPortRimMat = new THREE.MeshLambertMaterial({ color: 0x888899 });
+
+  ([-1, 1] as const).forEach((side) => {
+    [-1.2, 0.6].forEach((pz) => {
+      const portGeo = new THREE.CircleGeometry(0.35, 16);
+      const port = new THREE.Mesh(portGeo, intPortholeMat);
+      port.position.set(side * 2.12, 0.0, pz);
+      port.rotation.y = side * Math.PI / 2;
+      interiorGroup.add(port);
+
+      const rimGeo2 = new THREE.TorusGeometry(0.35, 0.065, 8, 16);
+      const portRim = new THREE.Mesh(rimGeo2, intPortRimMat);
+      portRim.position.copy(port.position);
+      portRim.rotation.copy(port.rotation);
+      interiorGroup.add(portRim);
+    });
+  });
+
+  // ── Ambient interior light (subtle point light) ───────────────────────────
+  const intAmbLight = new THREE.PointLight(0x0066aa, 0.8, 8);
+  intAmbLight.position.set(0, 1.2, 0);
+  interiorGroup.add(intAmbLight);
+
+  const intRedLight = new THREE.PointLight(0xcc2200, 0.4, 5);
+  intRedLight.position.set(0, -1.0, 0);
+  interiorGroup.add(intRedLight);
+
+  return { group, propeller: propellerMesh, interiorGroup };
+}

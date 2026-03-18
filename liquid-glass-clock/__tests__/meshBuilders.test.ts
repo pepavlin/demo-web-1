@@ -62,6 +62,7 @@ import {
   buildFlameParticleMesh,
   buildFlamethrowerMesh,
   animateWildFlameMesh,
+  buildSubmarineMesh,
   SNIPER_TOWER_HEIGHT,
   type CityTerrainOptions,
 } from "@/lib/meshBuilders";
@@ -2137,3 +2138,54 @@ describe("buildFlamethrowerMesh nozzle flame stream", () => {
   });
 });
 
+
+// ─── buildSubmarineMesh ───────────────────────────────────────────────────────
+describe("buildSubmarineMesh", () => {
+  it("returns group, propeller, and interiorGroup", () => {
+    const result = buildSubmarineMesh();
+    expect(result.group).toBeInstanceOf(THREE.Group);
+    expect(result.propeller).toBeInstanceOf(THREE.Mesh);
+    expect(result.interiorGroup).toBeInstanceOf(THREE.Group);
+  });
+
+  it("group has children (hull, fins, tower, etc.)", () => {
+    const { group } = buildSubmarineMesh();
+    expect(group.children.length).toBeGreaterThan(5);
+  });
+
+  it("interiorGroup has children (control room elements)", () => {
+    const { interiorGroup } = buildSubmarineMesh();
+    expect(interiorGroup.children.length).toBeGreaterThan(5);
+  });
+
+  it("group contains at least one PointLight (nav lights or ambient)", () => {
+    const { interiorGroup } = buildSubmarineMesh();
+    const lights = interiorGroup.children.filter((c) => c instanceof THREE.PointLight);
+    expect(lights.length).toBeGreaterThan(0);
+  });
+
+  it("propeller mesh has geometry", () => {
+    const { propeller } = buildSubmarineMesh();
+    expect(propeller.geometry).toBeDefined();
+  });
+
+  it("hull body mesh casts shadow", () => {
+    const { group } = buildSubmarineMesh();
+    // At least one child should have castShadow = true
+    const hasShadowCaster = group.children.some(
+      (c) => c instanceof THREE.Mesh && (c as THREE.Mesh).castShadow
+    );
+    expect(hasShadowCaster).toBe(true);
+  });
+
+  it("interiorGroup contains porthole windows (emissive material)", () => {
+    const { interiorGroup } = buildSubmarineMesh();
+    const porthole = interiorGroup.children.find(
+      (c) =>
+        c instanceof THREE.Mesh &&
+        (c as THREE.Mesh).material &&
+        ((c as THREE.Mesh).material as THREE.MeshLambertMaterial).transparent === true
+    );
+    expect(porthole).toBeDefined();
+  });
+});

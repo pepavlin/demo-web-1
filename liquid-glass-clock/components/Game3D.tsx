@@ -54,6 +54,8 @@ import {
   buildBowMesh,
   buildCrossbowMesh,
   buildBoatMesh,
+  buildSubmarineMesh,
+  type SubmarineMeshResult,
   buildCatapultMesh,
   buildMotherShipMesh,
   buildRocketMesh,
@@ -341,6 +343,17 @@ const DEFAULT_FOV = 75;
 const BOAT_BOARD_RADIUS = 5;    // units — show [E] board prompt within this distance
 const BOAT_SPEED = 8;           // units/second when sailing
 const BOAT_CAM_HEIGHT = 2.6;    // camera height above waterline when on boat
+
+// ─── Submarine Constants ──────────────────────────────────────────────────────
+const SUB_BOARD_RADIUS   = 7;    // proximity to show boarding prompt
+const SUB_SPEED          = 10;   // horizontal speed (units/s)
+const SUB_VERTICAL_SPEED = 5;    // dive/ascend speed (units/s)
+const SUB_MAX_DEPTH      = -28;  // lowest allowed Y position
+const SUB_CAM_DIST       = 16;   // 3rd-person camera distance behind sub
+const SUB_CAM_HEIGHT_EXT = 4.5;  // camera height above sub in exterior view
+const SUB_CAM_HEIGHT_INT = 3.4;  // camera height above sub centre in interior view
+/** World Y at which the interior room group lives (deep underwater, avoids poking through terrain) */
+const SUB_INTERIOR_WORLD_Y = -500;
 
 // ─── Harbor Constants ─────────────────────────────────────────────────────────
 const HARBOR_SEARCH_DIST = 88;  // radius from world center to search for coastline
@@ -892,6 +905,17 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const motherShipRef = useRef<THREE.Group | null>(null);
   const motherShipLightsRef = useRef<THREE.PointLight[]>([]);
 
+  // ─── Submarine Refs ──────────────────────────────────────────────────────────
+  const subMeshRef  = useRef<SubmarineMeshResult | null>(null);
+  const onSubRef    = useRef(false);
+  const nearSubRef  = useRef(false);
+  /** true = camera inside control room, false = exterior follow cam */
+  const subIntViewRef = useRef(false);
+  /** Current propeller rotation angle (radians) */
+  const subPropAngle  = useRef(0);
+  /** Bubble particles for underwater effect */
+  const subBubblesRef = useRef<THREE.Points | null>(null);
+
   // ─── Boat Refs ───────────────────────────────────────────────────────────────
   const boatRef = useRef<THREE.Group | null>(null);
   const onBoatRef = useRef(false);
@@ -1005,6 +1029,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [nearAirdropPrompt, setNearAirdropPrompt] = useState(false);
   const [nearSheepPrompt, setNearSheepPrompt] = useState(false);
   const [isPossessed, setIsPossessed] = useState(false);
+  const [nearSubPrompt, setNearSubPrompt] = useState(false);
+  const [onSub, setOnSub] = useState(false);
+  const [subDepth, setSubDepth] = useState(0);      // depth below WATER_LEVEL (positive = deeper)
+  const [subInteriorView, setSubInteriorView] = useState(false); // interior cam toggle
   const [nearBoatPrompt, setNearBoatPrompt] = useState(false);
   const [onBoat, setOnBoat] = useState(false);
   const [nearHarborShipPrompt, setNearHarborShipPrompt] = useState(false);
@@ -2280,7 +2308,7 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     if (playerAttackCooldownRef.current > 0) return;
     if (!cameraRef.current || !sceneRef.current) return;
     // Cannot attack while controlling a vehicle, possessing a sheep, in the space station, or holding an item
-    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current || inBunkerRef.current) return;
+    if (possessedSheepRef.current || onBoatRef.current || onRocketRef.current || onAirplaneRef.current || inSpaceStationRef.current || activeHarborShipRef.current || inBunkerRef.current || onSubRef.current) return;
     if (heldItemRef.current) return; // holding an item — must place it first
     if (!weaponSlotsRef.current[activeSlotRef.current]) return; // empty slot — no weapon to attack with
 
@@ -4464,6 +4492,50 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     scene.add(boat);
     boatRef.current = boat;
 
+    // ── Submarine (spawn further out in deeper water) ──────────────────────────
+    let subSpawnX = boatSpawnX + 20;
+    let subSpawnZ = boatSpawnZ + 15;
+    let subFound = false;
+    for (let dist = 30; dist < 140 && !subFound; dist += 8) {
+      for (let angleDeg = 45; angleDeg < 405 && !subFound; angleDeg += 15) {
+        const a = (angleDeg * Math.PI) / 180;
+        const tx = Math.cos(a) * dist;
+        const tz = Math.sin(a) * dist;
+        // Need deep water (at least 5 units below surface)
+        if (getTerrainHeight(tx, tz) < WATER_LEVEL - 5.0) {
+          subSpawnX = tx;
+          subSpawnZ = tz;
+          subFound = true;
+        }
+      }
+    }
+    const subResult = buildSubmarineMesh();
+    subResult.group.position.set(subSpawnX, WATER_LEVEL + 0.4, subSpawnZ);
+    scene.add(subResult.group);
+
+    // Place interior room far underground (invisible from world surface)
+    subResult.interiorGroup.position.set(subSpawnX, SUB_INTERIOR_WORLD_Y, subSpawnZ);
+    scene.add(subResult.interiorGroup);
+
+    // Bubble particle system for underwater propulsion
+    {
+      const bubbleCount = 80;
+      const positions = new Float32Array(bubbleCount * 3);
+      for (let i = 0; i < bubbleCount; i++) {
+        positions[i * 3]     = (Math.random() - 0.5) * 0.8;
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 0.8;
+        positions[i * 3 + 2] = -9.5 - Math.random() * 2.0;
+      }
+      const bubbleGeo = new THREE.BufferGeometry();
+      bubbleGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const bubbleMat = new THREE.PointsMaterial({ color: 0x99ddff, size: 0.18, transparent: true, opacity: 0.6 });
+      const bubbles = new THREE.Points(bubbleGeo, bubbleMat);
+      subResult.group.add(bubbles);
+      subBubblesRef.current = bubbles;
+    }
+
+    subMeshRef.current = subResult;
+
     // ── Harbor (dock + two sailboats) ─────────────────────────────────────────
     // Find a coastal spot: land at HARBOR_SEARCH_DIST, open water just beyond.
     const harborPos = findHarborPosition(getTerrainHeight, WATER_LEVEL, HARBOR_SEARCH_DIST);
@@ -5250,6 +5322,47 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           activeHarborShipRef.current = ship;
           setOnHarborShip(true);
           if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
+        } else if (onSubRef.current) {
+          // ── Exit submarine: surface first, then place player nearby ──────────
+          const subData = subMeshRef.current;
+          if (subData && cameraRef.current) {
+            const sub = subData.group;
+            // Bring submarine to surface
+            sub.position.y = WATER_LEVEL + 0.4;
+            sub.rotation.x = 0;
+            sub.rotation.z = 0;
+            // Find nearby land to disembark
+            let landX = sub.position.x;
+            let landZ = sub.position.z;
+            let foundLand = false;
+            for (let d = 5; d < 50 && !foundLand; d += 2) {
+              for (let a = 0; a < Math.PI * 2 && !foundLand; a += 0.3) {
+                const tx = sub.position.x + Math.cos(a) * d;
+                const tz = sub.position.z + Math.sin(a) * d;
+                if (getTerrainHeightSampled(tx, tz) >= WATER_LEVEL) {
+                  landX = tx;
+                  landZ = tz;
+                  foundLand = true;
+                }
+              }
+            }
+            const landY = getTerrainHeightSampled(landX, landZ);
+            cameraRef.current.position.set(landX, landY + PLAYER_HEIGHT, landZ);
+            playerBodyPosRef.current.copy(cameraRef.current.position);
+            playerRef.current.velY = 0;
+            playerRef.current.onGround = true;
+            setSubDepth(0);
+            subIntViewRef.current = false;
+            setSubInteriorView(false);
+          }
+          onSubRef.current = false;
+          setOnSub(false);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = true;
+        } else if (nearSubRef.current && !possessedSheepRef.current && !onBoatRef.current) {
+          // ── Board the submarine ───────────────────────────────────────────────
+          onSubRef.current = true;
+          setOnSub(true);
+          if (weaponMeshRef.current) weaponMeshRef.current.visible = false;
         } else if (onBoatRef.current) {
           // ── Exit boat: find nearest land to place the player ───────────────
           const boat = boatRef.current;
@@ -5338,8 +5451,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         }
       }
 
-      // V key — toggle first/third-person camera (works in explore mode AND while possessing a sheep)
+      // V key — while on submarine: toggle interior/exterior view; otherwise toggle camera mode
       if (e.type === "keydown" && e.code === "KeyV") {
+        if (onSubRef.current) {
+          const nextIntView = !subIntViewRef.current;
+          subIntViewRef.current = nextIntView;
+          setSubInteriorView(nextIntView);
+          return;
+        }
         const newMode = cameraModeRef.current === "first" ? "third" : "first";
         cameraModeRef.current = newMode;
         setCameraMode(newMode);
@@ -6417,8 +6536,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         });
       }
 
-      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, on airplane, in station, bunker, or sailing) ─
-      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current && !activeHarborShipRef.current && !_inBunker) {
+      // ── Player movement (only when NOT possessing an entity, on boat, on rocket, on airplane, in station, bunker, sailing, or on sub) ─
+      if (isLockedRef.current && !possessedSheepRef.current && !onBoatRef.current && !inSpaceStationRef.current && !onRocketRef.current && !onAirplaneRef.current && !activeHarborShipRef.current && !_inBunker && !onSubRef.current) {
         const cam = cameraRef.current!;
         const keys = keysRef.current;
 
@@ -6853,6 +6972,210 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
               weapon: selectedWeaponRef.current,
               isAttacking: isBowChargingRef.current || isMouseHeldRef.current,
             });
+          }
+        }
+      }
+
+      // ── Submarine update ──────────────────────────────────────────────────────
+      {
+        const subData = subMeshRef.current;
+        if (subData) {
+          const sub = subData.group;
+          const isOnSub = onSubRef.current;
+
+          if (!isOnSub) {
+            // ── Idle: gentle bobbing at surface, proximity check ───────────────
+            sub.position.y = WATER_LEVEL + 0.4 + 0.05 * Math.sin(elapsed * 0.9 + 1.2);
+            sub.rotation.x = 0.01 * Math.sin(elapsed * 0.8);
+            sub.rotation.z = 0.01 * Math.cos(elapsed * 1.1);
+
+            const playerPos2 = playerBodyPosRef.current;
+            const sdx = sub.position.x - playerPos2.x;
+            const sdz = sub.position.z - playerPos2.z;
+            const subDist = Math.sqrt(sdx * sdx + sdz * sdz);
+            const subIsNear = subDist < SUB_BOARD_RADIUS
+              && !possessedSheepRef.current
+              && !onBoatRef.current
+              && !onRocketRef.current
+              && !onAirplaneRef.current
+              && !inSpaceStationRef.current
+              && !activeHarborShipRef.current
+              && !inBunkerRef.current
+              && sub.position.y > WATER_LEVEL - 0.5; // only boardable at surface
+            nearSubRef.current = subIsNear;
+            setNearSubPrompt(subIsNear);
+
+            // Slowly spin propeller even when idle
+            subPropAngle.current += 0.4 * dt;
+            subData.propeller.parent!.rotation.z = subPropAngle.current;
+
+          } else {
+            // ── Piloting submarine ────────────────────────────────────────────
+            nearSubRef.current = false;
+            setNearSubPrompt(false);
+
+            if (isLockedRef.current && cameraRef.current) {
+              const cam = cameraRef.current;
+              const keys = keysRef.current;
+
+              // Horizontal movement (WASD relative to current yaw)
+              const fwdX = -Math.sin(yawRef.current);
+              const fwdZ = -Math.cos(yawRef.current);
+              const rightX = Math.cos(yawRef.current);
+              const rightZ = -Math.sin(yawRef.current);
+
+              let moveX = 0, moveZ = 0;
+              if (keys["KeyW"] || keys["ArrowUp"])    { moveX += fwdX; moveZ += fwdZ; }
+              if (keys["KeyS"] || keys["ArrowDown"])  { moveX -= fwdX; moveZ -= fwdZ; }
+              if (keys["KeyA"] || keys["ArrowLeft"])  { moveX -= rightX; moveZ -= rightZ; }
+              if (keys["KeyD"] || keys["ArrowRight"]) { moveX += rightX; moveZ += rightZ; }
+
+              const isMoving = moveX !== 0 || moveZ !== 0;
+              const moveLen = isMoving ? Math.sqrt(moveX * moveX + moveZ * moveZ) : 0;
+
+              if (isMoving) {
+                const n = 1 / moveLen;
+                const prevX = sub.position.x;
+                const prevZ = sub.position.z;
+
+                sub.position.x += moveX * n * SUB_SPEED * dt;
+                sub.position.z += moveZ * n * SUB_SPEED * dt;
+
+                // World bounds
+                const half = WORLD_SIZE / 2 - 10;
+                sub.position.x = Math.max(-half, Math.min(half, sub.position.x));
+                sub.position.z = Math.max(-half, Math.min(half, sub.position.z));
+
+                // Revert if it would hit land while surfaced
+                if (sub.position.y > WATER_LEVEL - 1.0 &&
+                    getTerrainHeightSampled(sub.position.x, sub.position.z) >= WATER_LEVEL) {
+                  sub.position.x = prevX;
+                  sub.position.z = prevZ;
+                }
+
+                // Face direction of movement (smooth)
+                const targetYaw = Math.atan2(moveX, moveZ);
+                let diff = targetYaw - sub.rotation.y;
+                while (diff > Math.PI)  diff -= 2 * Math.PI;
+                while (diff < -Math.PI) diff += 2 * Math.PI;
+                sub.rotation.y += diff * Math.min(1, dt * 3.5);
+
+                // Pitch slightly in direction of vertical movement
+                const isDescending = keys["ShiftLeft"] || keys["KeyX"];
+                const isAscending  = keys["Space"] || keys["KeyC"];
+                const targetPitch  = isDescending ? -0.18 : isAscending ? 0.12 : 0;
+                sub.rotation.x += (targetPitch - sub.rotation.x) * Math.min(1, dt * 3);
+              } else {
+                // Auto-level when not moving horizontally
+                sub.rotation.x *= Math.pow(0.88, dt * 60);
+                sub.rotation.z *= Math.pow(0.88, dt * 60);
+              }
+
+              // ── Vertical (dive / ascend) ───────────────────────────────────
+              const isDescending = keys["ShiftLeft"] || keys["KeyX"];
+              const isAscending  = keys["Space"] || keys["KeyC"];
+
+              if (isDescending) {
+                sub.position.y = Math.max(sub.position.y - SUB_VERTICAL_SPEED * dt, SUB_MAX_DEPTH);
+              } else if (isAscending) {
+                sub.position.y = Math.min(sub.position.y + SUB_VERTICAL_SPEED * dt, WATER_LEVEL + 0.5);
+              }
+
+              // Clamp above sea floor
+              const seaFloor = getTerrainHeightSampled(sub.position.x, sub.position.z) + 3.0;
+              if (sub.position.y < seaFloor) sub.position.y = seaFloor;
+
+              // Update depth state
+              const depth = Math.max(0, WATER_LEVEL - sub.position.y);
+              setSubDepth(Math.round(depth * 10) / 10);
+
+              // ── Propeller spin (faster when moving) ───────────────────────
+              const propSpeed = isMoving ? 6.0 : 1.5;
+              subPropAngle.current += propSpeed * dt;
+              subData.propeller.parent!.rotation.z = subPropAngle.current;
+
+              // ── Bubble particles (only when submerged & moving) ────────────
+              const isSubmerged = sub.position.y < WATER_LEVEL - 0.5;
+              const bubbles = subBubblesRef.current;
+              if (bubbles) {
+                bubbles.visible = isSubmerged && (isMoving || isDescending);
+                if (bubbles.visible) {
+                  const pos = bubbles.geometry.attributes.position as THREE.BufferAttribute;
+                  const arr = pos.array as Float32Array;
+                  for (let bi = 0; bi < arr.length / 3; bi++) {
+                    arr[bi * 3 + 1] += (0.5 + Math.random() * 0.5) * dt; // rise
+                    if (arr[bi * 3 + 1] > 3.0) {
+                      // Reset bubble to stern
+                      arr[bi * 3]     = (Math.random() - 0.5) * 0.8;
+                      arr[bi * 3 + 1] = (Math.random() - 0.5) * 0.8;
+                      arr[bi * 3 + 2] = -9.5 - Math.random() * 1.5;
+                    }
+                  }
+                  pos.needsUpdate = true;
+                }
+              }
+
+              // ── Interior group follows submarine (deep underground offset) ──
+              subData.interiorGroup.position.set(
+                sub.position.x,
+                SUB_INTERIOR_WORLD_Y,
+                sub.position.z,
+              );
+              subData.interiorGroup.rotation.y = sub.rotation.y;
+
+              // ── Camera ────────────────────────────────────────────────────
+              const isIntView = subIntViewRef.current;
+              if (isIntView) {
+                // Interior view: camera inside the conning tower
+                cam.position.set(
+                  sub.position.x,
+                  SUB_INTERIOR_WORLD_Y + SUB_CAM_HEIGHT_INT,
+                  sub.position.z,
+                );
+              } else {
+                // Exterior: follow camera behind & above sub
+                const camBehindX = Math.sin(sub.rotation.y) * SUB_CAM_DIST;
+                const camBehindZ = Math.cos(sub.rotation.y) * SUB_CAM_DIST;
+                cam.position.set(
+                  sub.position.x + camBehindX,
+                  sub.position.y + SUB_CAM_HEIGHT_EXT,
+                  sub.position.z + camBehindZ,
+                );
+              }
+              playerBodyPosRef.current.copy(sub.position);
+
+              cam.rotation.order = "YXZ";
+              cam.rotation.y = yawRef.current;
+              cam.rotation.x = pitchRef.current;
+
+              // ── Underwater fog when submerged on submarine ─────────────────
+              if (scene.fog) {
+                const subIsSubmerged = sub.position.y < WATER_LEVEL - 0.5;
+                if (subIsSubmerged) {
+                  // Deeper = denser, darker blue fog
+                  const depthFactor = Math.min(1.0, (WATER_LEVEL - sub.position.y) / 20);
+                  const fogR = 0.02 + (1 - depthFactor) * 0.05;
+                  const fogG = 0.10 + (1 - depthFactor) * 0.12;
+                  const fogB = 0.22 + (1 - depthFactor) * 0.15;
+                  (scene.fog as THREE.FogExp2).color.setRGB(fogR, fogG, fogB);
+                  (scene.fog as THREE.FogExp2).density = 0.055 + depthFactor * 0.045;
+                } else {
+                  // Restore sky colour (day/night cycle will re-set next frame)
+                  (scene.fog as THREE.FogExp2).density = 0.006;
+                }
+              }
+
+              sendUpdateRef.current?.({
+                x: sub.position.x,
+                y: sub.position.y,
+                z: sub.position.z,
+                rotY: yawRef.current,
+                pitch: pitchRef.current,
+                inactive: false,
+                weapon: selectedWeaponRef.current,
+                isAttacking: false,
+              });
+            }
           }
         }
       }
@@ -10936,6 +11259,58 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             }}
           >
             🌊 [Ctrl] Potápět se
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER — Submarine boarding prompt ═══════════ */}
+      {nearSubPrompt && !onSub && !isPossessed && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(5,20,50,0.92)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(0,180,220,0.55)",
+              boxShadow: "0 0 22px rgba(0,140,200,0.45)",
+            }}
+          >
+            🤿 [E] Nastoupit na ponorku
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ CENTER TOP — On-submarine active banner ═══════════════ */}
+      {onSub && gameState.isLocked && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm"
+            style={{
+              padding: "10px 28px",
+              background: "rgba(0,15,40,0.93)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid rgba(0,180,220,0.40)",
+              boxShadow: "0 0 20px rgba(0,160,220,0.35)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <div style={{ display: "flex", gap: 18, alignItems: "center" }}>
+              <span>🤿 Ponorka</span>
+              <span style={{ color: "#5eead4" }}>[E] Vystoupit</span>
+              <span style={{ color: "#7dd3fc" }}>[V] {subInteriorView ? "Vnější pohled" : "Interiér"}</span>
+            </div>
+            <div style={{ display: "flex", gap: 18, fontSize: "0.82em", color: "#94a3b8" }}>
+              <span>[WASD] Pohyb</span>
+              <span style={{ color: "#38bdf8" }}>[Mezerník] Stoupat</span>
+              <span style={{ color: "#818cf8" }}>[Shift/X] Potápět</span>
+              {subDepth > 0.5 && (
+                <span style={{ color: "#f472b6" }}>Hloubka: {subDepth.toFixed(1)} m</span>
+              )}
+            </div>
           </div>
         </div>
       )}
