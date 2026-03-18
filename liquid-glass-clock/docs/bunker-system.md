@@ -32,9 +32,9 @@ All three are shown as green squares on the minimap.
 The interior group is positioned at **Y=1500** in world space (far above the exterior, hidden by fog at the standard density of 0.006).
 
 ```
-[Container 1: Entry]      Z = 0  → 12   Entry ladder, workbench, CRT monitor, test tube rack
-[Container 2: Lab]        Z = 12 → 24   Long workbench, beakers, centrifuge, microscope, chemical cabinet
-[Container 3: Server Room] Z = 24 → 36  Server racks, cabling, UPS unit, exit ladder
+[Container 1: Entry]       Z = 0  → 12   Entry ladder, workbench, CRT monitor, test tube rack
+[Container 2: Lab]         Z = 12 → 24   Long workbench, beakers, centrifuge, microscope, chemical cabinet
+[Container 3: Server Room] Z = 24 → 36   Server racks, cabling, UPS unit, 3D printer, exit ladder
 ```
 
 Containers are connected by doorway openings (no wall panel at junction, door-frame accent light).
@@ -65,6 +65,7 @@ Containers are connected by doorway openings (no wall panel at junction, door-fr
 |----------|-------|-------------|
 | `BUNKER_ENTRY_RADIUS` | 3.5 units | Distance to show entry prompt |
 | `BUNKER_EXIT_RADIUS` | 3.0 units | Distance to exit ladder to show exit prompt |
+| `BUNKER_PRINTER_INTERACT_RADIUS` | 2.5 units | Distance to show 3D printer prompt |
 | `BUNKER_INTERIOR_WORLD_Y` | 1500 | Y offset of interior in world space |
 | `CONTAINER_W` | 5 | Interior container width |
 | `CONTAINER_H` | 2.8 | Interior container height |

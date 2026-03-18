@@ -166,7 +166,7 @@ describe("buildBunkerInteriorScene", () => {
   });
 
   it("has animated meshes with valid types", () => {
-    const validTypes = ["monitor", "server_led", "vent"];
+    const validTypes = ["monitor", "server_led", "vent", "printer_light"];
     result.animatedMeshes.forEach(({ type }) => {
       expect(validTypes).toContain(type);
     });
