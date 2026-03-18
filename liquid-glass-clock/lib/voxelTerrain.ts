@@ -910,6 +910,34 @@ function sampleSurfCache(
 // ─── Marching Cubes mesh generation ──────────────────────────────────────────
 
 /**
+ * Compute the outward surface normal at a world-space point using central
+ * finite differences of the density field.
+ *
+ * The density gradient always points from solid (density < 0) toward air
+ * (density > 0), i.e. outward through the isosurface. Normalising it gives
+ * a smooth, analytically-correct surface normal that avoids the faceting
+ * artefacts produced by Three.js's computeVertexNormals() on non-indexed
+ * geometry (which yields flat per-face normals).
+ *
+ * @param x  World X of the surface point
+ * @param y  World Y of the surface point
+ * @param z  World Z of the surface point
+ * @returns  Unit normal vector [nx, ny, nz] pointing outward
+ */
+function computeDensityGradient(x: number, y: number, z: number): [number, number, number] {
+  // Step size: 25 % of a voxel — large enough to capture smooth variation,
+  // small enough not to skip over narrow features.
+  const eps = VOXEL_SIZE * 0.25;
+  const dx = getVoxelDensity(x + eps, y, z) - getVoxelDensity(x - eps, y, z);
+  const dy = getVoxelDensity(x, y + eps, z) - getVoxelDensity(x, y - eps, z);
+  const dz = getVoxelDensity(x, y, z + eps) - getVoxelDensity(x, y, z - eps);
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  // Degenerate case (perfectly flat density field) — fall back to up-vector
+  if (len < 1e-7) return [0, 1, 0];
+  return [dx / len, dy / len, dz / len];
+}
+
+/**
  * Linear interpolation of a vertex position along an edge.
  * Returns the world-space XYZ position where density = isolevel (0).
  */
@@ -1011,9 +1039,10 @@ export function generateChunkGeometry(
   const evy = new Float64Array(12);
   const evz = new Float64Array(12);
 
-  // Accumulate vertices and colors for the mesh
-  const posArr: number[] = [];
-  const colArr: number[] = [];
+  // Accumulate vertices, normals, and colors for the mesh
+  const posArr:  number[] = [];
+  const normArr: number[] = [];
+  const colArr:  number[] = [];
 
   for (let zi = 0; zi < CS; zi++) {
     for (let yi = 0; yi < CS; yi++) {
@@ -1066,6 +1095,13 @@ export function generateChunkGeometry(
             const vx = vi === 0 ? evx[e0] : vi === 1 ? evx[e1] : evx[e2];
             const vy = vi === 0 ? evy[e0] : vi === 1 ? evy[e1] : evy[e2];
             const vz = vi === 0 ? evz[e0] : vi === 1 ? evz[e1] : evz[e2];
+
+            // Smooth normal from density-field gradient — eliminates flat
+            // per-face shading that makes adjacent triangles look different
+            // colours depending on viewing direction.
+            const [nx, ny, nz] = computeDensityGradient(vx, vy, vz);
+            normArr.push(nx, ny, nz);
+
             const surfY = sampleSurfCache(surfCache, originX, originZ, VS, dim, vx, vz);
             const isCave = vy < surfY - 3;
             const col = getBiomeColor(vy, isCave);
@@ -1079,9 +1115,13 @@ export function generateChunkGeometry(
   if (posArr.length === 0) return null;
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(posArr, 3));
-  geo.setAttribute("color",    new THREE.Float32BufferAttribute(colArr, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(posArr,  3));
+  // Smooth normals computed analytically from the density-field gradient
+  // (central finite differences). This gives smooth per-vertex normals that
+  // correctly represent the isosurface curvature, unlike computeVertexNormals()
+  // which produces flat per-face normals on non-indexed geometry.
+  geo.setAttribute("normal",   new THREE.Float32BufferAttribute(normArr, 3));
+  geo.setAttribute("color",    new THREE.Float32BufferAttribute(colArr,  3));
 
   return geo;
 }
