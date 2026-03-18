@@ -11,6 +11,7 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
     "@types/three": "^0.183.1",
     "framer-motion": "^12.34.3",
     "next": "16.1.6",

@@ -140,6 +140,7 @@ import {
   BUNKER_INTERIOR_WORLD_Y,
   BUNKER_INTERIOR_WORLD_Z,
   BUNKER_CHEST_OPEN_RADIUS,
+  BUNKER_PRINTER_INTERACT_RADIUS,
   buildBunkerExteriorMesh,
   buildBunkerInteriorScene,
   checkBunkerProximity,
@@ -147,6 +148,16 @@ import {
   type BunkerConfig,
   type BunkerInteriorResult,
 } from "@/lib/bunkerSystem";
+import {
+  type PrintedItemData,
+  type PrintedItemMetadata,
+  createPrintedItem,
+  updatePrintedItems,
+  pickupPrintedItem,
+  findNearestPrintedItem,
+  PRINTED_ITEM_PICKUP_RADIUS,
+} from "@/lib/printedItemSystem";
+import PrinterModal, { type PrinterResult } from "@/components/PrinterModal";
 import {
   type WeatherState,
   WEATHER_CONFIGS,
@@ -975,6 +986,18 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   /** Index of nearest openable bunker chest (-1 = none). */
   const nearBunkerChestIdxRef = useRef(-1);
 
+  // ─── 3D Printer Refs ──────────────────────────────────────────────────────────
+  /** Local position of the 3D printer inside the bunker (set on init). */
+  const bunkerPrinterLocalPosRef = useRef<{ x: number; z: number } | null>(null);
+  /** True when player is within BUNKER_PRINTER_INTERACT_RADIUS of the printer. */
+  const nearBunkerPrinterRef = useRef(false);
+
+  // ─── Printed Items ────────────────────────────────────────────────────────────
+  /** All printed items currently in the scene (bunker interior coords). */
+  const printedItemsRef = useRef<PrintedItemData[]>([]);
+  /** Index of nearest printed item within pickup radius (-1 = none). */
+  const nearPrintedItemIdxRef = useRef(-1);
+
   // ─── Inventory Modal Refs ─────────────────────────────────────────────────────
   /** True while inventory modal is open — blocks game input. */
   const inventoryOpenRef = useRef(false);
@@ -1104,6 +1127,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
   const [nearCaveChestPrompt, setNearCaveChestPrompt] = useState(false);
   /** Show [E] prompt near bunker chest. */
   const [nearBunkerChestPrompt, setNearBunkerChestPrompt] = useState(false);
+  /** Show [E] prompt near 3D printer. */
+  const [nearBunkerPrinterPrompt, setNearBunkerPrinterPrompt] = useState(false);
+  /** Show [E] prompt near a printed item (pickup). */
+  const [nearPrintedItemPrompt, setNearPrintedItemPrompt] = useState(false);
+  /** Whether the 3D printer modal is open. */
+  const [printerModalOpen, setPrinterModalOpen] = useState(false);
+  const printerModalOpenRef = useRef(false);
   /** Show [E] open prompt for airdrop (replaces auto-collect). */
   const [airdropOpenPrompt, setAirdropOpenPrompt] = useState(false);
 
@@ -1575,6 +1605,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     setInventoryItems([]);
     // Re-lock pointer so game resumes without needing to click "Pokračovat"
     setTimeout(() => mountRef.current?.requestPointerLock(), 50);
+  }, []);
+
+  /** Close the 3D printer modal and re-lock pointer. */
+  const handlePrinterClose = useCallback(() => {
+    printerModalOpenRef.current = false;
+    setPrinterModalOpen(false);
+    setTimeout(() => mountRef.current?.requestPointerLock(), 50);
+  }, []);
+
+  /**
+   * Called when the printer successfully generates a new item.
+   * Creates a PrintedItemData and places it in the bunker scene.
+   */
+  const handleItemGenerated = useCallback((result: PrinterResult) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Place the item just in front of the printer in local bunker coords
+    const pp = bunkerPrinterLocalPosRef.current;
+    if (!pp) return;
+
+    // Offset from the printer — in front of it (toward room centre, +X direction)
+    const itemX = pp.x + 1.2;
+    const itemZ = pp.z;
+    const itemY = BUNKER_INTERIOR_WORLD_Y; // floor of the bunker interior
+
+    const newItem = createPrintedItem(scene, itemX, itemY, itemZ, result.meshCode, result.metadata);
+    printedItemsRef.current = [...printedItemsRef.current, newItem];
   }, []);
 
   /** Handle host reassignment — update isHost and notify sync manager. */
@@ -4760,6 +4818,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         };
       });
 
+      // ── Store printer local position for proximity checks ─────────────────
+      bunkerPrinterLocalPosRef.current = {
+        x: bunkerResult.printerLocalPosition.localX,
+        z: bunkerResult.printerLocalPosition.localZ,
+      };
+
       // Hidden by default — only visible when player is inside a bunker
       bunkerResult.group.visible = false;
     }
@@ -5135,6 +5199,38 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           scene.fog = null;
           scene.background = new THREE.Color(0x080808);
           return;
+        }
+
+        // ── Open 3D printer modal ─────────────────────────────────────────────
+        if (inBunkerRef.current && nearBunkerPrinterRef.current && !printerModalOpenRef.current && !inventoryOpenRef.current) {
+          printerModalOpenRef.current = true;
+          setPrinterModalOpen(true);
+          setNearBunkerPrinterPrompt(false);
+          document.exitPointerLock();
+          return;
+        }
+
+        // ── Pick up printed item ──────────────────────────────────────────────
+        if (inBunkerRef.current && nearPrintedItemIdxRef.current >= 0 && !inventoryOpenRef.current && !printerModalOpenRef.current) {
+          const itemIdx = nearPrintedItemIdxRef.current;
+          const item = printedItemsRef.current[itemIdx];
+          if (item && !item.pickedUp) {
+            pickupPrintedItem(scene, item);
+            soundManager.playCoinCollect?.();
+            // Apply item effect based on type
+            if (item.metadata.type === 'weapon' && item.metadata.damage > 0) {
+              // Treat as a sword-tier weapon for now — damage is stored in metadata
+              // We equip the nearest available slot
+              addWeaponToActiveSlot('sword');
+            } else if (item.metadata.type === 'consumable' && item.metadata.healing > 0) {
+              playerHpRef.current = Math.min(PLAYER_MAX_HP, playerHpRef.current + item.metadata.healing);
+            }
+            // Remove from array
+            printedItemsRef.current = printedItemsRef.current.filter((_, i) => i !== itemIdx);
+            nearPrintedItemIdxRef.current = -1;
+            setNearPrintedItemPrompt(false);
+            return;
+          }
         }
 
         // ── Open bunker chest inventory ───────────────────────────────────────
@@ -6510,6 +6606,30 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           setNearBunkerChestPrompt(nearestChestIdx >= 0);
         }
 
+        // ── 3D Printer proximity ──────────────────────────────────────────────
+        {
+          const pp = bunkerPrinterLocalPosRef.current;
+          if (pp) {
+            const dx = localX - pp.x;
+            const dz = localZ - pp.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const near = dist < BUNKER_PRINTER_INTERACT_RADIUS;
+            nearBunkerPrinterRef.current = near;
+            setNearBunkerPrinterPrompt(near && !printerModalOpenRef.current);
+          }
+        }
+
+        // ── Printed item pickup proximity ─────────────────────────────────────
+        {
+          // Printed items are placed in bunker interior local coords
+          const nearIdx = findNearestPrintedItem(printedItemsRef.current, localX, localZ);
+          nearPrintedItemIdxRef.current = nearIdx;
+          setNearPrintedItemPrompt(nearIdx >= 0);
+        }
+
+        // ── Update printed items animation ────────────────────────────────────
+        updatePrintedItems(printedItemsRef.current, dt, elapsed);
+
         // Animate bunker lights (flicker effect)
         bunkerLightsRef.current.forEach(({ light, baseIntensity, phase }) => {
           light.intensity = baseIntensity * (0.88 + Math.sin(elapsed * (1.3 + phase * 0.2) + phase) * 0.12);
@@ -6532,6 +6652,12 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           } else if (type === "vent") {
             // Spinning centrifuge
             mesh.rotation.y += dt * 3.5;
+          } else if (type === "printer_light") {
+            // Printer status LED slow pulse
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat.emissiveIntensity !== undefined) {
+              mat.emissiveIntensity = 1.5 + Math.sin(elapsed * 2.2) * 0.7;
+            }
           }
         });
       }
@@ -11794,6 +11920,44 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         </div>
       )}
 
+      {/* ═══════════════ BOTTOM — 3D Printer [E] prompt ═══════════════ */}
+      {nearBunkerPrinterPrompt && inBunker && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(0,12,18,0.93)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(0,255,200,0.55)",
+              boxShadow: "0 0 28px rgba(0,220,180,0.35)",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}
+          >
+            🖨️ <span style={{ color: "#00ffcc" }}>[E] 3D Tiskárna</span>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ BOTTOM — Printed item pickup [E] prompt ═══════════════ */}
+      {nearPrintedItemPrompt && inBunker && gameState.isLocked && (
+        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
+          <div
+            className="rounded-xl text-white font-bold text-sm animate-pulse"
+            style={{
+              padding: "10px 24px",
+              background: "rgba(0,12,18,0.93)",
+              backdropFilter: "blur(10px)",
+              border: "1px solid rgba(0,200,150,0.55)",
+              boxShadow: "0 0 26px rgba(0,180,130,0.30)",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}
+          >
+            ✨ <span style={{ color: "#aaffdd" }}>[E] Sebrat vytištěný předmět</span>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════ CENTER — Possession prompt ═══════════════ */}
       {nearSheepPrompt && !isPossessed && !onBoat && gameState.isLocked && (
         <div className="fixed bottom-36 left-1/2 -translate-x-1/2 pointer-events-none select-none">
@@ -12682,6 +12846,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         items={inventoryItems}
         onTakeAll={handleInventoryTakeAll}
         onClose={handleInventoryClose}
+      />
+
+      {/* ═══════════════ 3D Printer Modal ═══════════════ */}
+      <PrinterModal
+        isOpen={printerModalOpen}
+        playerName={playerName}
+        onClose={handlePrinterClose}
+        onItemGenerated={handleItemGenerated}
       />
     </div>
   );

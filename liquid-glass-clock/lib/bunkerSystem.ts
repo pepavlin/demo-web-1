@@ -24,6 +24,9 @@ export const BUNKER_EXIT_RADIUS = 3.0;
 /** Radius around a chest within which [E] open prompt appears. */
 export const BUNKER_CHEST_OPEN_RADIUS = 2.2;
 
+/** Radius around the 3D printer within which [E] prompt appears. */
+export const BUNKER_PRINTER_INTERACT_RADIUS = 2.5;
+
 /**
  * World-space Y at which the bunker interior group is placed.
  * Must be far above the exterior world so fog hides it completely.
@@ -64,6 +67,15 @@ export interface BunkerChestPosition {
   rotY: number;
 }
 
+export interface BunkerPrinterPosition {
+  /** Local X position inside the bunker (relative to group origin). */
+  localX: number;
+  /** Local Z position inside the bunker (relative to group origin). */
+  localZ: number;
+  /** Y rotation for the printer mesh (radians). */
+  rotY: number;
+}
+
 export interface BunkerInteriorResult {
   group: THREE.Group;
   /** Walkable AABB rooms (local coords, relative to group origin). */
@@ -71,7 +83,7 @@ export interface BunkerInteriorResult {
   /** Point lights with flicker metadata. */
   lights: Array<{ light: THREE.PointLight; baseIntensity: number; phase: number }>;
   /** Animated meshes (monitors, servers). */
-  animatedMeshes: Array<{ mesh: THREE.Mesh; type: "monitor" | "server_led" | "vent" }>;
+  animatedMeshes: Array<{ mesh: THREE.Mesh; type: "monitor" | "server_led" | "vent" | "printer_light" }>;
   /** Local-space position of the exit ladder (where exit prompt appears). */
   exitLocalPos: THREE.Vector3;
   /**
@@ -80,6 +92,11 @@ export interface BunkerInteriorResult {
    * so that chest opened-state can be tracked per bunker visit.
    */
   chestLocalPositions: BunkerChestPosition[];
+  /**
+   * Position for the 3D printer inside the bunker.
+   * Game3D.tsx reads this to handle printer interaction.
+   */
+  printerLocalPosition: BunkerPrinterPosition;
 }
 
 // ─── World Positions ──────────────────────────────────────────────────────────
@@ -892,6 +909,35 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
     label.position.set(0, 2.4, 35.5);
     group.add(label);
 
+    // ── 3D Printer (Container 3 – server room, left wall, Z ≈ 28) ─────────────
+    // The printer is mounted on its own stand against the left wall.
+    const PRINTER_X = -CONTAINER_W / 2 + 0.55;
+    const PRINTER_Z = 28.0;
+    {
+      const printerGroup = buildPrinterMesh();
+      printerGroup.position.set(PRINTER_X, 0, PRINTER_Z);
+      printerGroup.rotation.y = Math.PI / 2; // face into the room
+      group.add(printerGroup);
+
+      // Printer status LED (animated cyan — "online" state)
+      const printerLight = new THREE.PointLight(0x00ffee, 3.5, 4);
+      printerLight.position.set(PRINTER_X + 0.3, 1.3, PRINTER_Z);
+      group.add(printerLight);
+      lights.push({ light: printerLight, baseIntensity: 3.5, phase: 5.1 });
+
+      // Printer LED indicator mesh for animation
+      const ledGeo = new THREE.SphereGeometry(0.04, 6, 4);
+      const ledMat = new THREE.MeshStandardMaterial({
+        color: 0x00ffee,
+        emissive: new THREE.Color(0x00ffee),
+        emissiveIntensity: 2.0,
+      });
+      const ledMesh = new THREE.Mesh(ledGeo, ledMat) as THREE.Mesh;
+      ledMesh.position.set(PRINTER_X + 0.22, 1.22, PRINTER_Z - 0.1);
+      group.add(ledMesh);
+      animatedMeshes.push({ mesh: ledMesh, type: "printer_light" });
+    }
+
     return {
       group,
       rooms,
@@ -907,8 +953,180 @@ export function buildBunkerInteriorScene(): BunkerInteriorResult {
         { localX:  1.2, localZ:  8.5, rotY: -Math.PI / 2 },
         { localX: -1.2, localZ: 22.0, rotY:  Math.PI / 2 },
       ],
+      /**
+       * 3D printer is in Container 3 (server room), left wall at Z ≈ 28.
+       */
+      printerLocalPosition: {
+        localX: PRINTER_X,
+        localZ: PRINTER_Z,
+        rotY: Math.PI / 2,
+      },
     };
   }
+}
+
+// ─── 3D Printer Mesh Builder ──────────────────────────────────────────────────
+
+/**
+ * Builds a detailed FDM 3D printer mesh (like an Ender-style open-frame printer).
+ * Origin is at the base centre on the floor (Y=0).
+ * Height ≈ 1.2 units, Width ≈ 0.45 units, Depth ≈ 0.45 units.
+ */
+export function buildPrinterMesh(): THREE.Group {
+  const group = new THREE.Group();
+
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.8 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ccdd, roughness: 0.3, metalness: 0.6 });
+  const glassMat2 = new THREE.MeshStandardMaterial({
+    color: 0x88eeff, transparent: true, opacity: 0.28,
+    roughness: 0, metalness: 0.1,
+  });
+  const bedMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+  const filamentMat = new THREE.MeshStandardMaterial({
+    color: 0x00ffcc,
+    emissive: new THREE.Color(0x00ccaa),
+    emissiveIntensity: 0.6,
+    roughness: 0.4,
+  });
+  const screenMat2 = new THREE.MeshStandardMaterial({
+    color: 0x001122,
+    emissive: new THREE.Color(0x0088ff),
+    emissiveIntensity: 1.2,
+    roughness: 0, metalness: 0,
+  });
+  const standMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7, metalness: 0.5 });
+
+  // Stand / pedestal
+  const standGeo = new THREE.BoxGeometry(0.52, 0.55, 0.52);
+  const stand = new THREE.Mesh(standGeo, standMat);
+  stand.position.set(0, 0.275, 0);
+  group.add(stand);
+
+  // Stand detail — cyan accent stripe
+  const stripeGeo = new THREE.BoxGeometry(0.52, 0.03, 0.52);
+  const stripe = new THREE.Mesh(stripeGeo, accentMat);
+  stripe.position.set(0, 0.55, 0);
+  group.add(stripe);
+
+  // Main printer body (sits on stand)
+  const bodyGeo = new THREE.BoxGeometry(0.44, 0.08, 0.44);
+  const body = new THREE.Mesh(bodyGeo, frameMat);
+  body.position.set(0, 0.59, 0);
+  group.add(body);
+
+  // ── Vertical frame posts (4 corners) ──
+  const postGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.62, 8);
+  const postOffsets: [number, number][] = [[-0.18, -0.18], [-0.18, 0.18], [0.18, -0.18], [0.18, 0.18]];
+  postOffsets.forEach(([px, pz]) => {
+    const post = new THREE.Mesh(postGeo, frameMat);
+    post.position.set(px, 0.93, pz);
+    group.add(post);
+  });
+
+  // ── Horizontal top crossbars ──
+  const barGeo = new THREE.BoxGeometry(0.4, 0.022, 0.022);
+  const barTop = new THREE.Mesh(barGeo, accentMat);
+  barTop.position.set(0, 1.24, 0);
+  group.add(barTop);
+
+  const barGeo2 = new THREE.BoxGeometry(0.022, 0.022, 0.4);
+  const barTop2 = new THREE.Mesh(barGeo2, accentMat);
+  barTop2.position.set(0, 1.24, 0);
+  group.add(barTop2);
+
+  // ── Print bed (heated bed platform) ──
+  const printBedGeo = new THREE.BoxGeometry(0.36, 0.018, 0.36);
+  const printBed = new THREE.Mesh(printBedGeo, bedMat);
+  printBed.position.set(0, 0.64, 0);
+  group.add(printBed);
+
+  // Print bed grid lines (accent)
+  for (let i = -1; i <= 1; i++) {
+    const lineGeo = new THREE.BoxGeometry(0.36, 0.003, 0.003);
+    const line = new THREE.Mesh(lineGeo, accentMat);
+    line.position.set(0, 0.652, i * 0.12);
+    group.add(line);
+
+    const lineGeo2 = new THREE.BoxGeometry(0.003, 0.003, 0.36);
+    const line2 = new THREE.Mesh(lineGeo2, accentMat);
+    line2.position.set(i * 0.12, 0.652, 0);
+    group.add(line2);
+  }
+
+  // ── Print head / extruder carriage ──
+  const carriageGeo = new THREE.BoxGeometry(0.1, 0.07, 0.07);
+  const carriage = new THREE.Mesh(carriageGeo, frameMat);
+  carriage.position.set(0, 0.88, 0);
+  group.add(carriage);
+
+  // Nozzle (small cylinder below carriage)
+  const nozzleGeo = new THREE.CylinderGeometry(0.008, 0.005, 0.04, 6);
+  const nozzle = new THREE.Mesh(nozzleGeo, accentMat);
+  nozzle.position.set(0, 0.84, 0);
+  group.add(nozzle);
+
+  // Filament spool (on the side)
+  const spoolOuterGeo = new THREE.TorusGeometry(0.1, 0.025, 8, 16);
+  const spoolOuter = new THREE.Mesh(spoolOuterGeo, frameMat);
+  spoolOuter.rotation.x = Math.PI / 2;
+  spoolOuter.position.set(0.28, 0.95, 0);
+  group.add(spoolOuter);
+
+  const spoolInnerGeo = new THREE.TorusGeometry(0.055, 0.012, 6, 12);
+  const spoolInner = new THREE.Mesh(spoolInnerGeo, filamentMat);
+  spoolInner.rotation.x = Math.PI / 2;
+  spoolInner.position.set(0.28, 0.95, 0);
+  group.add(spoolInner);
+
+  // Filament tube from spool to carriage (approximated as a thin cylinder)
+  const tubeGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 6);
+  const tube = new THREE.Mesh(tubeGeo, filamentMat);
+  tube.rotation.z = -0.6;
+  tube.position.set(0.13, 0.92, 0);
+  group.add(tube);
+
+  // ── Front glass panel (semi-transparent) ──
+  const glassGeo = new THREE.BoxGeometry(0.42, 0.55, 0.01);
+  const glassFront = new THREE.Mesh(glassGeo, glassMat2);
+  glassFront.position.set(0, 0.89, 0.22);
+  group.add(glassFront);
+
+  // ── Touchscreen panel on the front face of stand ──
+  const touchGeo = new THREE.BoxGeometry(0.14, 0.09, 0.01);
+  const touch = new THREE.Mesh(touchGeo, screenMat2);
+  touch.position.set(-0.14, 0.3, 0.27);
+  group.add(touch);
+
+  // Screen glow border
+  const screenBorderGeo = new THREE.BoxGeometry(0.16, 0.11, 0.008);
+  const screenBorderMat = new THREE.MeshStandardMaterial({ color: 0x003344, roughness: 0.3 });
+  const screenBorder = new THREE.Mesh(screenBorderGeo, screenBorderMat);
+  screenBorder.position.set(-0.14, 0.3, 0.266);
+  group.add(screenBorder);
+
+  // ── Status LED indicator ──
+  const printerLedGeo = new THREE.SphereGeometry(0.022, 6, 4);
+  const printerLedMat = new THREE.MeshStandardMaterial({
+    color: 0x00ffee,
+    emissive: new THREE.Color(0x00ffee),
+    emissiveIntensity: 2.0,
+  });
+  const printerLed = new THREE.Mesh(printerLedGeo, printerLedMat);
+  printerLed.position.set(0.1, 0.3, 0.27);
+  group.add(printerLed);
+
+  // ── Label plate on stand front ──
+  const plateMat2 = new THREE.MeshStandardMaterial({
+    color: 0x002233,
+    emissive: new THREE.Color(0x001122),
+    emissiveIntensity: 0.3,
+  });
+  const plateGeo2 = new THREE.BoxGeometry(0.18, 0.06, 0.01);
+  const plateMesh2 = new THREE.Mesh(plateGeo2, plateMat2);
+  plateMesh2.position.set(0.05, 0.16, 0.27);
+  group.add(plateMesh2);
+
+  return group;
 }
 
 // ─── Proximity Helpers ────────────────────────────────────────────────────────
