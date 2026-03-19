@@ -36,6 +36,24 @@ global.cancelAnimationFrame = mockCaf;
 
 import GeometricParticles from "../components/GeometricParticles";
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+// The component throttles rendering to ~30 fps (one frame every ≥33.3 ms).
+// Tests that verify per-frame rendering must supply timestamps spaced ≥34 ms
+// apart so each call passes the throttle gate and actually renders.
+const FRAME_MS = 34; // just above the 33.3 ms 30-fps budget
+
+// lastFrameTimeRef starts at 0.  A timestamp of 0 produces delta=0 which is
+// below the 33.3 ms threshold and skips the frame.  Starting at a large value
+// ensures the first call always passes: (10_000 − 0) >> 33.3.
+const START_TS = 10_000;
+
+/** Call rafCallback n times, each timestamp 34 ms after the previous. */
+function runFrames(n: number, startTs = START_TS): void {
+  for (let i = 0; i < n; i++) {
+    if (rafCallback) rafCallback(startTs + i * FRAME_MS);
+  }
+}
+
 describe("GeometricParticles component", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -62,7 +80,7 @@ describe("GeometricParticles component", () => {
   it("calls clearRect on each animation frame", () => {
     render(<GeometricParticles />);
     act(() => {
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     expect(mockContext.clearRect).toHaveBeenCalled();
   });
@@ -70,7 +88,7 @@ describe("GeometricParticles component", () => {
   it("draws dots via arc on each animation frame", () => {
     render(<GeometricParticles />);
     act(() => {
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     expect(mockContext.arc).toHaveBeenCalled();
   });
@@ -120,7 +138,7 @@ describe("GeometricParticles component", () => {
     act(() => {
       window.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 }));
       window.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     expect(mockContext.clearRect).toHaveBeenCalled();
   });
@@ -128,7 +146,7 @@ describe("GeometricParticles component", () => {
   it("creates radial gradients for glow effect", () => {
     render(<GeometricParticles />);
     act(() => {
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     expect(mockContext.createRadialGradient).toHaveBeenCalled();
   });
@@ -136,7 +154,7 @@ describe("GeometricParticles component", () => {
   it("draws lines between particles via beginPath and stroke", () => {
     render(<GeometricParticles />);
     act(() => {
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     expect(mockContext.beginPath).toHaveBeenCalled();
   });
@@ -144,9 +162,8 @@ describe("GeometricParticles component", () => {
   it("renders correctly over multiple frames without throwing", () => {
     render(<GeometricParticles />);
     act(() => {
-      for (let frame = 0; frame < 5; frame++) {
-        if (rafCallback) rafCallback(performance.now());
-      }
+      // Pass timestamps spaced 34 ms apart so every frame clears the throttle gate.
+      runFrames(5);
     });
     expect(mockContext.clearRect).toHaveBeenCalledTimes(5);
     expect(mockContext.arc).toHaveBeenCalled();
@@ -154,11 +171,10 @@ describe("GeometricParticles component", () => {
 
   it("advances breathing animation across frames without throwing", () => {
     render(<GeometricParticles />);
-    // Run many frames to let the sine-wave camera Z oscillation progress
+    // Run many frames to let the sine-wave camera Z oscillation progress.
+    // Each call receives a timestamp 34 ms after the previous.
     act(() => {
-      for (let frame = 0; frame < 20; frame++) {
-        if (rafCallback) rafCallback(performance.now());
-      }
+      runFrames(20);
     });
     expect(mockContext.clearRect).toHaveBeenCalledTimes(20);
   });
@@ -168,7 +184,7 @@ describe("GeometricParticles component", () => {
     // Move mouse to centre of the mocked 0×0 canvas – particles in screen-radius will be pulled
     act(() => {
       window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     // Rendering must complete without errors
     expect(mockContext.clearRect).toHaveBeenCalled();
@@ -180,10 +196,8 @@ describe("GeometricParticles component", () => {
     act(() => {
       window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
       window.dispatchEvent(new MouseEvent("mousedown"));
-      // Run several frames while button is held
-      for (let i = 0; i < 3; i++) {
-        if (rafCallback) rafCallback(performance.now());
-      }
+      // Run several frames while button is held (timestamps spaced 34 ms apart)
+      runFrames(3);
       window.dispatchEvent(new MouseEvent("mouseup"));
     });
     expect(mockContext.clearRect).toHaveBeenCalledTimes(3);
@@ -195,7 +209,7 @@ describe("GeometricParticles component", () => {
     act(() => {
       window.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, clientY: 300 }));
       window.dispatchEvent(new MouseEvent("mouseleave"));
-      if (rafCallback) rafCallback(performance.now());
+      runFrames(1);
     });
     // After leave the influence is inactive – rendering still works
     expect(mockContext.clearRect).toHaveBeenCalled();
@@ -206,9 +220,9 @@ describe("GeometricParticles component", () => {
     act(() => {
       window.dispatchEvent(new MouseEvent("mousemove", { clientX: 200, clientY: 200 }));
       window.dispatchEvent(new MouseEvent("mousedown"));
-      if (rafCallback) rafCallback(performance.now());
+      if (rafCallback) rafCallback(START_TS);
       window.dispatchEvent(new MouseEvent("mouseup"));
-      if (rafCallback) rafCallback(performance.now());
+      if (rafCallback) rafCallback(START_TS + FRAME_MS);
     });
     expect(mockContext.clearRect).toHaveBeenCalledTimes(2);
   });

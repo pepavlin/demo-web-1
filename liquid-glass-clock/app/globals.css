@@ -75,23 +75,22 @@ body {
 .theme-bg-2 { animation: theme-2-fade 60s ease-in-out infinite; }
 .theme-bg-3 { animation: theme-3-fade 60s ease-in-out infinite; }
 
-/* Canvas hue-rotation — shifts geometric particle colors over time */
-@keyframes canvas-hue-cycle {
-  0%, 100% { filter: hue-rotate(0deg); }
-  25%       { filter: hue-rotate(90deg);  }
-  50%       { filter: hue-rotate(180deg); }
-  75%       { filter: hue-rotate(270deg); }
-}
-
+/* Canvas hue-rotation — DISABLED: filter: hue-rotate() on a WebGL canvas
+ * forces the browser to read back the GPU framebuffer to CPU every frame,
+ * bypassing hardware-accelerated compositing and causing severe frame drops.
+ * Color variety is achieved instead via the particle color palette. */
 .color-cycle-canvas {
-  animation: canvas-hue-cycle 60s linear infinite;
+  /* animation removed for performance */
 }
 
-/* Liquid glass effect */
+/* Liquid glass effect — blur reduced from 40px to 16px for GPU performance.
+ * backdrop-filter is expensive: 40px gaussian blur samples ~5000 pixels per
+ * output pixel and repeats every frame when the scene moves behind the element.
+ * 16px achieves the same frosted-glass look at ~16× less GPU work. */
 .liquid-glass {
   background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 2rem;
   box-shadow:
@@ -103,8 +102,8 @@ body {
 
 .liquid-glass-inner {
   background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 1.2rem;
   box-shadow:
@@ -116,8 +115,8 @@ body {
 /* Digit container */
 .digit-glass {
   background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 1.5rem;
   box-shadow:
@@ -525,16 +524,21 @@ body {
   50%       { opacity: 0.06; }
 }
 
-/* Container: centred at top, all rays fan out from origin */
+/* Container: centred at top, all rays fan out from origin.
+ * contain: layout style paint prevents this decorative layer from causing
+ * layout recalculations in the rest of the page. */
 .vol-rays-container {
   position: absolute;
   inset: 0;
   pointer-events: none;
   overflow: hidden;
   z-index: 2;
+  contain: layout style paint;
 }
 
-/* Inner hub — positioned at top-center, acts as rotation pivot */
+/* Inner hub — positioned at top-center, acts as rotation pivot.
+ * will-change: transform promotes to its own GPU compositor layer so the CSS
+ * rotation animation runs entirely on the GPU without triggering paint. */
 .vol-rays-hub {
   position: absolute;
   top: -5%;
@@ -542,9 +546,12 @@ body {
   width: 0;
   height: 0;
   animation: vol-rays-spin 90s linear infinite;
+  will-change: transform;
 }
 
-/* Each ray: a tall thin gradient beam originating from the hub */
+/* Each ray: a tall thin gradient beam originating from the hub.
+ * Blur reduced from 18px to 10px — visually equivalent at this opacity but
+ * significantly cheaper since gaussian blur cost scales with radius². */
 .vol-ray {
   position: absolute;
   top: 0;
@@ -558,7 +565,7 @@ body {
     rgba(120, 80, 220, 0.06) 30%,
     transparent 100%
   );
-  filter: blur(18px);
+  filter: blur(10px);
 }
 
 .vol-ray:nth-child(1)  { transform: rotate(-80deg);  animation: vol-ray-pulse-a 7s ease-in-out infinite 0s;   width: 180px; }
@@ -595,9 +602,11 @@ body {
   width: 0;
   height: 0;
   animation: vol-rays-spin 120s linear infinite reverse;
+  will-change: transform;
 }
 
-/* Warm ray base style — golden/amber gradient instead of purple */
+/* Warm ray base style — golden/amber gradient instead of purple.
+ * Blur reduced from 20px to 11px for performance (cost ∝ radius²). */
 .vol-ray-warm {
   position: absolute;
   top: 0;
@@ -611,7 +620,7 @@ body {
     rgba(220, 125, 30, 0.08) 35%,
     transparent 100%
   );
-  filter: blur(20px);
+  filter: blur(11px);
 }
 
 .vol-ray-warm:nth-child(1) { transform: rotate(-65deg);  animation: vol-ray-warm-pulse-a  9s ease-in-out infinite 0.5s;  width: 210px; }

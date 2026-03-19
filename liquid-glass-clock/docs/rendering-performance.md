@@ -10,7 +10,8 @@ The game uses a Three.js `WebGLRenderer` with several active optimizations to ma
 
 | Setting | Value | Rationale |
 |---------|-------|-----------|
-| `antialias` | `true` | Native MSAA for smooth edges |
+| `antialias` | `true` (desktop) / `false` (mobile) | MSAA disabled on mobile for fill-rate saving |
+| `powerPreference` | `"high-performance"` | Hints browser to use discrete GPU on dual-GPU laptops |
 | `pixelRatio` | `min(devicePixelRatio, 2)` | Cap at 2× to limit fill-rate cost |
 | `shadowMap.type` | `PCFSoftShadowMap` | Soft shadows |
 | `shadowMap.mapSize` | `1024×1024` | Balance between quality and GPU cost |
@@ -104,3 +105,72 @@ Wind sway is updated every other frame (`frameCount % 2 === 0`) within 80 units 
 | React HUD state | Every 6th frame (~10 fps) |
 | Terrain LOD | Every 30th frame (~2 fps) |
 | Bioluminescent plants | Every 3rd frame |
+
+---
+
+## Shadow Caster Reduction
+
+Removing small or numerous entities from the shadow pass reduces the number of meshes
+drawn into the shadow map each frame.
+
+| Entity | Policy | Reason |
+|--------|--------|--------|
+| Sheep (200 desktop) | `castShadow = false` | ~1600 mesh parts otherwise fill the shadow pass |
+| Foxes (12 desktop) | `castShadow = false` | Same rationale |
+| Rocks (90 desktop) | `castShadow = false` + `matrixAutoUpdate = false` | Small, static, no visible shadow |
+| Trees / buildings | `castShadow = true` | Major scene elements, shadows expected |
+
+**matrixAutoUpdate = false** is set on rock meshes after placement: rocks never move,
+so Three.js need not recompute their world matrix every frame (saves ~90+ matrix
+multiplications per frame).
+
+---
+
+## Entity AI Staggering
+
+Sheep and foxes in the **LOD distance range (65–200 units)** skip behavioral AI on
+odd-numbered frames (`frameCount % 2 !== 0`).  Their mesh positions continue to update
+every frame via cached velocity, so movement stays smooth.  Only the decision logic
+(wander target, flee checks) runs at half rate — imperceptible for distant entities.
+
+---
+
+## CSS Performance (Lobby / UI)
+
+### backdrop-filter Blur Reduction
+
+`backdrop-filter: blur()` resamples every pixel behind the element every frame the
+background moves.  Blur cost scales with **radius²**, so 40 px was 6.25× more expensive
+than 16 px for equivalent visual effect.
+
+| Class | Old | New |
+|-------|-----|-----|
+| `.liquid-glass` | `blur(40px) saturate(180%)` | `blur(16px) saturate(150%)` |
+| `.liquid-glass-inner` | `blur(20px)` | `blur(12px)` |
+| `.digit-glass` | `blur(30px) saturate(200%)` | `blur(16px) saturate(160%)` |
+
+### canvas-hue-cycle Removed
+
+`filter: hue-rotate()` on a WebGL `<canvas>` element bypasses hardware-accelerated
+compositing.  The browser must read back the entire GPU framebuffer to the CPU, apply
+the software filter, and re-upload every frame — effectively disabling the GPU fast-path
+for the canvas compositor layer.  The animation has been removed.
+
+### Volumetric Rays Optimization
+
+| Property | Old | New |
+|----------|-----|-----|
+| `.vol-ray` blur | `18px` | `10px` |
+| `.vol-ray-warm` blur | `20px` | `11px` |
+| `.vol-rays-container` | — | `contain: layout style paint` |
+| `.vol-rays-hub` / `.vol-rays-hub-warm` | — | `will-change: transform` |
+
+`will-change: transform` promotes the rotating ray hubs to dedicated GPU compositor
+layers, ensuring their CSS rotation runs entirely on the GPU without triggering paint
+invalidations in the rest of the page.
+
+### GeometricParticles 30 fps Cap
+
+The particle canvas (lobby only) now renders at a maximum of **30 fps** instead of
+matching the display refresh rate.  Background decoration does not need 60 fps
+smoothness; halving the frame rate halves all canvas CPU and GPU cost for this element.

@@ -90,6 +90,8 @@ export default function GeometricParticles() {
 
   /** Animation time counter (incremented each frame) */
   const timeRef      = useRef(0);
+  /** Timestamp of the last rendered frame — used to cap to ~30 fps */
+  const lastFrameTimeRef = useRef(0);
 
   /** Smoothed camera Z position */
   const camZRef      = useRef(0);
@@ -151,7 +153,18 @@ export default function GeometricParticles() {
     //              sx = w/2 + wx·scale
     //              sy = h/2 − wy·scale
 
-    const draw = () => {
+    // Target ~30 fps for the background particle canvas — it lives only in the
+    // lobby and does not need 60 fps smoothness.  This halves CPU/GPU cost while
+    // keeping the animation visibly fluid.
+    const TARGET_FRAME_MS = 1000 / 30; // ≈ 33.3 ms
+
+    const draw = (timestamp: DOMHighResTimeStamp) => {
+      rafRef.current = requestAnimationFrame(draw);
+
+      // Skip frame if we're ahead of the 30-fps budget
+      if (timestamp - lastFrameTimeRef.current < TARGET_FRAME_MS) return;
+      lastFrameTimeRef.current = timestamp;
+
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
@@ -327,7 +340,6 @@ export default function GeometricParticles() {
         ctx.globalAlpha = 1;
       }
 
-      rafRef.current = requestAnimationFrame(draw);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -347,7 +359,7 @@ export default function GeometricParticles() {
     <canvas
       ref={canvasRef}
       data-testid="geometric-particles-canvas"
-      className="absolute inset-0 pointer-events-none color-cycle-canvas"
+      className="absolute inset-0 pointer-events-none"
       style={{ opacity: 0.75 }}
     />
   );
