@@ -2767,7 +2767,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
     );
 
     // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // powerPreference: "high-performance" hints the browser to use the discrete
+    // GPU instead of integrated graphics on dual-GPU systems (laptops, etc.).
+    // antialias is disabled on mobile — the smaller screen makes aliasing less
+    // visible and the GPU fill-rate saving is substantial.
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !IS_MOBILE,
+      powerPreference: "high-performance",
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -4015,6 +4022,20 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const { mesh: rock, collisionRadius: rockCollRadius } = buildRockMesh(rockRng);
       rock.position.set(p.x, p.y + 0.2, p.z);
       rock.rotation.y = rockRng() * Math.PI * 2;
+      // Rocks are static — freeze their world matrix so Three.js doesn't
+      // recompute it every frame (saves 90 matrix multiplications per frame).
+      rock.matrixAutoUpdate = false;
+      rock.updateMatrix();
+      // Rocks are small: removing them from the shadow pass cuts the shadow-map
+      // geometry batch without any noticeable visual difference.
+      rock.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh) {
+          m.castShadow = false;
+          m.matrixAutoUpdate = false;
+          m.updateMatrix();
+        }
+      });
       scene.add(rock);
       // All rocks block the player — even small ones are solid obstacles (low height, not walkable)
       treeCollisionRef.current.push({ x: p.x, baseY: p.y + 0.2, z: p.z, radius: rockCollRadius + PLAYER_RADIUS, height: 1.5, walkable: false });
@@ -4028,6 +4049,13 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       group.position.set(p.x, p.y, p.z);
       const initialAngle = Math.random() * Math.PI * 2;
       group.rotation.y = -initialAngle;
+      // Sheep are dynamic (AI-driven movement) so we keep matrixAutoUpdate=true,
+      // but we remove them from the shadow pass: 200 sheep × ~8 parts = ~1600
+      // extra draw calls per shadow map frame — a major GPU bottleneck.
+      group.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh) m.castShadow = false;
+      });
       scene.add(group);
 
       // LOD mesh — simplified, positioned identically, starts hidden
@@ -4035,6 +4063,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       lodMesh.position.copy(group.position);
       lodMesh.rotation.y = group.rotation.y;
       lodMesh.visible = false;
+      lodMesh.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh) m.castShadow = false;
+      });
       scene.add(lodMesh);
 
       // Spread out phase offsets so sheep don't all graze/move in lockstep
@@ -4088,6 +4120,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       const mesh = buildFoxMesh();
       mesh.position.set(p.x, p.y, p.z);
       mesh.rotation.y = Math.random() * Math.PI * 2;
+      // Remove foxes from shadow pass (same reason as sheep — too many casters)
+      mesh.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh) m.castShadow = false;
+      });
       scene.add(mesh);
 
       // LOD mesh — simplified, starts hidden
@@ -4095,6 +4132,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
       lodMesh.position.copy(mesh.position);
       lodMesh.rotation.y = mesh.rotation.y;
       lodMesh.visible = false;
+      lodMesh.traverse((child) => {
+        const m = child as THREE.Mesh;
+        if (m.isMesh) m.castShadow = false;
+      });
       scene.add(lodMesh);
 
       return {
@@ -9040,6 +9081,8 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             fox.lodMesh.position.copy(fm.position);
             fox.lodMesh.rotation.y = fm.rotation.y;
           }
+          // Mid-range fox (LOD mesh, 65+ units): stagger AI to every other frame.
+          if (!useDetail && frameCount % 2 !== 0) return;
         }
 
         // Track nearest alive fox for HP display
@@ -9807,6 +9850,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
             sheep.lodMesh.position.copy(s.position);
             sheep.lodMesh.rotation.y = s.rotation.y;
           }
+          // Mid-range sheep (LOD mesh visible, 65–200 units): run behavioral AI
+          // only every other frame.  Position interpolation still runs every frame
+          // via velocity so movement stays smooth; only decision-making is halved.
+          if (!useDetail && frameCount % 2 !== 0) return;
         }
 
         // ── Death animation ─────────────────────────────────────────────────
