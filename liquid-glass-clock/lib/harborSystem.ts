@@ -18,7 +18,7 @@ import * as THREE from "three";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-/** Runtime data for a harbour sailboat. */
+/** Runtime data for a harbour ship (sailboat or motorboat). */
 export interface HarborShipData {
   /** Three.js scene group. */
   mesh: THREE.Group;
@@ -28,10 +28,16 @@ export interface HarborShipData {
   velocity: number;
   /** Current heading in radians (Y-axis rotation of the mesh). */
   yaw: number;
-  /** Reference to the sail mesh for wind animation. */
+  /** Reference to the sail mesh for wind animation (sailboat only). */
   sailMesh: THREE.Mesh;
-  /** Reference to the sail group for billowing animation. */
+  /** Reference to the sail group for billowing animation (sailboat only). */
   sailGroup: THREE.Group;
+  /** Distinguishes vessel type for physics and animation. */
+  boatType?: "sailboat" | "motorboat";
+  /** Spinning propeller group (motorboat only). */
+  propellerGroup?: THREE.Group;
+  /** Engine housing group for vibration animation (motorboat only). */
+  engineGroup?: THREE.Group;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -43,6 +49,15 @@ export const SAILBOAT_TURN_SPEED  = 1.2;  // radians/s turning rate
 export const SAILBOAT_BOARD_RADIUS = 6;   // units — show [E] prompt within this radius
 export const SAILBOAT_CAM_HEIGHT  = 4.0;  // camera height above waterline when sailing
 export const SAILBOAT_CAM_DIST    = 9.0;  // camera distance behind stern
+
+// ─── Motorboat constants ───────────────────────────────────────────────────────
+export const MOTORBOAT_MAX_SPEED   = 35;   // units/s — much faster than sailboat
+export const MOTORBOAT_ACCEL       = 18;   // units/s² — snappy throttle response
+export const MOTORBOAT_BRAKE       = 25;   // units/s² — hard deceleration
+export const MOTORBOAT_TURN_SPEED  = 2.2;  // radians/s — agile at speed
+export const MOTORBOAT_BOARD_RADIUS = 6;   // units — show [E] prompt within this radius
+export const MOTORBOAT_CAM_HEIGHT  = 2.5;  // camera height above waterline
+export const MOTORBOAT_CAM_DIST    = 7.0;  // camera distance behind stern
 
 // ─── Materials (shared, created once) ─────────────────────────────────────────
 
@@ -525,6 +540,261 @@ export function buildSailboatMesh(): { group: THREE.Group; sailMesh: THREE.Mesh;
   pivot.add(flag);
 
   return { group, sailMesh, sailGroup };
+}
+
+// ─── Motorboat ────────────────────────────────────────────────────────────────
+
+/**
+ * Build a sleek speedboat with outboard motor, spinning propeller, windshield,
+ * and racing stripes.
+ *
+ * Dimensions (approx): 7 × 2.4 × 1.5 (L × W × H of hull).
+ * Bow points in the local +Z direction (same convention as the sailboat).
+ *
+ * Returns the group, the propellerGroup (spin around Z axis for propulsion
+ * animation), and the engineGroup (shake/vibrate when engine is running).
+ */
+export function buildMotorboatMesh(): {
+  group: THREE.Group;
+  propellerGroup: THREE.Group;
+  engineGroup: THREE.Group;
+} {
+  const group = new THREE.Group();
+  const pivot = new THREE.Group();
+  group.add(pivot);
+
+  // ── Materials ─────────────────────────────────────────────────────────────
+  const hullMat    = makeMat(0xF2F2F0);   // clean white hull
+  const stripeMat  = makeMat(0xCC2020);   // red racing stripe
+  const deckMat    = makeMat(0xD8D8CC);   // light grey deck
+  const motorMat   = makeMat(0x383850);   // dark gunmetal motor housing
+  const propMat    = makeMat(0x9090A8);   // silver propeller blades
+  const glassMat   = makeMat(0xAADDFF, { transparent: true, opacity: 0.45 });
+  const consoleMat = makeMat(0x1E1E2A);   // dark instrument console
+  const seatMat    = makeMat(0x7A4A1E);   // leather seat upholstery
+  const metalMat   = makeMat(0x667070);   // fittings and trim
+  const redLight   = makeMat(0xFF2222);   // port nav light
+  const greenLight = makeMat(0x22FF44);   // starboard nav light
+
+  // ── Hull ─────────────────────────────────────────────────────────────────
+  // Main hull bottom (keel)
+  const hullBottom = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.35, 7.0), hullMat);
+  hullBottom.position.y = 0.175;
+  hullBottom.castShadow = true;
+  hullBottom.receiveShadow = true;
+  pivot.add(hullBottom);
+
+  // Hull sides (port & starboard) — taller than bottom for freeboard
+  ([-1, 1] as const).forEach((s) => {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.72, 7.2), hullMat);
+    side.position.set(s * 1.1, 0.51, 0);
+    side.castShadow = true;
+    pivot.add(side);
+  });
+
+  // Bow cap (forward face)
+  const bowCap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.72, 0.55), hullMat);
+  bowCap.position.set(0, 0.51, 3.52);
+  bowCap.castShadow = true;
+  pivot.add(bowCap);
+
+  // Stern transom
+  const transom = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.72, 0.4), hullMat);
+  transom.position.set(0, 0.51, -3.4);
+  pivot.add(transom);
+
+  // Red racing stripes along both hull sides
+  ([-1, 1] as const).forEach((s) => {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.22, 6.9), stripeMat);
+    stripe.position.set(s * 1.22, 0.62, 0);
+    pivot.add(stripe);
+  });
+
+  // Thin chrome rub rail (top edge of hull sides)
+  ([-1, 1] as const).forEach((s) => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 7.0), metalMat);
+    rail.position.set(s * 1.12, 0.92, 0);
+    pivot.add(rail);
+  });
+
+  // ── Deck ─────────────────────────────────────────────────────────────────
+  const deckMain = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.1, 6.8), deckMat);
+  deckMain.position.set(0, 0.93, 0);
+  deckMain.receiveShadow = true;
+  pivot.add(deckMain);
+
+  // Raised bow deck (forecastle)
+  const bowDeck = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 2.2), deckMat);
+  bowDeck.position.set(0, 1.0, 2.4);
+  pivot.add(bowDeck);
+
+  // ── Windshield ───────────────────────────────────────────────────────────
+  // Angled glass panel in front of cockpit
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.52, 0.07), glassMat);
+  windshield.position.set(0, 1.3, 1.0);
+  windshield.rotation.x = -0.42; // lean forward
+  pivot.add(windshield);
+
+  // Windshield frame posts (port & starboard pillars)
+  ([-1, 1] as const).forEach((s) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.56, 0.07), metalMat);
+    post.position.set(s * 0.96, 1.3, 1.0);
+    post.rotation.x = -0.42;
+    pivot.add(post);
+  });
+
+  // ── Dashboard/console ─────────────────────────────────────────────────────
+  const console_ = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.42, 0.38), consoleMat);
+  console_.position.set(0, 1.14, 0.42);
+  pivot.add(console_);
+
+  // Instrument cluster (small coloured dials)
+  [[-0.24, 0], [0, 0], [0.24, 0]].forEach(([dx]) => {
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 10), metalMat);
+    dial.rotation.x = Math.PI / 2;
+    dial.position.set(dx, 1.28, 0.24);
+    pivot.add(dial);
+  });
+
+  // ── Steering wheel ─────────────────────────────────────────────────────────
+  const helmGroup = new THREE.Group();
+  helmGroup.position.set(0, 1.52, 0.46);
+  helmGroup.rotation.x = -0.32;
+  pivot.add(helmGroup);
+
+  const wheelRim = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.028, 6, 18), metalMat);
+  helmGroup.add(wheelRim);
+
+  for (let i = 0; i < 4; i++) {
+    const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.44, 4), metalMat);
+    spoke.rotation.z = (i / 4) * Math.PI * 2;
+    helmGroup.add(spoke);
+  }
+
+  // Hub cap
+  const hubCap = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 8), consoleMat);
+  hubCap.rotation.x = Math.PI / 2;
+  helmGroup.add(hubCap);
+
+  // ── Seats ─────────────────────────────────────────────────────────────────
+  // Pilot + co-pilot seats
+  ([-0.52, 0.52] as const).forEach((sx) => {
+    // Seat cushion
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.52), seatMat);
+    seat.position.set(sx, 1.12, -0.28);
+    pivot.add(seat);
+
+    // Seat back
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.44, 0.12), seatMat);
+    back.position.set(sx, 1.38, -0.56);
+    pivot.add(back);
+
+    // Seat bolster (base)
+    const bolster = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.2, 0.5), consoleMat);
+    bolster.position.set(sx, 0.98, -0.28);
+    pivot.add(bolster);
+  });
+
+  // Rear passenger bench seat
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 0.65), seatMat);
+  bench.position.set(0, 1.1, -1.8);
+  pivot.add(bench);
+
+  const benchBack = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.44, 0.12), seatMat);
+  benchBack.position.set(0, 1.38, -2.14);
+  pivot.add(benchBack);
+
+  // ── Outboard Motor ────────────────────────────────────────────────────────
+  // engineGroup: entire motor assembly — vibrates when running
+  const engineGroup = new THREE.Group();
+  engineGroup.position.set(0, 0.93, -3.42); // mounted on stern transom
+  pivot.add(engineGroup);
+
+  // Mounting bracket (clamp to transom)
+  const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.55, 0.22), metalMat);
+  bracket.position.set(0, -0.05, 0.08);
+  engineGroup.add(bracket);
+
+  // Engine block / power head
+  const engineBlock = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.62, 10), motorMat);
+  engineBlock.castShadow = true;
+  engineGroup.add(engineBlock);
+
+  // Engine cover (top cowling — gives the distinctive outboard silhouette)
+  const cowling = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.22, 10), motorMat);
+  cowling.position.y = 0.42;
+  engineGroup.add(cowling);
+
+  const cowlingTop = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), motorMat);
+  cowlingTop.position.y = 0.53;
+  engineGroup.add(cowlingTop);
+
+  // Air intake vents (decorative stripes on cowling)
+  for (let i = 0; i < 3; i++) {
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.04, 0.04), metalMat);
+    vent.position.set(0, 0.15 + i * 0.12, 0.27);
+    engineGroup.add(vent);
+  }
+
+  // Drive shaft (connects engine to lower unit)
+  const driveshaft = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 1.1, 6), motorMat);
+  driveshaft.position.y = -0.86;
+  engineGroup.add(driveshaft);
+
+  // Lower unit / gear case
+  const lowerUnit = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.45, 8), motorMat);
+  lowerUnit.position.y = -1.52;
+  engineGroup.add(lowerUnit);
+
+  // Cavitation plate (horizontal anti-cavitation fin)
+  const cavPlate = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.06, 0.22), motorMat);
+  cavPlate.position.y = -1.3;
+  engineGroup.add(cavPlate);
+
+  // ── Propeller ─────────────────────────────────────────────────────────────
+  // propellerGroup rotates around Z axis (forward/backward thrust direction)
+  const propellerGroup = new THREE.Group();
+  propellerGroup.position.set(0, -1.76, -0.2); // just behind lower unit
+  engineGroup.add(propellerGroup);
+
+  // Prop hub (cylinder oriented along Z — the prop shaft axis)
+  const propHub = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.2, 8), propMat);
+  propHub.rotation.x = Math.PI / 2;
+  propellerGroup.add(propHub);
+
+  // 3 blades at 120° intervals — each blade is a thin swept box
+  for (let i = 0; i < 3; i++) {
+    const angle = (i / 3) * Math.PI * 2;
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.3, 0.13),
+      propMat
+    );
+    blade.position.set(Math.sin(angle) * 0.19, Math.cos(angle) * 0.19, 0);
+    blade.rotation.z = angle + 0.3; // slight sweep angle
+    propellerGroup.add(blade);
+  }
+
+  // ── Navigation lights ─────────────────────────────────────────────────────
+  const portLight = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), redLight);
+  portLight.position.set(-1.14, 1.0, 3.3);
+  pivot.add(portLight);
+  const portPL = new THREE.PointLight(0xFF2222, 0.4, 5);
+  portPL.position.copy(portLight.position);
+  pivot.add(portPL);
+
+  const stbdLight = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), greenLight);
+  stbdLight.position.set(1.14, 1.0, 3.3);
+  pivot.add(stbdLight);
+  const stbdPL = new THREE.PointLight(0x22FF44, 0.4, 5);
+  stbdPL.position.copy(stbdLight.position);
+  pivot.add(stbdPL);
+
+  // White stern light
+  const sternPL = new THREE.PointLight(0xFFFFFF, 0.22, 6);
+  sternPL.position.set(0, 1.4, -3.0);
+  pivot.add(sternPL);
+
+  return { group, propellerGroup, engineGroup };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
