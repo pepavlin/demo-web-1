@@ -122,6 +122,7 @@ import { PhysicsWorld } from "@/lib/physicsSystem";
 import {
   buildHarborDockMesh,
   buildSailboatMesh,
+  buildMotorboatMesh,
   findHarborPosition,
   SAILBOAT_MAX_SPEED,
   SAILBOAT_ACCEL,
@@ -130,6 +131,12 @@ import {
   SAILBOAT_BOARD_RADIUS,
   SAILBOAT_CAM_HEIGHT,
   SAILBOAT_CAM_DIST,
+  MOTORBOAT_MAX_SPEED,
+  MOTORBOAT_ACCEL,
+  MOTORBOAT_BRAKE,
+  MOTORBOAT_TURN_SPEED,
+  MOTORBOAT_CAM_HEIGHT,
+  MOTORBOAT_CAM_DIST,
   type HarborShipData,
 } from "@/lib/harborSystem";
 import { WEAPON_CONFIGS, SPIDER_TYPE_CONFIGS, type SpiderType } from "@/lib/gameTypes";
@@ -4653,8 +4660,48 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           yaw: dockAngle,
           sailMesh,
           sailGroup,
+          boatType: "sailboat",
         });
       });
+
+      // ── Motorboat: moored further seaward from the dock end ───────────────
+      {
+        const MOTORBOAT_SEAWARD_OFFSET = 14; // units further out than dock end
+        let mx = dockEndX + Math.cos(dockAngle) * MOTORBOAT_SEAWARD_OFFSET;
+        let mz = dockEndZ + Math.sin(dockAngle) * MOTORBOAT_SEAWARD_OFFSET;
+
+        // Ensure it lands in water; nudge seaward if needed
+        for (let extra = 0; extra < 30; extra += 2) {
+          if (getTerrainHeight(mx, mz) < WATER_LEVEL) break;
+          mx = dockEndX + Math.cos(dockAngle) * (MOTORBOAT_SEAWARD_OFFSET + extra);
+          mz = dockEndZ + Math.sin(dockAngle) * (MOTORBOAT_SEAWARD_OFFSET + extra);
+        }
+
+        const {
+          group: motorboat,
+          propellerGroup,
+          engineGroup,
+        } = buildMotorboatMesh();
+        motorboat.position.set(mx, WATER_LEVEL + 0.3, mz);
+        motorboat.rotation.y = dockAngle;
+        scene.add(motorboat);
+
+        // Use empty placeholders for the sail references (motorboat has none)
+        const emptySailGroup = new THREE.Group();
+        const emptySailMesh  = new THREE.Mesh();
+
+        harborShipsRef.current.push({
+          mesh: motorboat,
+          id: "harbor-motorboat-1",
+          velocity: 0,
+          yaw: dockAngle,
+          sailMesh: emptySailMesh,
+          sailGroup: emptySailGroup,
+          boatType: "motorboat",
+          propellerGroup,
+          engineGroup,
+        });
+      }
     }
 
     // ── MotherShip ────────────────────────────────────────────────────────────
@@ -7320,12 +7367,21 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           if (ship === activeShip) return; // active ship handled separately
 
           // Idle bobbing
-          ship.mesh.position.y = WATER_LEVEL + 0.55 + 0.06 * Math.sin(elapsed * 1.1 + ship.id.length);
+          const waterOffset = ship.boatType === "motorboat" ? 0.3 : 0.55;
+          ship.mesh.position.y = WATER_LEVEL + waterOffset + 0.06 * Math.sin(elapsed * 1.1 + ship.id.length);
           ship.mesh.rotation.x = 0.016 * Math.sin(elapsed * 0.9 + ship.id.length);
           ship.mesh.rotation.z = 0.016 * Math.cos(elapsed * 1.2 + ship.id.length);
 
-          // Gentle sail flutter even when moored
-          ship.sailGroup.rotation.y = 0.04 * Math.sin(elapsed * 0.7 + ship.id.length);
+          if (ship.boatType === "motorboat") {
+            // Slow idle propeller spin and gentle engine vibration
+            if (ship.propellerGroup) ship.propellerGroup.rotation.z += 0.6 * dt;
+            if (ship.engineGroup) {
+              ship.engineGroup.position.y = 0.93 + 0.002 * Math.sin(elapsed * 22 + ship.id.length);
+            }
+          } else {
+            // Gentle sail flutter even when moored
+            ship.sailGroup.rotation.y = 0.04 * Math.sin(elapsed * 0.7 + ship.id.length);
+          }
 
           // Proximity to player
           const dx = ship.mesh.position.x - playerPos.x;
@@ -7345,24 +7401,34 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           const cam = cameraRef.current;
           const keys = keysRef.current;
 
+          // Select physics constants based on vessel type
+          const isMotorboat   = activeShip.boatType === "motorboat";
+          const maxSpeed      = isMotorboat ? MOTORBOAT_MAX_SPEED   : SAILBOAT_MAX_SPEED;
+          const accel         = isMotorboat ? MOTORBOAT_ACCEL       : SAILBOAT_ACCEL;
+          const brake         = isMotorboat ? MOTORBOAT_BRAKE       : SAILBOAT_BRAKE;
+          const turnSpeed     = isMotorboat ? MOTORBOAT_TURN_SPEED  : SAILBOAT_TURN_SPEED;
+          const camHeight     = isMotorboat ? MOTORBOAT_CAM_HEIGHT  : SAILBOAT_CAM_HEIGHT;
+          const camDist       = isMotorboat ? MOTORBOAT_CAM_DIST    : SAILBOAT_CAM_DIST;
+          const waterOffset   = isMotorboat ? 0.3                   : 0.55;
+
           // A/D → turn the ship heading
-          if (keys["KeyA"] || keys["ArrowLeft"])  activeShip.yaw += SAILBOAT_TURN_SPEED * dt;
-          if (keys["KeyD"] || keys["ArrowRight"]) activeShip.yaw -= SAILBOAT_TURN_SPEED * dt;
+          if (keys["KeyA"] || keys["ArrowLeft"])  activeShip.yaw += turnSpeed * dt;
+          if (keys["KeyD"] || keys["ArrowRight"]) activeShip.yaw -= turnSpeed * dt;
 
           // W/S → accelerate / brake
           if (keys["KeyW"] || keys["ArrowUp"]) {
             activeShip.velocity = Math.min(
-              SAILBOAT_MAX_SPEED,
-              activeShip.velocity + SAILBOAT_ACCEL * dt
+              maxSpeed,
+              activeShip.velocity + accel * dt
             );
           } else if (keys["KeyS"] || keys["ArrowDown"]) {
             activeShip.velocity = Math.max(
-              -SAILBOAT_MAX_SPEED * 0.4,
-              activeShip.velocity - SAILBOAT_BRAKE * dt
+              -maxSpeed * 0.4,
+              activeShip.velocity - brake * dt
             );
           } else {
             // Natural drag / deceleration
-            const drag = SAILBOAT_BRAKE * 0.35 * dt;
+            const drag = brake * 0.35 * dt;
             if (activeShip.velocity > 0) activeShip.velocity = Math.max(0, activeShip.velocity - drag);
             else if (activeShip.velocity < 0) activeShip.velocity = Math.min(0, activeShip.velocity + drag);
           }
@@ -7391,20 +7457,31 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
 
           // Bobbing while sailing
           const speed = Math.abs(activeShip.velocity);
-          activeShip.mesh.position.y = WATER_LEVEL + 0.55 + 0.05 * Math.sin(elapsed * 1.5);
+          activeShip.mesh.position.y = WATER_LEVEL + waterOffset + 0.05 * Math.sin(elapsed * 1.5);
           activeShip.mesh.rotation.x = 0.012 * Math.sin(elapsed * 1.0) - speed * 0.003;
-          activeShip.mesh.rotation.z = 0.012 * Math.cos(elapsed * 0.8) + activeShip.velocity * SAILBOAT_TURN_SPEED * 0.015;
+          activeShip.mesh.rotation.z = 0.012 * Math.cos(elapsed * 0.8) + activeShip.velocity * turnSpeed * 0.015;
 
-          // Sail animation — fills with wind when moving, luffs when stopped
-          const fillAngle = speed > 0.5 ? 0.18 * (speed / SAILBOAT_MAX_SPEED) : 0.04 * Math.sin(elapsed * 1.1);
-          activeShip.sailGroup.rotation.y = fillAngle;
+          if (isMotorboat) {
+            // Propeller spins fast proportional to speed; idle spin when stopped
+            const propRPM = speed > 0.5 ? 3 + (speed / maxSpeed) * 22 : 1.2;
+            if (activeShip.propellerGroup) activeShip.propellerGroup.rotation.z += propRPM * dt;
+            // Engine vibration intensifies with throttle
+            if (activeShip.engineGroup) {
+              const vibAmp = 0.001 + (speed / maxSpeed) * 0.006;
+              activeShip.engineGroup.position.y = 0.93 + vibAmp * Math.sin(elapsed * 30);
+            }
+          } else {
+            // Sail animation — fills with wind when moving, luffs when stopped
+            const fillAngle = speed > 0.5 ? 0.18 * (speed / SAILBOAT_MAX_SPEED) : 0.04 * Math.sin(elapsed * 1.1);
+            activeShip.sailGroup.rotation.y = fillAngle;
+          }
 
           // Camera: follow behind stern at a fixed offset based on ship yaw
-          const behindX = Math.sin(activeShip.yaw) * -SAILBOAT_CAM_DIST;
-          const behindZ = Math.cos(activeShip.yaw) * -SAILBOAT_CAM_DIST;
+          const behindX = Math.sin(activeShip.yaw) * -camDist;
+          const behindZ = Math.cos(activeShip.yaw) * -camDist;
           cam.position.set(
             activeShip.mesh.position.x + behindX,
-            activeShip.mesh.position.y + SAILBOAT_CAM_HEIGHT,
+            activeShip.mesh.position.y + camHeight,
             activeShip.mesh.position.z + behindZ
           );
           // Camera looks toward the bow
