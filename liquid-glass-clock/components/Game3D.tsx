@@ -3066,6 +3066,10 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uTexScale:     { value: 1.0 / 8.0 },
         // Texture blend strength (0 = no texture, 1 = full texture)
         uTexStrength:  { value: 0.40 },
+        // Moon directional light (ShaderMaterial ignores Three.js lights so passed as uniforms)
+        uMoonDir:       { value: new THREE.Vector3(-1, 0.5, -0.3).normalize() },
+        uMoonColor:     { value: new THREE.Color(0.55, 0.65, 0.90) },
+        uMoonIntensity: { value: 0.0 },
         // Headlamp spotlight (updated each frame from camera state)
         uHeadlampPos:       { value: new THREE.Vector3() },
         uHeadlampDir:       { value: new THREE.Vector3(0, 0, -1) },
@@ -3095,6 +3099,11 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         uniform vec3  uSunColor;
         uniform float uSunIntensity;
         uniform vec3  uAmbientColor;
+
+        // Moon directional light
+        uniform vec3  uMoonDir;
+        uniform vec3  uMoonColor;
+        uniform float uMoonIntensity;
 
         // Biome textures
         uniform sampler2D uTexGrass;
@@ -3267,6 +3276,14 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
           float diffuse     = max(0.0, (dot(vNormal, sunDirN) + wrapFactor)
                                        / (1.0 + wrapFactor));
           vec3  litColor = col * (hemiAmbient + uSunColor * diffuse * uSunIntensity);
+
+          // ── Moon directional light ────────────────────────────────────────────
+          // Moon is a Three.js DirectionalLight but ShaderMaterial ignores it;
+          // pass it as a uniform so night terrain has realistic directional moonlight.
+          if (uMoonIntensity > 0.001) {
+            float moonDiffuse = max(0.0, dot(vNormal, normalize(uMoonDir)));
+            litColor += col * uMoonColor * moonDiffuse * uMoonIntensity;
+          }
 
           // ── Headlamp spotlight ────────────────────────────────────────────────
           // Custom spotlight calculation since ShaderMaterial bypasses Three.js lights.
@@ -6210,11 +6227,19 @@ export default function Game3D({ playerName = "Hráč" }: { playerName?: string 
         } else {
           tm.uniforms.uSunColor.value.setRGB(0.15, 0.18, 0.30);
         }
-        // Ambient brightens a bit at golden hour — kept higher so ground shows light
-        const ambR = 0.38 + si * 0.10;
-        const ambG = 0.46 + si * 0.08;
-        const ambB = 0.58 + (1.0 - si) * 0.05;
+        // Ambient scales from dark night sky to bright daytime sky.
+        // Night values are low (0.06–0.14) so the headlamp creates visible contrast;
+        // moon + headlamp provide the actual night illumination.
+        const ambR = 0.06 + si * 0.46;
+        const ambG = 0.08 + si * 0.46;
+        const ambB = 0.14 + si * 0.44;
         tm.uniforms.uAmbientColor.value.setRGB(ambR, ambG, ambB);
+
+        // Moon light: passed as uniform since ShaderMaterial ignores Three.js lights.
+        if (moonRef.current) {
+          tm.uniforms.uMoonDir.value.copy(moonRef.current.position).normalize();
+          tm.uniforms.uMoonIntensity.value = moonRef.current.intensity;
+        }
       }
 
       // ── Water wave animation ───────────────────────────────────────────────
